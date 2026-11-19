@@ -234,7 +234,12 @@ func Apply(ctx context.Context, client *http.Client, asset Asset, exePath string
 	old := exePath + ".old"
 	_ = os.Remove(old)
 	if err := os.Rename(exePath, old); err != nil {
-		return "", fmt.Errorf("respaldo del binario actual: %w", err)
+		// El renombrado exige permiso de escritura en el DIRECTORIO del
+		// binario, no en el fichero: si el servicio corre como usuario
+		// no privilegiado, el directorio debe ser suyo (layout /opt/bdr).
+		return "", fmt.Errorf(
+			"respaldo del binario actual: %w — el directorio %s debe ser del usuario del servicio para auto-actualizarse; reinstala con el instalador v0.8.5+ (layout /opt/bdr/bin)",
+			err, dir)
 	}
 	placed := filepath.Join(dir, filepath.Base(exePath))
 	if err := copyFile(newCtl, placed); err != nil {

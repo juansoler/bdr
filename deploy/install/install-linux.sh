@@ -36,8 +36,8 @@ command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
 
 OS=$(uname -s); ARCH=$(uname -m)
 case "$OS" in
-  Linux) PLATFORM_OS=linux; BIN_DIR=/usr/local/bin; SVC_DIR=/etc/systemd/system; ETC=/etc/bdr ;;
-  Darwin) PLATFORM_OS=darwin; BIN_DIR=/usr/local/bin; ETC=/etc/bdr ;;
+  Linux) PLATFORM_OS=linux; BIN_DIR=/opt/bdr/bin; SVC_DIR=/etc/systemd/system; ETC=/etc/bdr ;;
+  Darwin) PLATFORM_OS=darwin; BIN_DIR=/opt/bdr/bin; ETC=/etc/bdr ;;
   *) echo "sistema no soportado: $OS" >&2; exit 1 ;;
 esac
 case "$ARCH" in
@@ -71,6 +71,7 @@ curl -fsSL "$DL/SHA256SUMS" -o "$TMP/SHA256SUMS"
 
 echo "== extrayendo…"
 tar xzf "$TMP/$BUNDLE" -C "$TMP"
+mkdir -p "$BIN_DIR"
 install -m 0755 "$TMP/bdr-control" "$BIN_DIR/bdr-control"
 if [[ -f "$TMP/kopia" ]]; then
   install -m 0755 "$TMP/kopia" "$BIN_DIR/kopia"
@@ -86,6 +87,10 @@ if [[ $PLATFORM_OS = linux ]]; then
   getent passwd bdr >/dev/null || useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin bdr
   mkdir -p "$DATA_DIR/control"
   chown -R bdr:bdr "$DATA_DIR"
+  # El binario debe ser del usuario del servicio: la auto-actualización
+  # renombra ficheros dentro de su directorio (no basta con permisos del
+  # fichero). Los agentes quedan root-owned: el servicio solo los lee.
+  chown -R bdr:bdr /opt/bdr/bin
 else
   DATA_DIR=${DATA_DIR:-/Library/Application Support/BDR}
   mkdir -p "$DATA_DIR/control"
@@ -105,7 +110,7 @@ fi
 
 # Binarios de agentes para los instaladores del panel: se descargan de la
 # release (el bundle del servidor no los lleva) y se verifican con SHA256SUMS.
-mkdir -p /usr/local/lib/bdr/agents
+mkdir -p /opt/bdr/agents
 curl -fsSL "$LATEST_URL/SHA256SUMS" -o "$TMP/SHA256SUMS"
 for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
   # if/fi y no $( && ): con set -e, una asignación cuyo comando de
@@ -113,9 +118,9 @@ for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
   name="bdr-agent-$a"
   if [[ $a = windows-* ]]; then name="$name.exe"; fi
   if grep -q "  $name\$" "$TMP/SHA256SUMS" 2>/dev/null || grep -qw "$name" "$TMP/SHA256SUMS"; then
-    curl -fsSL "$LATEST_URL/$name" -o "/usr/local/lib/bdr/agents/$name"
-    (cd /usr/local/lib/bdr/agents && grep -w "$name" "$TMP/SHA256SUMS" | shasum -a 256 -c - >/dev/null) \
-      || { echo "el agente $name no coincide con SHA256SUMS — NO continuar" >&2; rm -f "/usr/local/lib/bdr/agents/$name"; exit 1; }
+    curl -fsSL "$LATEST_URL/$name" -o "/opt/bdr/agents/$name"
+    (cd /opt/bdr/agents && grep -w "$name" "$TMP/SHA256SUMS" | shasum -a 256 -c - >/dev/null) \
+      || { echo "el agente $name no coincide con SHA256SUMS — NO continuar" >&2; rm -f "/opt/bdr/agents/$name"; exit 1; }
   fi
 done
 
@@ -142,7 +147,7 @@ start_service() {
     <string>--agent-url</string><string>https://$PUBLIC_HOST:$AGENT_PORT</string>
     <string>--agent-tls-names</string><string>$PUBLIC_HOST,localhost</string>
     <string>--data-dir</string><string>$DATA_DIR/control</string>
-    <string>--downloads-dir</string><string>/usr/local/lib/bdr/agents</string>
+    <string>--downloads-dir</string><string>/opt/bdr/agents</string>
   </array>
   <key>EnvironmentVariables</key><dict>
 $(sed -n 's/^\([^#][^=]*\)=\(.*\)$/    <key>\1<\/key><string>\2<\/string>/p' "$ETC/bdr.env")
@@ -173,7 +178,7 @@ After=network-online.target
 Type=simple
 User=bdr
 EnvironmentFile=/etc/bdr/bdr.env
-ExecStart=/usr/local/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --data-dir /var/lib/bdr/control --downloads-dir /usr/local/lib/bdr/agents
+ExecStart=/opt/bdr/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --data-dir /var/lib/bdr/control --downloads-dir /opt/bdr/agents
 Restart=always
 [Install]
 WantedBy=multi-user.target

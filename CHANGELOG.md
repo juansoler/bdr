@@ -2,6 +2,19 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.8.5] — 2026-11-19
+
+### Cambiado
+
+- Layout nativo unificado con Docker: binarios en /opt/bdr/bin y agentes en
+  /opt/bdr/agents, propiedad del usuario del servicio — la auto-actualización
+  del servidor funciona sin ajustes manuales de permisos.
+
+### Corregido
+
+- selfupdate: error accionable cuando el directorio del binario no es
+  escribible por el usuario del servicio.
+
 ## [0.8.4] — 2026-11-19
 
 ### Corregido
