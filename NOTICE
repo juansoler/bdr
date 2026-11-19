@@ -21,6 +21,13 @@ Panel web (Next.js / React)
   El panel se compila a ficheros estáticos y se sirve embebido en el
   binario del servidor; se incluyen sus avisos en THIRD_PARTY_NOTICES.md.
 
+Fuentes autoalojadas del panel
+  Barlow Condensed — Copyright 2018 The Barlow Project Authors
+  IBM Plex Sans / IBM Plex Mono — Copyright 2018 IBM Corp.
+  Licencia: SIL Open Font License 1.1 (ver apps/web/fonts/OFL-*.txt).
+  Se redistribuyen como ficheros woff2 embebidos en el binario; la licencia
+  acompaña a los ficheros y debe conservarse en cualquier redistribución.
+
 Este producto usa mediante API (no redistribuye código de):
   - Proxmox Backup Server (AGPL-3.0): orquestación por API REST.
   - Proxmox VE (AGPL-3.0): orquestación por API REST.
