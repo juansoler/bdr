@@ -168,6 +168,7 @@ start_service() {
     <string>--agent-tls-names</string><string>$PUBLIC_HOST,localhost</string>
     <string>--data-dir</string><string>$DATA_DIR/control</string>
     <string>--downloads-dir</string><string>/opt/bdr/agents</string>
+    <string>--kopia-binary</string><string>/opt/bdr/bin/kopia</string>
   </array>
   <key>EnvironmentVariables</key><dict>
 $(sed -n 's/^\([^#][^=]*\)=\(.*\)$/    <key>\1<\/key><string>\2<\/string>/p' "$ETC/bdr.env")
