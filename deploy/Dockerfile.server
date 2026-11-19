@@ -37,8 +37,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN rm -rf apps/server/internal/webui/out && mkdir -p apps/server/internal/webui/out \
-    && cp -R /app/out/. apps/server/internal/webui/out/
+# El panel se trae desde la fase "panel" con COPY --from: cada fase tiene su
+# propio sistema de ficheros, un `cp` de RUN no puede ver /app/out.
+COPY --from=panel /app/out/ ./apps/server/internal/webui/out/
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" \
     -o /out/bdr-control ./apps/server/cmd/bdr-control
 
@@ -50,9 +51,9 @@ COPY --from=build /out/bdr-control /usr/local/bin/bdr-control
 COPY --from=kopia-bin /usr/bin/kopia /usr/local/bin/kopia
 COPY --from=agents /agents/ /opt/bdr/agents/
 USER bdr
+# La contraseña de Kopia se pasa en runtime (-e BDR_KOPIA_PASSWORD), nunca en build.
 ENV BDR_KOPIA_KIND=filesystem \
-    BDR_KOPIA_REPO_PATH=/data/repo \
-    BDR_KOPIA_PASSWORD=${BDR_KOPIA_PASSWORD:-}
+    BDR_KOPIA_REPO_PATH=/data/repo
 VOLUME ["/data"]
 EXPOSE 8080
 ENTRYPOINT ["bdr-control", "--addr", "0.0.0.0:8080", "--data-dir", "/data", "--downloads-dir", "/opt/bdr/agents"]
