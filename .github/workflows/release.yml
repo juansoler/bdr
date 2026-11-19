@@ -80,6 +80,7 @@ jobs:
           files: |
             dist/bdr-control-*
             dist/bdr-agent-*
+            dist/install-*
             dist/SHA256SUMS
             dist/latest.json
             dist/latest.json.sig

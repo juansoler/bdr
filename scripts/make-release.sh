@@ -138,6 +138,14 @@ for f in "$OUT"/bdr-agent-*; do
 done
 sort -o "$OUT/SHA256SUMS" "$OUT/SHA256SUMS"
 
+# Instaladores: se publican como assets de la release (los consume el
+# README: curl …/install-linux.sh). Se verifica su suma también.
+for f in deploy/install/install-linux.sh deploy/install/install-macos.sh deploy/install/install-windows.ps1; do
+  [[ -f "$f" ]] || { echo "falta $f" >&2; exit 1; }
+  cp "$f" "$OUT/"
+done
+( cd "$OUT" && shasum -a 256 install-linux.sh install-macos.sh install-windows.ps1 >> SHA256SUMS )
+
 echo "== firma del manifiesto…"
 go run ./tools/update-sign sign -key "$KEY" -in "$OUT/latest.json"
 

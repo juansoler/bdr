@@ -96,9 +96,18 @@ EOF
   chmod 0600 "$ETC/bdr.env"
 fi
 
-# Descargas de agentes para los instaladores del panel.
+# Binarios de agentes para los instaladores del panel: se descargan de la
+# release (el bundle del servidor no los lleva) y se verifican con SHA256SUMS.
 mkdir -p /usr/local/lib/bdr/agents
-cp -f "$TMP"/bdr-agent-* /usr/local/lib/bdr/agents/ 2>/dev/null || true
+curl -fsSL "$LATEST_URL/SHA256SUMS" -o "$TMP/SHA256SUMS"
+for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
+  name="bdr-agent-$a$( [[ $a = windows-* ]] && echo .exe )"
+  if grep -q "  $name\$" "$TMP/SHA256SUMS" 2>/dev/null || grep -qw "$name" "$TMP/SHA256SUMS"; then
+    curl -fsSL "$LATEST_URL/$name" -o "/usr/local/lib/bdr/agents/$name"
+    (cd /usr/local/lib/bdr/agents && grep -w "$name" "$TMP/SHA256SUMS" | shasum -a 256 -c - >/dev/null) \
+      || { echo "el agente $name no coincide con SHA256SUMS — NO continuar" >&2; rm -f "/usr/local/lib/bdr/agents/$name"; exit 1; }
+  fi
+done
 
 PUBLIC_HOST="${BDR_PUBLIC_HOST:-$(hostname -s || hostname)}"
 PORT="${BDR_PORT:-8080}"; AGENT_PORT="${BDR_AGENT_PORT:-8443}"
