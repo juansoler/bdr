@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bdr.local/schemas/manifest-v1.schema.json",
+  "title": "BDR Image Manifest v1",
+  "description": "Manifiesto inmutable de una imagen completa de máquina. Versión 1. Un restaurador debe rechazar versiones desconocidas.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "run_id",
+    "agent_id",
+    "host",
+    "kind",
+    "image_mode",
+    "consistency",
+    "captured_at",
+    "repository",
+    "security",
+    "disks",
+    "streams",
+    "unallocated_bytes_captured",
+    "restore_hints",
+    "tooling"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "manifest_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "run_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "agent_id": {
+      "$ref": "#/$defs/uuid"
+    },
+    "host": {
+      "$ref": "#/$defs/host"
+    },
+    "kind": {
+      "const": "image"
+    },
+    "image_mode": {
+      "enum": [
+        "vss_volumes",
+        "raw_disk",
+        "lvm_volumes",
+        "btrfs_volumes",
+        "zfs_volumes",
+        "crash_direct"
+      ]
+    },
+    "consistency": {
+      "enum": [
+        "application",
+        "crash"
+      ]
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "repository": {
+      "$ref": "#/$defs/repository"
+    },
+    "security": {
+      "$ref": "#/$defs/security"
+    },
+    "disks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/disk"
+      }
+    },
+    "streams": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/stream"
+      }
+    },
+    "unallocated_bytes_captured": {
+      "type": "boolean"
+    },
+    "restore_hints": {
+      "$ref": "#/$defs/restoreHints"
+    },
+    "tooling": {
+      "$ref": "#/$defs/tooling"
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hostname", "os_family", "os_version", "arch"],
+      "properties": {
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "os_family": {
+          "enum": ["windows", "linux"]
+        },
+        "os_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arch": {
+          "enum": ["amd64", "arm64"]
+        }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "server_url", "kopia_username"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "server_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "kopia_username": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boot_mode", "secure_boot", "tpm", "bitlocker"],
+      "properties": {
+        "boot_mode": {
+          "enum": ["uefi", "bios"]
+        },
+        "secure_boot": {
+          "type": "boolean"
+        },
+        "tpm": {
+          "type": ["string", "null"],
+          "enum": ["1.2", "2.0", "none", null]
+        },
+        "bitlocker": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["volume", "state", "recovery_key_custodied"],
+            "properties": {
+              "volume": {
+                "type": "string",
+                "minLength": 1
+              },
+              "state": {
+                "enum": ["on", "off", "unknown", "locked"]
+              },
+              "recovery_key_custodied": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "luks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["device", "state"],
+            "properties": {
+              "device": {
+                "type": "string",
+                "minLength": 1
+              },
+              "state": {
+                "enum": ["on", "off", "unknown"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "disk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "table",
+        "sector_size",
+        "total_bytes",
+        "partitions"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "table": {
+          "enum": ["gpt", "mbr", "none"]
+        },
+        "disk_guid": {
+          "type": ["string", "null"]
+        },
+        "sector_size": {
+          "type": "integer",
+          "enum": [512, 4096]
+        },
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "partitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/partition"
+          }
+        }
+      }
+    },
+    "partition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "offset", "size", "role"],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type_guid": {
+          "type": ["string", "null"]
+        },
+        "role": {
+          "enum": ["efi", "msr", "recovery", "data", "other"]
+        },
+        "fs": {
+          "type": ["string", "null"]
+        },
+        "label": {
+          "type": ["string", "null"]
+        },
+        "volume_guid": {
+          "type": ["string", "null"]
+        },
+        "mountpoint": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disk",
+        "segment",
+        "name",
+        "offset",
+        "bytes",
+        "sha256",
+        "kopia_snapshot_id",
+        "state"
+      ],
+      "properties": {
+        "disk": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "segment": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^disk[0-9]+\\.seg[0-9]+$"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "kopia_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": ["complete"]
+        }
+      }
+    },
+    "restoreHints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "system_disk",
+        "boot_partition_index",
+        "expected_firmware",
+        "needs_virtio"
+      ],
+      "properties": {
+        "system_disk": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boot_partition_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expected_firmware": {
+          "enum": ["ovmf", "seabios"]
+        },
+        "needs_virtio": {
+          "type": "boolean"
+        },
+        "windows_first_boot_bus": {
+          "enum": ["sata", "scsi"]
+        },
+        "windows_first_boot_nic": {
+          "enum": ["e1000", "virtio"]
+        }
+      }
+    },
+    "tooling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_version", "kopia_version", "manifest_sha256"],
+      "properties": {
+        "agent_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kopia_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

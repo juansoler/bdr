@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1
+# Imagen única de bdr-control: API + panel embebido + kopia.
+# El binario es el mismo que el instalado de forma nativa; el panel se
+# compila a estático y se embebe en el binario.
+
+# 1) Panel: export estático con Node.
+FROM node:22-alpine AS panel
+WORKDIR /app
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY apps/web/ ./
+RUN npm run build
+
+# 2) Binario de Kopia desde la imagen oficial (fijada por versión; el binario
+# es estático y funciona en la base alpine del runtime).
+FROM kopia/kopia:0.23.1 AS kopia-bin
+
+# 3) Agentes: se compilan en la imagen para que los instaladores del panel
+# (curl | bash, irm | iex) siempre tengan binario que servir.
+FROM golang:1.26-alpine AS agents
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY packages ./packages
+COPY apps/agent ./apps/agent
+ENV CGO_ENABLED=0 GOFLAGS=-trimpath
+RUN mkdir -p /agents \
+    && for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
+         os=${t%/*}; arch=${t#*/}; \
+         go build -ldflags "-s -w" -o /agents/bdr-agent-$os-$arch ./apps/agent/cmd/bdr-agent || exit 1; \
+       done \
+    && go build -ldflags "-s -w" -o /agents/bdr-agent-windows-amd64.exe ./apps/agent/cmd/bdr-agent
+
+# 4) Servidor: compila bdr-control con el panel embebido.
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN rm -rf apps/server/internal/webui/out && mkdir -p apps/server/internal/webui/out \
+    && cp -R /app/out/. apps/server/internal/webui/out/
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w" \
+    -o /out/bdr-control ./apps/server/cmd/bdr-control
+
+FROM alpine:3.20
+RUN apk add --no-cache curl \
+    && adduser -D -u 10001 bdr \
+    && mkdir -p /data /opt/bdr/agents && chown bdr /data
+COPY --from=build /out/bdr-control /usr/local/bin/bdr-control
+COPY --from=kopia-bin /usr/bin/kopia /usr/local/bin/kopia
+COPY --from=agents /agents/ /opt/bdr/agents/
+USER bdr
+ENV BDR_KOPIA_KIND=filesystem \
+    BDR_KOPIA_REPO_PATH=/data/repo \
+    BDR_KOPIA_PASSWORD=${BDR_KOPIA_PASSWORD:-}
+VOLUME ["/data"]
+EXPOSE 8080
+ENTRYPOINT ["bdr-control", "--addr", "0.0.0.0:8080", "--data-dir", "/data", "--downloads-dir", "/opt/bdr/agents"]

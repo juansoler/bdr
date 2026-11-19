@@ -1,0 +1,22 @@
+{
+  "meta": { "SchemaVersion": 2, "CreatedAt": "2026-01-01T00:00:00Z", "ConfigVersion": 1 },
+  "settings": { "EnvironmentName": "Import", "AgentOfflineMinutes": 15, "AlertMinSeverity": "medium", "AlertRenotifyHours": 6, "SMTPPort": 587, "SMTPStartTLS": true, "SessionHours": 12 },
+  "tokens": {},
+  "agents": {
+    "a-import": { "ID": "a-import", "Hostname": "importado", "OSFamily": "linux", "Arch": "amd64", "Status": "online", "EnrolledAt": "2026-01-01T00:00:00Z", "APIKeyHash": "hash-import" }
+  },
+  "plans": {},
+  "assignments": {},
+  "groups": {},
+  "jobs": {},
+  "job_events": {},
+  "restore_points": {},
+  "alerts": {},
+  "users": {},
+  "sessions": {},
+  "api_tokens": {},
+  "idempotency": {},
+  "inventory_history": {},
+  "repository_credentials": {},
+  "schedule": {}
+}

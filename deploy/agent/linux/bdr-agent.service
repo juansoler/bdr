@@ -1,0 +1,37 @@
+[Unit]
+Description=Agente de copia de seguridad BDR Self-Hosted
+Documentation=file:///usr/share/doc/bdr-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bdr-agent
+Group=bdr-agent
+ExecStart=/usr/bin/bdr-agent run --data-dir /var/lib/bdr-agent
+Restart=on-failure
+RestartSec=5s
+
+# Endurecimiento razonable: el agente necesita leer el sistema de ficheros
+# completo para los backups, pero no debe poder tocar su propia configuración
+# más allá de su directorio de datos.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadOnlyPaths=/
+ReadWritePaths=/var/lib/bdr-agent
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

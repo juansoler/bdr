@@ -1,0 +1,19 @@
+# Dominio único: panel + API + descargas de agentes desde el mismo host.
+# Con dominio público real: elimina «tls internal» y Caddy emitirá certificado
+# vía ACME/Let's Encrypt.
+{$BDR_DOMAIN} {
+	tls internal
+	encode zstd gzip
+	reverse_proxy control:8080
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+	}
+
+	# La ruta /api/v1/download/* lleva el token de enrolamiento en la URL.
+	# El control ya redacta esa ruta en sus propios logs; los de Caddy
+	# (stderr) no la separan, así que activa log rotation en producción.
+}

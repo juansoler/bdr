@@ -1,0 +1,121 @@
+services:
+  control:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    environment:
+      BDR_ADMIN_TOKEN: ${BDR_ADMIN_TOKEN:?define BDR_ADMIN_TOKEN}
+      # Clave de cifrado de secretos (AES-256-GCM, base64, 32 bytes).
+      # Genera una con: openssl rand -base64 32
+      # Si no se define, se genera <data>/secret.key en el primer arranque.
+      BDR_SECRET_KEY: ${BDR_SECRET_KEY:-}
+      # Repositorio Kopia directo del plano de control (navegación y verificación).
+      # Ejecuta una vez: docker compose run --rm kopia-init
+      BDR_KOPIA_KIND: ${BDR_KOPIA_KIND:-filesystem}
+      BDR_KOPIA_REPO_PATH: ${BDR_KOPIA_REPO_PATH:-/data/repo}
+      BDR_KOPIA_PASSWORD: ${BDR_KOPIA_PASSWORD:?define BDR_KOPIA_PASSWORD}
+      # Kopia Repository Server (perfil server): URL y huella del certificado.
+      # Generación del certificado y huella en deploy/README.md.
+      BDR_KOPIA_SERVER_URL: ${BDR_KOPIA_SERVER_URL:-}
+      BDR_KOPIA_SERVER_FP: ${BDR_KOPIA_SERVER_FP:-}
+      # Primer usuario administrador del panel (opcional).
+      BDR_ADMIN_EMAIL: ${BDR_ADMIN_EMAIL:-}
+      BDR_ADMIN_PASSWORD: ${BDR_ADMIN_PASSWORD:-}
+    # Por defecto el estado vive en /data/state.json (fichero). Para PostgreSQL:
+    # 1) levanta el perfil postgres (service db), 2) descomenta command:
+    # command: ["--store","postgres","--db-url","postgres://bdr:bdr@db:5432/bdr?sslmode=disable",
+    #           "--addr","0.0.0.0:8080","--data-dir","/data"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - bdr-control-data:/data
+    restart: unless-stopped
+
+  # Estado del plano de control en PostgreSQL (perfil postgres).
+  # Las migraciones (control_state, audit_events) se aplican al arrancar bdr-control.
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bdr
+      POSTGRES_PASSWORD: bdr
+      POSTGRES_DB: bdr
+    volumes:
+      - bdr-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bdr -d bdr"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    profiles: ["postgres"]
+
+  # Crea el repositorio Kopia del plano de control (una sola vez).
+  kopia-init:
+    image: kopia/kopia:latest
+    entrypoint: >
+      sh -c 'mkdir -p /data/repo &&
+      kopia --config-file=/data/kopia.config repository create filesystem
+      --path=/data/repo --cache-directory=/data/kcache || true &&
+      chown -R 10001:10001 /data'
+    environment:
+      KOPIA_PASSWORD: ${BDR_KOPIA_PASSWORD}
+    volumes:
+      - bdr-control-data:/data
+    restart: "no"
+    profiles: ["init"]
+
+  # Kopia Repository Server (perfil server): cada agente recibe usuario y
+  # contraseña propios y solo ve sus snapshots. Requiere:
+  #   1) kopia-init ejecutado (crea /data/kopia.config),
+  #   2) cert TLS generado una vez (comandos en deploy/README.md).
+  # bdr-control gestiona los usuarios vía la conexión administrativa al
+  # repositorio: aprovisiona al entregar credenciales y al rotar.
+  kopia-server:
+    image: kopia/kopia:latest
+    # Mismo UID que bdr-control (único escritor-propietario del repositorio)
+    # y cache/logs en el volumen: la imagen fija rutas /app solo válidas para root.
+    user: "10001:10001"
+    environment:
+      KOPIA_PASSWORD: ${BDR_KOPIA_PASSWORD}
+      HOME: /data
+      KOPIA_CACHE_DIRECTORY: /data/krs-cache
+      KOPIA_LOG_DIR: /data/krs-logs
+      KOPIA_CONFIG_PATH: /data/kopia.config
+    command: >
+      server start
+      --config-file=/data/kopia.config
+      --address=0.0.0.0:51515
+      --tls-cert-file=/data/krs.crt
+      --tls-key-file=/data/krs.key
+      --server-control-username=${BDR_KOPIA_CONTROL_USER:-bdr-control}
+      --server-control-password=${BDR_KOPIA_CONTROL_PASSWORD:-}
+      --refresh-interval=15s
+      --cache-directory=/data/krs-cache
+      --log-dir=/data/krs-logs
+      --no-persistent-logs
+    ports:
+      - "51515:51515"
+    volumes:
+      - bdr-control-data:/data
+    restart: unless-stopped
+    profiles: ["server"]
+
+  # Panel tras Caddy con TLS interno (perfil tls): el panel va embebido en
+  # el control, así que el proxy apunta a control:8080.
+  # Uso: docker compose --profile tls up caddy
+  # El certificado es de la CA interna de Caddy (aviso de navegador esperado
+  # en un despliegue de referencia); para un dominio real, sustituye el
+  # `--from` por el dominio público y quita --internal-certs (ACME).
+  caddy:
+    image: caddy:2-alpine
+    command: caddy reverse-proxy --from localhost:443 --to control:8080 --internal-certs
+    ports:
+      - "443:443"
+    depends_on:
+      - control
+    restart: unless-stopped
+    profiles: ["tls"]
+
+volumes:
+  bdr-control-data:
+  bdr-db-data:

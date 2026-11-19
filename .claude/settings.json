@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view *)",
+      "Bash(go vet ./...)",
+      "Bash(bash -n *)",
+      "Bash(gofmt -l *)",
+      "Bash(gofmt -e -l *)"
+    ]
+  }
+}

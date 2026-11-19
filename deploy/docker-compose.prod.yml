@@ -1,0 +1,169 @@
+# Stack de producción de BDR Self-Hosted (nodo único).
+#
+# Incluye: PostgreSQL, plano de control (mTLS de agentes + estado en BD),
+# Kopia Repository Server opcional, panel y Caddy con TLS para el panel y la
+# API, más backup diario de la base de datos.
+#
+# Requisitos previos (ver deploy/PRODUCTION.md):
+#   export BDR_ADMIN_TOKEN=... BDR_KOPIA_PASSWORD=... BDR_SECRET_KEY=...
+#   export BDR_PUBLIC_HOST=bdr.empresa.test        # host que alcanczan los agentes
+#   export BDR_DOMAIN=bdr.empresa.test
+#
+#   docker compose -f deploy/docker-compose.prod.yml run --rm kopia-init  # una vez
+#   docker compose -f deploy/docker-compose.prod.yml up -d
+
+name: bdr
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${BDR_DB_USER:-bdr}
+      POSTGRES_PASSWORD: ${BDR_DB_PASSWORD:?define BDR_DB_PASSWORD}
+      POSTGRES_DB: ${BDR_DB_NAME:-bdr}
+    volumes:
+      - bdr-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${BDR_DB_USER:-bdr} -d ${BDR_DB_NAME:-bdr}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  control:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      BDR_ADMIN_TOKEN: ${BDR_ADMIN_TOKEN:?define BDR_ADMIN_TOKEN}
+      # Clave de cifrado de secretos (AES-256-GCM, base64, 32 bytes):
+      #   openssl rand -base64 32
+      # Cópiala a un lugar seguro: sin ella los secretos cifrados son irrecuperables.
+      BDR_SECRET_KEY: ${BDR_SECRET_KEY:?define BDR_SECRET_KEY}
+      # Primer usuario administrador del panel (recomendado en producción).
+      BDR_ADMIN_EMAIL: ${BDR_ADMIN_EMAIL:-}
+      BDR_ADMIN_PASSWORD: ${BDR_ADMIN_PASSWORD:-}
+      # Repositorio Kopia para las credenciales de los agentes.
+      BDR_KOPIA_KIND: ${BDR_KOPIA_KIND:-server}
+      BDR_KOPIA_REPO_PATH: /data/repo
+      BDR_KOPIA_PASSWORD: ${BDR_KOPIA_PASSWORD:?define BDR_KOPIA_PASSWORD}
+      # En modo server (aislamiento por agente), la URL y huella del KRS.
+      # La URL debe ser alcanzable DESDE LOS AGENTES (se la entregamos a ellos).
+      BDR_KOPIA_SERVER_URL: ${BDR_KOPIA_SERVER_URL:-}
+      BDR_KOPIA_SERVER_FP: ${BDR_KOPIA_SERVER_FP:-}
+      # Credenciales de la API de control del KRS: permiten forzar el
+      # refresco del catálogo de usuarios tras aprovisionar/rotar.
+      BDR_KOPIA_SERVER_CONTROL_USER: ${BDR_KOPIA_CONTROL_USER:-bdr-control}
+      BDR_KOPIA_SERVER_CONTROL_PASSWORD: ${BDR_KOPIA_CONTROL_PASSWORD:-}
+    command: >
+      --store postgres
+      --db-url postgres://${BDR_DB_USER:-bdr}:${BDR_DB_PASSWORD}@db:5432/${BDR_DB_NAME:-bdr}?sslmode=disable
+      --addr 0.0.0.0:8080
+      --data-dir /data
+      --agent-addr 0.0.0.0:8443
+      --agent-url https://${BDR_PUBLIC_HOST}:${BDR_AGENT_PORT:-8443}
+      --agent-tls-names ${BDR_PUBLIC_HOST},localhost
+    volumes:
+      - bdr-control-data:/data
+    ports:
+      - "${BDR_AGENT_PORT:-8443}:8443" # listener mTLS de agentes (única exposición directa)
+    restart: unless-stopped
+
+  # Crea el repositorio Kopia y el kopia.config del plano de control (una vez).
+  # Termina cediendo la propiedad al usuario del control (UID 10001), que
+  # sobre el volumen debe poder escribir (CA, kopia.config, auditoría).
+  kopia-init:
+    image: kopia/kopia:latest
+    entrypoint: >
+      sh -c 'mkdir -p /data/repo &&
+      kopia --config-file=/data/kopia.config repository create filesystem
+      --path=/data/repo --cache-directory=/data/kcache || true &&
+      chown -R 10001:10001 /data'
+    environment:
+      KOPIA_PASSWORD: ${BDR_KOPIA_PASSWORD}
+    volumes:
+      - bdr-control-data:/data
+    restart: "no"
+    profiles: ["init"]
+
+  # Kopia Repository Server (aislamiento por agente). Genera el certificado
+  # una vez (deploy/PRODUCTION.md) y exporta BDR_KOPIA_SERVER_FP.
+  kopia-server:
+    image: kopia/kopia:latest
+    # Mismo UID que bdr-control: un único escritor-propietario del
+    # repositorio evita peleas de permisos en el modo filesystem compartido.
+    user: "10001:10001"
+    environment:
+      KOPIA_PASSWORD: ${BDR_KOPIA_PASSWORD}
+      HOME: /data
+      # La imagen fija KOPIA_CACHE_DIRECTORY=/app/cache (root); como el
+      # servidor corre como UID 10001, la cache va al volumen.
+      KOPIA_CACHE_DIRECTORY: /data/krs-cache
+      KOPIA_LOG_DIR: /data/krs-logs
+      KOPIA_CONFIG_PATH: /data/kopia.config
+    command: >
+      server start
+      --config-file=/data/kopia.config
+      --address=0.0.0.0:51515
+      --tls-cert-file=/data/krs.crt
+      --tls-key-file=/data/krs.key
+      --server-control-username=${BDR_KOPIA_CONTROL_USER:-bdr-control}
+      --server-control-password=${BDR_KOPIA_CONTROL_PASSWORD:-}
+      --refresh-interval=15s
+      --cache-directory=/data/krs-cache
+      --log-dir=/data/krs-logs
+      --no-persistent-logs
+    ports:
+      - "${BDR_KOPIA_PORT:-51515}:51515" # los agentes conectan aquí (pin por huella)
+    volumes:
+      - bdr-control-data:/data
+    restart: unless-stopped
+    profiles: ["server"]
+
+  caddy:
+    image: caddy:2-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      BDR_DOMAIN: ${BDR_DOMAIN:?define BDR_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - control
+    restart: unless-stopped
+
+  # Backup diario de la base con retención de 14 copias (bdr-YYYYMMDD-HHMM.dump).
+  db-backup:
+    image: postgres:16-alpine
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: ${BDR_DB_USER:-bdr}
+      PGPASSWORD: ${BDR_DB_PASSWORD}
+      PGDATABASE: ${BDR_DB_NAME:-bdr}
+    volumes:
+      - bdr-db-backups:/backups
+    command: >
+      sh -c 'while true; do
+        ts=$$(date +%Y%m%d-%H%M);
+        pg_dump -Fc > /backups/bdr-$$ts.dump || echo "pg_dump falló" >&2;
+        ls -1t /backups/*.dump 2>/dev/null | tail -n +15 | xargs -r rm -f;
+        sleep 86400;
+      done'
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  bdr-control-data:
+  bdr-db-data:
+  bdr-db-backups:
+  caddy-data:
+  caddy-config:

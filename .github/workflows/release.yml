@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, firmar y publicar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # crear el release y subir assets
+      packages: write # publicar imágenes en GHCR
+      id-token: write # attestations de procedencia
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Panel — export estático embebido
+        working-directory: apps/web
+        run: npm ci --no-audit --no-fund && npm run build
+      - name: Copiar el panel al directorio embebido
+        run: |
+          rm -rf apps/server/internal/webui/out
+          mkdir -p apps/server/internal/webui/out
+          cp -R apps/web/out/. apps/server/internal/webui/out/
+
+      - name: Compilar servidores y agentes (matriz)
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p bin dist
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            os=${t%/*}; arch=${t#*/}
+            go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
+              -o bin/bdr-control-$os-$arch$( [ "$os" = windows ] && echo .exe ) ./apps/server/cmd/bdr-control
+            go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
+              -o dist/bdr-agent-$os-$arch$( [ "$os" = windows ] && echo .exe ) ./apps/agent/cmd/bdr-agent
+          done
+
+      - name: Clave privada del canal (secreto del entorno)
+        run: echo "${BDR_RELEASE_KEY}" > "$RUNNER_TEMP/release.private.pem"
+        env:
+          BDR_RELEASE_KEY: ${{ secrets.BDR_RELEASE_KEY }}
+
+      - name: Bundles + SHA256SUMS + latest.json firmado
+        run: |
+          BDR_RELEASE_KEY="$RUNNER_TEMP/release.private.pem" ./scripts/make-release.sh \
+            "${GITHUB_REF_NAME#v}" bin/bdr-control-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attestations de procedencia
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            dist/bdr-control-*
+            dist/latest.json
+            dist/latest.json.sig
+            dist/SHA256SUMS
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publicar release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/bdr-control-*
+            dist/bdr-agent-*
+            dist/SHA256SUMS
+            dist/latest.json
+            dist/latest.json.sig
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      - name: Imagen Docker multi-arch → GHCR
+        uses: docker/setup-buildx-action@v3
+      - name: Login en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/juansoler/bdr-control:${{ github.ref_name }}
+            ghcr.io/juansoler/bdr-control:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

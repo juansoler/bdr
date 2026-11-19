@@ -1,0 +1,22 @@
+[Unit]
+Description=BDR Control — plano de control y panel de BDR Self-Hosted
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bdr
+Group=bdr
+EnvironmentFile=/etc/bdr/bdr.env
+ExecStart=/usr/local/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --public-url http://BDR_PUBLIC_HOST:8080 --agent-url https://BDR_PUBLIC_HOST:8443 --agent-tls-names BDR_PUBLIC_HOST,localhost --data-dir /var/lib/bdr/control --downloads-dir /usr/local/lib/bdr/agents
+Restart=always
+RestartSec=10
+# Directorio de datos: solo el servicio.
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/bdr
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

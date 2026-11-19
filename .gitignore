@@ -1,0 +1,43 @@
+# Evidencias de laboratorio: pueden contener nombres de host, discos y capturas.
+labs/evidence/
+
+# Binarios compilados de los probes.
+labs/**/*.exe
+labs/**/vssprobe
+labs/**/vssprobe-mxk
+
+# Secretos y configuración local.
+.env
+*.key
+*.crt
+*.pem
+kopia.config
+*.config
+
+# Binarios y datos de desarrollo.
+bin/
+data/
+tmp/
+*.ppm
+
+# Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Panel embebido: solo el placeholder index.html está en Git; el export real
+# del panel se genera con `make web-build`.
+apps/server/internal/webui/out/*
+!apps/server/internal/webui/out/index.html
+apps/web/.next/
+
+
+# Logs y temporales.
+*.log
+*.tmp
+
+# Paquetes compilados.
+dist/
+.DS_Store
+*.exe

@@ -1,0 +1,26 @@
+BDR Self-Hosted
+Copyright 2026 BDR Self-Hosted contributors
+
+Este producto incluye software desarrollado por BDR Self-Hosted contributors,
+distribuido bajo la Licencia Apache 2.0 (ver LICENSE).
+
+Componentes redistribuidos
+==========================
+
+Kopia (https://kopia.io)
+  Copyright 2015-2026 Kopia Authors
+  Licencia: Apache License 2.0
+  Se distribuye como binario auxiliar junto al plano de control. Deben
+  conservarse sus avisos de copyright y licencia: ver
+  THIRD_PARTY_NOTICES.md y el directorio de licencias incluido en cada
+  paquete de instalación.
+
+Panel web (Next.js / React)
+  Copyright Meta Platforms, Inc. y Vercel, Inc.
+  Licencia: MIT
+  El panel se compila a ficheros estáticos y se sirve embebido en el
+  binario del servidor; se incluyen sus avisos en THIRD_PARTY_NOTICES.md.
+
+Este producto usa mediante API (no redistribuye código de):
+  - Proxmox Backup Server (AGPL-3.0): orquestación por API REST.
+  - Proxmox VE (AGPL-3.0): orquestación por API REST.

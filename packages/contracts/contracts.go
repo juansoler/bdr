@@ -1,0 +1,775 @@
+// Package contracts define los tipos JSON compartidos por servidor, agente y panel.
+//
+// Reglas de compatibilidad (docs/06-api.md §9): los cambios en /api/v1 son
+// aditivos; los campos nuevos son opcionales y los clientes ignoran los
+// desconocidos.
+package contracts
+
+import (
+	"encoding/json"
+	"time"
+)
+
+// Estados de un agente vistos por la API.
+const (
+	AgentPending = "pending"
+	AgentOnline  = "online"
+	AgentOffline = "offline"
+	AgentRevoked = "revoked"
+)
+
+// Estados de heartbeat del agente.
+const (
+	StateIdle         = "IDLE"
+	StateRunning      = "RUNNING_BACKUP"
+	StateRestoring    = "RESTORING"
+	StateError        = "ERROR"
+	StateOfflineReady = "OFFLINE"
+)
+
+// Tipos de job.
+const (
+	JobTypeBackupFile  = "BACKUP_FILE"
+	JobTypeRestoreFile = "RESTORE_FILE"
+	JobTypeBackupImage = "BACKUP_IMAGE"
+	JobTypeBackupVM    = "BACKUP_VM"
+	JobTypeRestoreVM   = "RESTORE_VM"
+	JobTypeBackupLXC   = "BACKUP_LXC"
+	JobTypeRestoreLXC  = "RESTORE_LXC"
+)
+
+// Estados de job (docs/06-api.md §5).
+const (
+	JobPending   = "pending"
+	JobLeased    = "leased"
+	JobRunning   = "running"
+	JobSucceeded = "succeeded"
+	JobFailed    = "failed"
+	JobCanceled  = "canceled"
+	JobExpired   = "expired"
+)
+
+// JobStateFinal indica si un estado es terminal.
+func JobStateFinal(state string) bool {
+	switch state {
+	case JobSucceeded, JobFailed, JobCanceled, JobExpired:
+		return true
+	}
+	return false
+}
+
+// --- Enrolamiento y agente ---
+
+// EnrollRequest es el cuerpo de POST /api/v1/agent/enroll.
+type EnrollRequest struct {
+	Token        string `json:"token"`
+	Hostname     string `json:"hostname"`
+	OSFamily     string `json:"os_family"`
+	OSVersion    string `json:"os_version"`
+	Arch         string `json:"arch"`
+	AgentVersion string `json:"agent_version"`
+	// CSRPEM es opcional: si se envía, el servidor emite un certificado de
+	// cliente para mTLS firmado por la CA interna.
+	CSRPEM string `json:"csr_pem,omitempty"`
+}
+
+// EnrollResponse se devuelve una sola vez; contiene la API key del agente.
+type EnrollResponse struct {
+	AgentID          string `json:"agent_id"`
+	APIKey           string `json:"api_key"`
+	HeartbeatSeconds int    `json:"heartbeat_seconds"`
+	// Campos mTLS: solo presentes si se envió csr_pem y el servidor tiene
+	// el listener de agentes con TLS activo.
+	CertificatePEM    string     `json:"certificate_pem,omitempty"`
+	CertificateExpiry *time.Time `json:"certificate_expires_at,omitempty"`
+	CAPEM             string     `json:"ca_pem,omitempty"`
+	ServerFingerprint string     `json:"server_fingerprint,omitempty"`
+	AgentURL          string     `json:"agent_url,omitempty"`
+}
+
+// RenewCertRequest es el cuerpo de POST /api/v1/agent/renew-cert.
+type RenewCertRequest struct {
+	CSRPEM string `json:"csr_pem"`
+}
+
+// RenewCertResponse devuelve el nuevo certificado.
+type RenewCertResponse struct {
+	CertificatePEM    string    `json:"certificate_pem"`
+	CertificateExpiry time.Time `json:"certificate_expires_at"`
+	CAPEM             string    `json:"ca_pem"`
+}
+
+// HeartbeatRequest es el cuerpo de POST /api/v1/agent/heartbeat.
+type HeartbeatRequest struct {
+	AgentVersion string         `json:"agent_version"`
+	State        string         `json:"state"`
+	CurrentJobID string         `json:"current_job_id,omitempty"`
+	Metrics      map[string]any `json:"metrics,omitempty"`
+}
+
+// HeartbeatResponse indica al agente qué hacer a continuación.
+type HeartbeatResponse struct {
+	ServerTime       time.Time `json:"server_time"`
+	PendingJobs      []string  `json:"pending_jobs"`
+	CancelRequested  []string  `json:"cancel_requested"`
+	ConfigVersion    int       `json:"config_version"`
+	HeartbeatSeconds int       `json:"heartbeat_seconds"`
+	// CertRenewAfter indica cuándo debe renovar el certificado mTLS.
+	CertRenewAfter *time.Time `json:"cert_renew_after,omitempty"`
+	// Upgrade ofrece al agente una versión nueva de sí mismo: los agentes
+	// antiguos ignoran el campo (decodificadores JSON tolerantes) y los
+	// actuales se autoactualizan cuando no tienen un job en curso.
+	Upgrade *AgentUpgrade `json:"upgrade,omitempty"`
+}
+
+// AgentUpgrade describe el binario nuevo que el agente debe descargar.
+type AgentUpgrade struct {
+	Version string `json:"version"`
+	URL     string `json:"url"`
+	SHA256  string `json:"sha256"`
+}
+
+// GroupRef es una referencia corta a un grupo.
+type GroupRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// AgentView es la representación de un agente en la API de administración.
+type AgentView struct {
+	ID              string          `json:"id"`
+	Hostname        string          `json:"hostname"`
+	OSFamily        string          `json:"os_family"`
+	OSVersion       string          `json:"os_version"`
+	Arch            string          `json:"arch"`
+	AgentVersion    string          `json:"agent_version"`
+	Status          string          `json:"status"`
+	ReportedState   string          `json:"reported_state,omitempty"`
+	CurrentJobID    string          `json:"current_job_id,omitempty"`
+	LastSeenAt      *time.Time      `json:"last_seen_at,omitempty"`
+	EnrolledAt      time.Time       `json:"enrolled_at"`
+	RevokedAt       *time.Time      `json:"revoked_at,omitempty"`
+	RevokedReason   string          `json:"revoked_reason,omitempty"`
+	Inventory       json.RawMessage `json:"inventory,omitempty"`
+	Groups          []GroupRef      `json:"groups"`
+	CertExpiresAt   *time.Time      `json:"cert_expires_at,omitempty"`
+	RepoUsername    string          `json:"repository_username,omitempty"`
+	LastBackupAt    *time.Time      `json:"last_backup_at,omitempty"`
+	LastBackupState string          `json:"last_backup_state,omitempty"`
+	NextBackupAt    *time.Time      `json:"next_backup_at,omitempty"`
+}
+
+// AgentList es la respuesta de GET /api/v1/admin/agents.
+type AgentList struct {
+	Items []AgentView `json:"items"`
+}
+
+// AgentDetail es la ficha de GET /api/v1/admin/agents/{id}.
+type AgentDetail struct {
+	Agent          AgentView          `json:"agent"`
+	EffectivePlans []EffectivePlan    `json:"effective_plans"`
+	RecentJobs     []JobView          `json:"recent_jobs"`
+	RestorePoints  []RestorePointView `json:"restore_points"`
+	OpenAlerts     []AlertView        `json:"open_alerts"`
+}
+
+// RevokeRequest es el cuerpo de POST /api/v1/admin/agents/{id}/revoke.
+type RevokeRequest struct {
+	Reason string `json:"reason"`
+}
+
+// InventoryRecord es una entrada del histórico de inventario (por hash).
+type InventoryRecord struct {
+	Hash        string          `json:"hash"`
+	CollectedAt time.Time       `json:"collected_at"`
+	Inventory   json.RawMessage `json:"inventory"`
+}
+
+// InventoryHistory es la respuesta de GET /api/v1/admin/agents/{id}/inventory.
+type InventoryHistory struct {
+	Items []InventoryRecord `json:"items"`
+}
+
+// EnrollmentTokenRequest crea un token de un solo uso.
+type EnrollmentTokenRequest struct {
+	ExpiresInSeconds int    `json:"expires_in_seconds"`
+	ExpectedHostname string `json:"expected_hostname"`
+	// GroupID y PlanID se aplican automáticamente al agente al enrolarse.
+	GroupID string `json:"group_id,omitempty"`
+	PlanID  string `json:"plan_id,omitempty"`
+	Note    string `json:"note,omitempty"`
+}
+
+// EnrollmentTokenResponse devuelve el token en claro una sola vez.
+type EnrollmentTokenResponse struct {
+	ID        string    `json:"id"`
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
+	// Datos para construir el comando de instalación.
+	ServerURL         string `json:"server_url,omitempty"`
+	AgentURL          string `json:"agent_url,omitempty"`
+	ServerFingerprint string `json:"server_fingerprint,omitempty"`
+}
+
+// EnrollmentTokenView es la vista sin secreto.
+type EnrollmentTokenView struct {
+	ID               string     `json:"id"`
+	CreatedAt        time.Time  `json:"created_at"`
+	ExpiresAt        time.Time  `json:"expires_at"`
+	UsedAt           *time.Time `json:"used_at,omitempty"`
+	UsedByAgentID    string     `json:"used_by_agent_id,omitempty"`
+	ExpectedHostname string     `json:"expected_hostname,omitempty"`
+	Expired          bool       `json:"expired"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	GroupID          string     `json:"group_id,omitempty"`
+	PlanID           string     `json:"plan_id,omitempty"`
+	Note             string     `json:"note,omitempty"`
+	CreatedBy        string     `json:"created_by,omitempty"`
+}
+
+// EnrollmentTokenList es la respuesta de GET /api/v1/admin/enrollment-tokens.
+type EnrollmentTokenList struct {
+	Items []EnrollmentTokenView `json:"items"`
+}
+
+// Disk describe un volumen o punto de montaje del inventario.
+type Disk struct {
+	Name       string `json:"name"`
+	Mountpoint string `json:"mountpoint"`
+	FSType     string `json:"fs_type,omitempty"`
+	TotalBytes int64  `json:"total_bytes"`
+	FreeBytes  int64  `json:"free_bytes"`
+}
+
+// BlockDevice describe un disco físico o virtual y sus particiones.
+type BlockDevice struct {
+	Name       string        `json:"name"`
+	Type       string        `json:"type"` // disk, part, lvm, crypt, raid, rom
+	SizeBytes  int64         `json:"size_bytes"`
+	Model      string        `json:"model,omitempty"`
+	Serial     string        `json:"serial,omitempty"`
+	FSType     string        `json:"fs_type,omitempty"`
+	Mountpoint string        `json:"mountpoint,omitempty"`
+	UUID       string        `json:"uuid,omitempty"`
+	PartTable  string        `json:"partition_table,omitempty"` // gpt, dos
+	Removable  bool          `json:"removable,omitempty"`
+	Children   []BlockDevice `json:"children,omitempty"`
+}
+
+// NetInterface describe una interfaz de red.
+type NetInterface struct {
+	Name      string   `json:"name"`
+	MAC       string   `json:"mac,omitempty"`
+	Addresses []string `json:"addresses,omitempty"`
+	Up        bool     `json:"up"`
+}
+
+// Firmware resume el arranque y la seguridad de plataforma.
+type Firmware struct {
+	Mode       string `json:"mode,omitempty"` // uefi, bios
+	SecureBoot *bool  `json:"secure_boot,omitempty"`
+	TPM        *bool  `json:"tpm,omitempty"`
+	TPMVersion string `json:"tpm_version,omitempty"`
+}
+
+// EncryptedVolume describe BitLocker o LUKS.
+type EncryptedVolume struct {
+	Volume     string `json:"volume"`
+	Kind       string `json:"kind"` // bitlocker, luks
+	Protection string `json:"protection,omitempty"`
+	Locked     bool   `json:"locked,omitempty"`
+}
+
+// Inventory es el inventario que envía el agente.
+type Inventory struct {
+	CollectedAt      time.Time         `json:"collected_at"`
+	Hostname         string            `json:"hostname"`
+	OSFamily         string            `json:"os_family"`
+	OSVersion        string            `json:"os_version"`
+	Arch             string            `json:"arch"`
+	CPUCores         int               `json:"cpu_cores"`
+	RAMMB            int64             `json:"ram_mb"`
+	AgentVersion     string            `json:"agent_version"`
+	Disks            []Disk            `json:"disks,omitempty"`
+	BlockDevices     []BlockDevice     `json:"block_devices,omitempty"`
+	Network          []NetInterface    `json:"network,omitempty"`
+	Firmware         *Firmware         `json:"firmware,omitempty"`
+	EncryptedVolumes []EncryptedVolume `json:"encrypted_volumes,omitempty"`
+	Extra            map[string]any    `json:"extra,omitempty"`
+}
+
+// Problem es el formato de error RFC 7807 usado por la API.
+type Problem struct {
+	Type      string `json:"type"`
+	Title     string `json:"title"`
+	Status    int    `json:"status"`
+	Detail    string `json:"detail,omitempty"`
+	Code      string `json:"code,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+}
+
+// Health es la respuesta de /healthz.
+type Health struct {
+	Status  string `json:"status"`
+	Version string `json:"version"`
+}
+
+// --- Planes, asignaciones y jobs ---
+
+// Retention es la política de retención GFS, aplicada como política de Kopia.
+type Retention struct {
+	KeepLatest  int `json:"keep_latest"`
+	KeepHourly  int `json:"keep_hourly"`
+	KeepDaily   int `json:"keep_daily"`
+	KeepWeekly  int `json:"keep_weekly"`
+	KeepMonthly int `json:"keep_monthly"`
+	KeepAnnual  int `json:"keep_annual"`
+}
+
+// Window es una ventana horaria "HH:MM"–"HH:MM" en la zona del plan.
+// Si End < Start la ventana cruza la medianoche.
+type Window struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+// PlanView es un plan de protección.
+type PlanView struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Kind        string   `json:"kind"`
+	Paths       []string `json:"paths"`
+	Excludes    []string `json:"excludes,omitempty"`
+	// Disks (solo planes de imagen): índices de disco a capturar;
+	// vacío = todos los discos fijos.
+	Disks     []int     `json:"disks,omitempty"`
+	Enabled   bool      `json:"enabled"`
+	Schedule  string    `json:"schedule,omitempty"` // cron de 5 campos; vacío = solo manual
+	Timezone  string    `json:"timezone"`
+	Window    *Window   `json:"window,omitempty"`
+	Retention Retention `json:"retention"`
+	RPOHours  int       `json:"rpo_hours,omitempty"`
+	// Destino de almacenamiento del plan (repositorio Kopia S3 dedicado);
+	// vacío = repositorio central.
+	StorageTargetID string    `json:"storage_target_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	// Assignments solo se rellena en GET /admin/backup-plans/{id}.
+	Assignments []AssignmentView `json:"assignments,omitempty"`
+	// NextRuns son las próximas ejecuciones calculadas (máx. 5).
+	NextRuns []time.Time `json:"next_runs,omitempty"`
+}
+
+// PlanRequest crea o reemplaza un plan. En PATCH los campos ausentes no cambian.
+type PlanRequest struct {
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Kind        string   `json:"kind,omitempty"`
+	Paths       []string `json:"paths,omitempty"`
+	Excludes    []string `json:"excludes,omitempty"`
+	// Disks (solo planes de imagen): índices de disco a capturar. En PATCH
+	// ausente/null no cambia; [] limpia la selección (= todos los discos).
+	Disks     []int      `json:"disks"`
+	Enabled   *bool      `json:"enabled,omitempty"`
+	Schedule  *string    `json:"schedule,omitempty"`
+	Timezone  *string    `json:"timezone,omitempty"`
+	Window    *Window    `json:"window,omitempty"`
+	Retention *Retention `json:"retention,omitempty"`
+	RPOHours  *int       `json:"rpo_hours,omitempty"`
+	// StorageTargetID: destino de almacenamiento donde escribe este plan
+	// (repositorio Kopia S3 dedicado); vacío = repositorio central.
+	StorageTargetID *string `json:"storage_target_id,omitempty"`
+}
+
+// PlanValidation es la respuesta de POST /admin/backup-plans/validate.
+type PlanValidation struct {
+	Valid    bool        `json:"valid"`
+	Errors   []string    `json:"errors"`
+	Warnings []string    `json:"warnings"`
+	NextRuns []time.Time `json:"next_runs"`
+}
+
+// PlanList es la respuesta de GET /api/v1/admin/backup-plans.
+type PlanList struct {
+	Items []PlanView `json:"items"`
+}
+
+// Tipos de destino de una asignación.
+const (
+	TargetAgent = "agent"
+	TargetGroup = "group"
+)
+
+// AssignmentRequest asigna un plan a un agente o grupo.
+// Compatibilidad: si solo llega agent_id se interpreta como target_type=agent.
+type AssignmentRequest struct {
+	AgentID    string `json:"agent_id,omitempty"`
+	TargetType string `json:"target_type,omitempty"`
+	TargetID   string `json:"target_id,omitempty"`
+	Enabled    *bool  `json:"enabled,omitempty"`
+}
+
+// AssignmentView es una asignación plan → agente o grupo.
+type AssignmentView struct {
+	ID         string    `json:"id"`
+	PlanID     string    `json:"plan_id"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	TargetName string    `json:"target_name,omitempty"`
+	AgentID    string    `json:"agent_id,omitempty"` // compatibilidad: igual a target_id si target_type=agent
+	Enabled    bool      `json:"enabled"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// AssignmentList es la respuesta de GET /admin/backup-plans/{id}/assignments.
+type AssignmentList struct {
+	Items []AssignmentView `json:"items"`
+}
+
+// EffectivePlan es un plan resuelto para un agente.
+type EffectivePlan struct {
+	Plan         PlanView   `json:"plan"`
+	Via          string     `json:"via"` // agent | group
+	AssignmentID string     `json:"assignment_id"`
+	GroupID      string     `json:"group_id,omitempty"`
+	GroupName    string     `json:"group_name,omitempty"`
+	ShadowedBy   []string   `json:"shadowed,omitempty"` // asignaciones de grupo del mismo plan que quedan anuladas
+	NextRunAt    *time.Time `json:"next_run_at,omitempty"`
+	LastRunAt    *time.Time `json:"last_run_at,omitempty"`
+}
+
+// EffectivePlanList es la respuesta de GET /admin/agents/{id}/effective-plans.
+type EffectivePlanList struct {
+	Items []EffectivePlan `json:"items"`
+}
+
+// BackupRequest lanza un backup bajo demanda.
+type BackupRequest struct {
+	PlanID string `json:"plan_id,omitempty"`
+}
+
+// BackupResponse devuelve el job creado.
+type BackupResponse struct {
+	JobID string `json:"job_id"`
+	State string `json:"state"`
+}
+
+// JobView es un job.
+type JobView struct {
+	ID                string          `json:"id"`
+	Type              string          `json:"type"`
+	State             string          `json:"state"`
+	AgentID           string          `json:"agent_id"`
+	PlanID            string          `json:"plan_id,omitempty"`
+	RestorePointID    string          `json:"restore_point_id,omitempty"`
+	Trigger           string          `json:"trigger,omitempty"` // manual | schedule | retry | api
+	Progress          int             `json:"progress"`
+	Message           string          `json:"message,omitempty"`
+	BytesDone         int64           `json:"bytes_done,omitempty"`
+	BytesTotal        int64           `json:"bytes_total,omitempty"`
+	Payload           json.RawMessage `json:"payload,omitempty"`
+	Result            json.RawMessage `json:"result,omitempty"`
+	ErrorCode         string          `json:"error_code,omitempty"`
+	ErrorMessage      string          `json:"error_message,omitempty"`
+	Attempts          int             `json:"attempts"`
+	MaxAttempts       int             `json:"max_attempts"`
+	RetryOf           string          `json:"retry_of,omitempty"`
+	CreatedBy         string          `json:"created_by,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+	StartedAt         *time.Time      `json:"started_at,omitempty"`
+	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
+	LeaseUntil        *time.Time      `json:"lease_until,omitempty"`
+	CancelRequestedAt *time.Time      `json:"cancel_requested_at,omitempty"`
+}
+
+// JobList es la respuesta de GET /api/v1/admin/jobs.
+type JobList struct {
+	Items      []JobView `json:"items"`
+	NextCursor string    `json:"next_cursor,omitempty"`
+}
+
+// JobEvent es un evento de job (estado, progreso o log).
+type JobEvent struct {
+	Seq     int       `json:"seq"`
+	JobID   string    `json:"job_id"`
+	At      time.Time `json:"at"`
+	Kind    string    `json:"kind"` // state | progress | log
+	State   string    `json:"state,omitempty"`
+	Percent int       `json:"percent,omitempty"`
+	Level   string    `json:"level,omitempty"`
+	Message string    `json:"message,omitempty"`
+}
+
+// JobEventList es la respuesta JSON de GET /admin/jobs/{id}/events.
+type JobEventList struct {
+	Items []JobEvent `json:"items"`
+}
+
+// JobLeaseResponse es la respuesta de POST /api/v1/agent/jobs/lease.
+type JobLeaseResponse struct {
+	Job *JobView `json:"job,omitempty"`
+}
+
+// JobProgressRequest actualiza el progreso.
+type JobProgressRequest struct {
+	Progress   int    `json:"progress"`
+	Message    string `json:"message,omitempty"`
+	BytesDone  int64  `json:"bytes_done,omitempty"`
+	BytesTotal int64  `json:"bytes_total,omitempty"`
+}
+
+// JobProgressResponse informa al agente de una cancelación pendiente.
+type JobProgressResponse struct {
+	CancelRequested bool `json:"cancel_requested"`
+}
+
+// JobCancelStatus es la respuesta de GET /api/v1/agent/jobs/{id}/cancel.
+type JobCancelStatus struct {
+	CancelRequested bool `json:"cancel_requested"`
+}
+
+// JobLogLine es una línea de log enviada por el agente.
+type JobLogLine struct {
+	At      time.Time `json:"at"`
+	Level   string    `json:"level"`
+	Message string    `json:"message"`
+}
+
+// JobLogRequest es el cuerpo de POST /api/v1/agent/jobs/{id}/log.
+type JobLogRequest struct {
+	Lines []JobLogLine `json:"lines"`
+}
+
+// JobCompleteRequest cierra un job. state ∈ succeeded | failed | canceled.
+type JobCompleteRequest struct {
+	State        string          `json:"state"`
+	ErrorCode    string          `json:"error_code,omitempty"`
+	ErrorMessage string          `json:"error_message,omitempty"`
+	Result       json.RawMessage `json:"result,omitempty"`
+}
+
+// BackupJobPayload es el payload de un job BACKUP_FILE.
+type BackupJobPayload struct {
+	PlanID    string     `json:"plan_id"`
+	PlanName  string     `json:"plan_name,omitempty"`
+	Paths     []string   `json:"paths"`
+	Excludes  []string   `json:"excludes,omitempty"`
+	Retention *Retention `json:"retention,omitempty"`
+	// StorageTargetID: si no está vacío, el agente escribe en el repositorio
+	// Kopia S3 de ese destino (creds vía /agent/repository-credentials?target=).
+	StorageTargetID string `json:"storage_target_id,omitempty"`
+}
+
+// ImageJobPayload es el payload de un job BACKUP_IMAGE: captura íntegra de
+// los discos del equipo (tabla de particiones, ESP, sistema y datos) para
+// despliegue bare-metal en otro equipo.
+type ImageJobPayload struct {
+	PlanID   string `json:"plan_id"`
+	PlanName string `json:"plan_name,omitempty"`
+	// Disks filtra índices de disco concretos; vacío = todos los discos fijos.
+	Disks []int `json:"disks,omitempty"`
+	// StorageTargetID: repositorio S3 destino (vacío = repo central).
+	StorageTargetID string `json:"storage_target_id,omitempty"`
+	// RetentionDays aplica Object Lock GOVERNANCE a los segmentos subidos
+	// (0 = sin lock); lo rellena el servidor desde el destino.
+	RetentionDays int `json:"retention_days,omitempty"`
+}
+
+// BackupVMJobPayload es el payload de un job BACKUP_VM: captura de los
+// discos de una VM de Proxmox vía qemu-nbd en el nodo PVE. Lo ejecuta el
+// agente instalado en el propio nodo.
+type BackupVMJobPayload struct {
+	InstanceID string `json:"instance_id"`
+	Node       string `json:"node,omitempty"`
+	VMID       int    `json:"vmid"`
+	Name       string `json:"name,omitempty"`
+	// StorageTargetID: bucket destino de los segmentos y del manifiesto.
+	StorageTargetID string `json:"storage_target_id"`
+	RetentionDays   int    `json:"retention_days,omitempty"`
+}
+
+// RestoreVMJobPayload es el payload de un job RESTORE_VM: repone los discos
+// de una VM desde un manifiesto de imagen almacenado en el bucket del
+// destino. Mode "in_place" reescribe los volúmenes de la VM indicada
+// (deteniéndola y arrancándola); "new" crea una VM nueva con la
+// configuración del manifiesto (cores, RAM, BIOS, red, discos) y escribe los
+// datos en sus discos.
+type RestoreVMJobPayload struct {
+	InstanceID string `json:"instance_id"`
+	Node       string `json:"node,omitempty"`
+	// ManifestKey es el objeto del manifiesto en el bucket del destino.
+	ManifestKey     string `json:"manifest_key"`
+	StorageTargetID string `json:"storage_target_id"`
+	Mode            string `json:"mode"` // in_place | new
+	TargetVMID      int    `json:"target_vmid"`
+	TargetName      string `json:"target_name,omitempty"`
+	TargetStorage   string `json:"target_storage,omitempty"` // p. ej. local-lvm
+	RetentionDays   int    `json:"retention_days,omitempty"`
+}
+
+// BackupLXCJobPayload es el payload de un job BACKUP_LXC: archiva un
+// contenedor LXC con vzdump (snapshot o stop) en el nodo PVE y sube el
+// archivo por segmentos al destino de almacenamiento. Lo ejecuta el agente
+// instalado en el propio nodo.
+type BackupLXCJobPayload struct {
+	InstanceID string `json:"instance_id"`
+	Node       string `json:"node,omitempty"`
+	VMID       int    `json:"vmid"`
+	Name       string `json:"name,omitempty"`
+	// StorageTargetID: destino de los segmentos del archivo y del manifiesto.
+	StorageTargetID string `json:"storage_target_id"`
+	RetentionDays   int    `json:"retention_days,omitempty"`
+}
+
+// RestoreLXCJobPayload es el payload de un job RESTORE_LXC: descarga el
+// archivo vzdump del destino, lo verifica (SHA-256 por segmento) y repone el
+// contenedor con `pct restore`. Mode "in_place" destruye y restaura el CT
+// con la misma VMID; "new" crea un contenedor nuevo.
+type RestoreLXCJobPayload struct {
+	InstanceID string `json:"instance_id"`
+	Node       string `json:"node,omitempty"`
+	// ManifestKey es el objeto del manifiesto en el destino.
+	ManifestKey     string `json:"manifest_key"`
+	StorageTargetID string `json:"storage_target_id"`
+	Mode            string `json:"mode"` // in_place | new
+	TargetVMID      int    `json:"target_vmid"`
+	TargetName      string `json:"target_name,omitempty"`
+	TargetStorage   string `json:"target_storage,omitempty"` // p. ej. local-lvm
+	RetentionDays   int    `json:"retention_days,omitempty"`
+}
+
+// ImageJobResult es el resultado de un job BACKUP_IMAGE.
+type ImageJobResult struct {
+	ManifestID      string            `json:"manifest_id"`
+	ManifestKey     string            `json:"manifest_key,omitempty"`
+	KopiaSnapshotID string            `json:"kopia_snapshot_id,omitempty"`
+	Disks           []ImageDiskResult `json:"disks"`
+	BytesTotal      int64             `json:"bytes_total"`
+	DurationMS      int64             `json:"duration_ms"`
+}
+
+// ImageDiskResult resume la captura de un disco.
+type ImageDiskResult struct {
+	Index      int    `json:"index"`
+	Device     string `json:"device"`
+	Model      string `json:"model,omitempty"`
+	Table      string `json:"table,omitempty"`
+	TotalBytes int64  `json:"total_bytes"`
+	Segments   int    `json:"segments"`
+}
+
+// SnapshotSummary describe un snapshot de Kopia creado por el agente.
+type SnapshotSummary struct {
+	Path          string    `json:"path"`
+	ID            string    `json:"id"`
+	RootObjectID  string    `json:"root_object_id,omitempty"`
+	SourceHost    string    `json:"source_host,omitempty"`
+	SourceUser    string    `json:"source_user,omitempty"`
+	StartTime     time.Time `json:"start_time,omitempty"`
+	EndTime       time.Time `json:"end_time,omitempty"`
+	SizeBytes     int64     `json:"size_bytes"`
+	Files         int64     `json:"files"`
+	Dirs          int64     `json:"dirs"`
+	ErrorCount    int       `json:"error_count"`
+	ExcludedFiles int64     `json:"excluded_files,omitempty"`
+	ExcludedDirs  int64     `json:"excluded_dirs,omitempty"`
+}
+
+// BackupJobResult es el resultado de un job BACKUP_FILE.
+type BackupJobResult struct {
+	Snapshots     []SnapshotSummary `json:"snapshots"`
+	BytesTotal    int64             `json:"bytes_total"`
+	DurationMS    int64             `json:"duration_ms"`
+	KopiaVersion  string            `json:"kopia_version,omitempty"`
+	RetentionNote string            `json:"retention_note,omitempty"`
+}
+
+// RestoreJobPayload es el payload de un job RESTORE_FILE.
+//
+// Items son rutas relativas dentro del snapshot (separador "/"); vacío
+// restaura todo. Destination es una ruta absoluta en el equipo destino; si
+// InPlace es true se restaura sobre SourcePath y Destination se ignora.
+type RestoreJobPayload struct {
+	RestorePointID string   `json:"restore_point_id"`
+	SnapshotID     string   `json:"snapshot_id"`
+	RootObjectID   string   `json:"root_object_id,omitempty"`
+	SourcePath     string   `json:"source_path"`
+	Items          []string `json:"items,omitempty"`
+	Destination    string   `json:"destination,omitempty"`
+	InPlace        bool     `json:"in_place,omitempty"`
+	Overwrite      bool     `json:"overwrite"`
+}
+
+// RestoredItem describe un elemento restaurado.
+type RestoredItem struct {
+	Item        string `json:"item"`
+	Destination string `json:"destination"`
+	Files       int64  `json:"files"`
+	Dirs        int64  `json:"dirs"`
+	Bytes       int64  `json:"bytes"`
+}
+
+// RestoreJobResult es el resultado de un job RESTORE_FILE.
+type RestoreJobResult struct {
+	Restored   []RestoredItem `json:"restored"`
+	DurationMS int64          `json:"duration_ms"`
+}
+
+// --- Repositorio ---
+
+// Tipos de repositorio Kopia.
+const (
+	RepoKindServer     = "server"     // Kopia Repository Server con usuario por agente
+	RepoKindFilesystem = "filesystem" // ruta local/NAS compartida (laboratorio)
+	RepoKindS3         = "s3"         // repositorio Kopia directo sobre destino S3
+)
+
+// RepositoryCredentials es la respuesta de GET /api/v1/agent/repository-credentials.
+type RepositoryCredentials struct {
+	RepositoryID string `json:"repository_id"`
+	Kind         string `json:"kind"`
+	// server
+	URL         string `json:"url,omitempty"`
+	Fingerprint string `json:"server_cert_fingerprint,omitempty"`
+	Username    string `json:"username,omitempty"`
+	Hostname    string `json:"hostname,omitempty"`
+	// filesystem
+	Path string `json:"path,omitempty"`
+	// s3 (repositorio Kopia directo sobre un destino de almacenamiento)
+	Endpoint  string `json:"endpoint,omitempty"`
+	Bucket    string `json:"bucket,omitempty"`
+	Prefix    string `json:"prefix,omitempty"`
+	AccessKey string `json:"access_key,omitempty"`
+	SecretKey string `json:"secret_key,omitempty"`
+	NoTLS     bool   `json:"no_tls,omitempty"`
+	// SMB (destino filesystem con ruta //servidor/recurso): credenciales
+	// para el cliente SMB (usuario, contraseña y dominio AD/workgroup).
+	SMBUser     string `json:"smb_user,omitempty"`
+	SMBPassword string `json:"smb_password,omitempty"`
+	SMBDomain   string `json:"smb_domain,omitempty"`
+	// Password es la contraseña de usuario (server), del repositorio
+	// (filesystem) o del repositorio S3.
+	Password  string    `json:"password"`
+	Version   int       `json:"version"`
+	IssuedAt  time.Time `json:"issued_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// RepoCredsView es el estado de la credencial de repositorio de un agente
+// (sin la contraseña). PendingApply indica que la versión actual aún no pudo
+// aplicarse en el repositorio y se reintentará al entregar credenciales.
+type RepoCredsView struct {
+	AgentID      string    `json:"agent_id"`
+	Username     string    `json:"username"`
+	Hostname     string    `json:"hostname"`
+	Version      int       `json:"version"`
+	RotatedAt    time.Time `json:"rotated_at"`
+	PendingApply bool      `json:"pending_apply,omitempty"`
+}
+
+// AgentPlansResponse es la respuesta de GET /api/v1/agent/plans.
+type AgentPlansResponse struct {
+	Items []PlanView `json:"items"`
+}

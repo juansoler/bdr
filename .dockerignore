@@ -1,0 +1,9 @@
+.git
+bin
+data
+tmp
+labs/evidence
+docs
+apps/web/node_modules
+apps/web/.next
+*.log
