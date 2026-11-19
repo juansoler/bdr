@@ -15,6 +15,7 @@ jobs:
       contents: write # crear el release y subir assets
       packages: write # publicar imágenes en GHCR
       id-token: write # attestations de procedencia
+      attestations: write # persistir las attestations en el repo
     environment: release
     steps:
       - uses: actions/checkout@v4
