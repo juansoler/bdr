@@ -23,7 +23,7 @@ tmp/
 # Next.js
 node_modules/
 .next/
-out/
+apps/web/out/
 *.tsbuildinfo
 
 # Panel embebido: solo el placeholder index.html está en Git; el export real

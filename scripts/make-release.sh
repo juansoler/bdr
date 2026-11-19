@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 
 VERSION=${1:?versión requerida, p. ej. 0.8.0}
 shift
-OUT=dist
+OUT="$PWD/dist"
 mkdir -p "$OUT"
 
 KOPIA_VER=0.23.1

@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="es">
+  <head><meta charset="utf-8"><title>BDR Console</title></head>
+  <body style="font-family: system-ui; padding: 2rem; background: #0a0e1a; color: #e2e8f0;">
+    <h1 style="color:#22d3ee;">BDR Console — panel no compilado</h1>
+    <p>Este binario no lleva el panel web embebido. Compílalo con:</p>
+    <pre style="background:#111827;padding:1rem;">make web-build   # exporta el panel a apps/server/internal/webui/out
+make build       # recompila bin/bdr-control con el panel embebido</pre>
+    <p>La API sigue funcionando: <code>GET /healthz</code> y <code>/api/v1/…</code>.</p>
+  </body>
+</html>
