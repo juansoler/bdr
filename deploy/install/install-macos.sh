@@ -108,7 +108,10 @@ fi
 mkdir -p /usr/local/lib/bdr/agents
 curl -fsSL "$LATEST_URL/SHA256SUMS" -o "$TMP/SHA256SUMS"
 for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
-  name="bdr-agent-$a$( [[ $a = windows-* ]] && echo .exe )"
+  # if/fi y no $( && ): con set -e, una asignación cuyo comando de
+  # sustitución falla aborta el script aunque el fallo sea esperado.
+  name="bdr-agent-$a"
+  if [[ $a = windows-* ]]; then name="$name.exe"; fi
   if grep -q "  $name\$" "$TMP/SHA256SUMS" 2>/dev/null || grep -qw "$name" "$TMP/SHA256SUMS"; then
     curl -fsSL "$LATEST_URL/$name" -o "/usr/local/lib/bdr/agents/$name"
     (cd /usr/local/lib/bdr/agents && grep -w "$name" "$TMP/SHA256SUMS" | shasum -a 256 -c - >/dev/null) \
