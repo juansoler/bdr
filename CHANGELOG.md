@@ -2,6 +2,13 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.8.2] — 2026-11-19
+
+### Corregido
+
+- CI de release: fijar GOOS y GOARCH en la compilación multi-plataforma — todos
+  los binarios salían para linux/amd64 aunque el nombre dijera darwin/arm64/windows.
+
 ## [0.8.1] — 2026-11-19
 
 ### Corregido
