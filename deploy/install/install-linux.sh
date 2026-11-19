@@ -52,7 +52,7 @@ if [[ -z "$VERSION" ]]; then
   # La release estable expone su versión en latest.json (firmado; aquí solo
   # se lee para el nombre del bundle, la verificación de firma la hace el
   # propio bdr-control tras arrancar).
-  VERSION=$(curl -fsSL "$LATEST_URL/latest.json" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+  VERSION=$(curl -fsSL "$LATEST_URL/latest.json" | sed -n 's/.*"version"[: ]*"\([^"]*\)".*/\1/p' | head -1)
   [[ -n "$VERSION" ]] || { echo "no se pudo leer la versión del canal" >&2; exit 1; }
 fi
 TAG="v${VERSION#v}"
