@@ -61,17 +61,24 @@ DL="$BASE_URL/download/$TAG" # formato GitHub: /releases/download/<tag>/<fichero
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 echo "== descargando bundle de bdr-control $VERSION ($PLATFORM)…"
-curl -fsSL "$DL/bdr-control-$PLATFORM.tar.gz" -o "$TMP/bundle.tar.gz"
+# El fichero se descarga con su nombre real: shasum -c resuelve las rutas
+# tal y como figuran en SHA256SUMS.
+BUNDLE="bdr-control-$PLATFORM.tar.gz"
+curl -fsSL "$DL/$BUNDLE" -o "$TMP/$BUNDLE"
 curl -fsSL "$DL/SHA256SUMS" -o "$TMP/SHA256SUMS"
-( cd "$TMP" && grep "bdr-control-$PLATFORM.tar.gz" SHA256SUMS | shasum -a 256 -c - >/dev/null ) \
+( cd "$TMP" && grep -F "$BUNDLE" SHA256SUMS | shasum -a 256 -c - >/dev/null ) \
   || { echo "el bundle no coincide con SHA256SUMS — NO continuar" >&2; exit 1; }
 
 echo "== extrayendo…"
-tar xzf "$TMP/bundle.tar.gz" -C "$TMP"
+tar xzf "$TMP/$BUNDLE" -C "$TMP"
 install -m 0755 "$TMP/bdr-control" "$BIN_DIR/bdr-control"
-[[ -f "$TMP/kopia" ]] && install -m 0755 "$TMP/kopia" "$BIN_DIR/kopia"
+if [[ -f "$TMP/kopia" ]]; then
+  install -m 0755 "$TMP/kopia" "$BIN_DIR/kopia"
+fi
 install -m 0644 "$TMP/LICENSE" "$TMP/NOTICE" "$ETC/" 2>/dev/null || true
-[[ -f "$TMP/THIRD_PARTY_NOTICES.md" ]] && install -m 0644 "$TMP/THIRD_PARTY_NOTICES.md" "$ETC/"
+if [[ -f "$TMP/THIRD_PARTY_NOTICES.md" ]]; then
+  install -m 0644 "$TMP/THIRD_PARTY_NOTICES.md" "$ETC/"
+fi
 
 # Directorios y usuario del servicio.
 if [[ $PLATFORM_OS = linux ]]; then
