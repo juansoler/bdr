@@ -108,6 +108,35 @@ EOF
   chmod 0600 "$ETC/bdr.env"
 fi
 
+# Conexión Kopia del plano de control: sin estas variables el control no
+# puede aprovisionar credenciales de repositorio (los jobs fallan con 502).
+if ! grep -q '^BDR_KOPIA_KIND=' "$ETC/bdr.env" 2>/dev/null; then
+  cat >> "$ETC/bdr.env" <<'EOF'
+BDR_KOPIA_KIND=filesystem
+BDR_KOPIA_REPO_PATH=/opt/bdr/repo
+EOF
+fi
+
+# Repositorio Kopia: el equivalente nativo al kopia-init de Compose. Una sola
+# vez; el fichero de conexión queda junto al estado del control.
+KOPIA_PASS=$(grep '^BDR_KOPIA_PASSWORD=' "$ETC/bdr.env" | cut -d= -f2-)
+mkdir -p /opt/bdr/repo
+if [[ $PLATFORM_OS = linux ]]; then
+  chown -R bdr:bdr /opt/bdr/repo
+fi
+if [[ ! -f "$DATA_DIR/control/kopia.config" ]]; then
+  echo "== inicializando repositorio Kopia en /opt/bdr/repo…"
+  if [[ $PLATFORM_OS = linux ]]; then
+    sudo -u bdr env KOPIA_PASSWORD="$KOPIA_PASS" "$BIN_DIR/kopia" \
+      --config-file="$DATA_DIR/control/kopia.config" repository create filesystem \
+      --path=/opt/bdr/repo --cache-directory="$DATA_DIR/kcache"
+  else
+    KOPIA_PASSWORD="$KOPIA_PASS" "$BIN_DIR/kopia" \
+      --config-file="$DATA_DIR/control/kopia.config" repository create filesystem \
+      --path=/opt/bdr/repo --cache-directory="$DATA_DIR/kcache"
+  fi
+fi
+
 # Binarios de agentes para los instaladores del panel: se descargan de la
 # release (el bundle del servidor no los lleva) y se verifican con SHA256SUMS.
 mkdir -p /opt/bdr/agents
@@ -178,7 +207,7 @@ After=network-online.target
 Type=simple
 User=bdr
 EnvironmentFile=/etc/bdr/bdr.env
-ExecStart=/opt/bdr/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --data-dir /var/lib/bdr/control --downloads-dir /opt/bdr/agents
+ExecStart=/opt/bdr/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --data-dir /var/lib/bdr/control --downloads-dir /opt/bdr/agents --kopia-binary /opt/bdr/bin/kopia
 Restart=always
 [Install]
 WantedBy=multi-user.target

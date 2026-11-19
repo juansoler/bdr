@@ -8,7 +8,7 @@ Type=simple
 User=bdr
 Group=bdr
 EnvironmentFile=/etc/bdr/bdr.env
-ExecStart=/opt/bdr/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --public-url http://BDR_PUBLIC_HOST:8080 --agent-url https://BDR_PUBLIC_HOST:8443 --agent-tls-names BDR_PUBLIC_HOST,localhost --data-dir /var/lib/bdr/control --downloads-dir /opt/bdr/agents
+ExecStart=/opt/bdr/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --public-url http://BDR_PUBLIC_HOST:8080 --agent-url https://BDR_PUBLIC_HOST:8443 --agent-tls-names BDR_PUBLIC_HOST,localhost --data-dir /var/lib/bdr/control --downloads-dir /opt/bdr/agents --kopia-binary /opt/bdr/bin/kopia
 Restart=always
 RestartSec=10
 # Directorio de datos: solo el servicio.

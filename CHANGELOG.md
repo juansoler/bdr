@@ -2,6 +2,16 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.8.6] — 2026-11-19
+
+### Corregido
+
+- Instaladores nativos: inicializan el repositorio Kopia (kopia-init nativo,
+  idempotente) y exportan BDR_KOPIA_KIND y BDR_KOPIA_REPO_PATH — sin esto
+  los jobs fallaban con 502 E_REPO_PROVISION.
+- Unidades: --kopia-binary /opt/bdr/bin/kopia (systemd no ve /opt/bdr/bin
+  en el PATH).
+
 ## [0.8.5] — 2026-11-19
 
 ### Cambiado
