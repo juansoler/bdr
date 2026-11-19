@@ -173,7 +173,7 @@ After=network-online.target
 Type=simple
 User=bdr
 EnvironmentFile=/etc/bdr/bdr.env
-ExecStart=/usr/local/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --data-dir /var/lib/bdr/control
+ExecStart=/usr/local/bin/bdr-control --addr 0.0.0.0:8080 --agent-addr 0.0.0.0:8443 --data-dir /var/lib/bdr/control --downloads-dir /usr/local/lib/bdr/agents
 Restart=always
 [Install]
 WantedBy=multi-user.target

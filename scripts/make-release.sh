@@ -67,7 +67,12 @@ for binpath in "$@"; do
   [[ -f "$stage/kopia" || -f "$stage/kopia.exe" ]] || { echo "kopia no extraído para $plat" >&2; exit 1; }
 
   cp LICENSE NOTICE "$stage/"
-  [[ -f THIRD_PARTY_NOTICES.md ]] && cp THIRD_PARTY_NOTICES.md "$stage/"
+  if [[ -f THIRD_PARTY_NOTICES.md ]]; then
+    cp THIRD_PARTY_NOTICES.md "$stage/"
+  fi
+  # Unidad systemd completa (con --downloads-dir): el instalador la usa en
+  # lugar de generar la unidad mínima de reserva.
+  cp deploy/install/bdr-control.service "$stage/"
 
   echo "== bundle ${plat}…"
   if [[ $plat = windows-* ]]; then

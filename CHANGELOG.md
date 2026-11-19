@@ -2,6 +2,23 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.8.4] — 2026-11-19
+
+### Corregido
+
+- Instaladores: la unidad systemd incluye --downloads-dir — los agentes
+  para los one-liners del panel se sirven desde /usr/local/lib/bdr/agents
+  sin pasos manuales.
+- Bundle de release: incluye bdr-control.service (unidad completa) en lugar
+  de la mínima de reserva.
+
+## [0.8.3] — 2026-11-19
+
+### Corregido
+
+- Instaladores: patrón $( [[ ] && echo ) en el bucle de agentes —
+  mataba el script en silencio con set -e en plataformas no-Windows.
+
 ## [0.8.2] — 2026-11-19
 
 ### Corregido
