@@ -45,7 +45,11 @@ jobs:
           VERSION=${GITHUB_REF_NAME#v}
           mkdir -p bin dist
           for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
-            os=${t%/*}; arch=${t#*/}; ext=$( [ "$os" = windows ] && echo .exe )
+            os=${t%/*}; arch=${t#*/}
+            # if/fi y no $( && ): con bash -e, una asignación cuyo comando de
+            # sustitución falla aborta el script aunque el fallo sea esperado.
+            ext=""
+            if [ "$os" = windows ]; then ext=".exe"; fi
             # Sin GOOS/GOARCH go build compila para el host aunque el -o
             # nombre otra plataforma: hay que fijarlos explícitamente.
             GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
