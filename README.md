@@ -116,7 +116,7 @@ sin autenticación. Opciones:
 
 ```bash
 # Con gh CLI (más cómodo):
-gh release download v0.8.0 -R juansoler/bdr -p install-linux.sh
+gh release download v0.8.1 -R juansoler/bdr -p install-linux.sh
 sudo bash install.sh
 
 # O con un token en el header:

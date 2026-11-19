@@ -56,7 +56,7 @@ if [[ -z "$VERSION" ]]; then
   [[ -n "$VERSION" ]] || { echo "no se pudo leer la versión del canal" >&2; exit 1; }
 fi
 TAG="v${VERSION#v}"
-DL="$BASE_URL/$TAG/download"
+DL="$BASE_URL/download/$TAG" # formato GitHub: /releases/download/<tag>/<fichero>
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

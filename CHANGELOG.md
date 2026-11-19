@@ -2,6 +2,17 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.8.1] — 2026-11-19
+
+### Corregido
+
+- Instaladores: formato del URL de descarga de la release (`/releases/download/<tag>/`).
+- Instaladores: los binarios de agente se descargan y verifican con SHA256SUMS.
+- Instalador: extracción de la versión del canal con latest.json indentado.
+- Build Docker: el panel se cruza entre fases con COPY --from; fuentes autoalojadas (builds herméticos).
+- CI: permiso attestations: write.
+- Dependencias: klauspost/compress v1.20.2 (GO-2026-6865).
+
 ## [0.8.0] — 2026-11-19 — primera versión pública
 
 Almacenamiento flexible (S3 o ruta física) y eliminación de backups.

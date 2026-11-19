@@ -35,7 +35,7 @@ if (-not $Version) {
   $manifest = Invoke-RestMethod -Uri "$latest/latest.json" -UseBasicParsing
   $Version = "v" + $manifest.version
 }
-$dl = "$BaseUrl/$Version/download"
+$dl = "$BaseUrl/download/$Version"  # formato GitHub: /releases/download/<tag>/<fichero>
 
 $tmp = Join-Path $env:TEMP ("bdr-install-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
