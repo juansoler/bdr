@@ -74,6 +74,11 @@ para que cualquier corrección o feature llegue publicada.
   — un `cp` de `RUN` no ve el filesystem de otra fase.
 - `govulncheck` en CI debe ir **fijado a versión** (no `@latest`): no
   reproducible y candidato a fallos esporádicos.
+- **NUNCA publiques una versión menor que la última tag publicada**: antes
+  de numerar, revisa `git tag --sort=-creatordate | head -3`. Si el fix va
+  sobre v0.10.0, es v0.10.1 — no v0.9.x. Numerar a la baja deja el fix fuera
+  del canal (la release "latest" es la última publicada) y los servidores
+  actualizados no vuelven atrás.
 - NetBird: el primer "NetBird IP" de `netbird status --detail` es el del
   **servidor de gestión** (primer peer listado), NO el de la máquina propia.
   La identidad propia está en `netbird status` (líneas `FQDN:` y
