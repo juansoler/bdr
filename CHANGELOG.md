@@ -15,6 +15,14 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   emite si el fichero servido coincide con ese SHA — fin del bucle de
   binarios desincronizados.
 
+## [0.10.3] — 2026-11-20
+
+### Añadido
+
+- Soporte de agentes en Raspberry Pi de 32 bits: plataforma linux/arm
+  (GOARM 7) en la matriz de release, en el manifiesto de agentes y en el
+  selector del panel.
+
 ## [0.10.2] — 2026-11-20
 
 ### Corregido

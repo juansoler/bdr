@@ -65,6 +65,7 @@ for binpath in "$@"; do
   case "$plat" in
     linux-amd64)   kasset="kopia-$KOPIA_VER-linux-x64.tar.gz" ;;
     linux-arm64)   kasset="kopia-$KOPIA_VER-linux-arm64.tar.gz" ;;
+    linux-arm)     kasset="kopia-$KOPIA_VER-linux-arm.tar.gz" ;;
     darwin-amd64)  kasset="kopia-$KOPIA_VER-macOS-x64.tar.gz" ;;
     darwin-arm64)  kasset="kopia-$KOPIA_VER-macOS-arm64.tar.gz" ;;
     windows-amd64) kasset="kopia-$KOPIA_VER-windows-x64.zip" ;;

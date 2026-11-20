@@ -7,7 +7,7 @@ import { Button, ErrorBox, Field, Input, cx } from "./ui";
 
 type Tab = "windows" | "linux" | "macos";
 type Mode = "installer" | "manual";
-type Arch = "amd64" | "arm64";
+type Arch = "amd64" | "arm64" | "arm";
 
 const tabLabel: Record<Tab, string> = {
   windows: "Windows",
@@ -16,7 +16,8 @@ const tabLabel: Record<Tab, string> = {
 };
 const archLabel: Record<Arch, string> = {
   amd64: "amd64 (Intel)",
-  arm64: "arm64 (Apple Silicon)",
+  arm64: "arm64 (64 bits)",
+  arm: "arm (Raspberry Pi 32 bits)",
 };
 
 interface InstallerOut {
@@ -231,6 +232,9 @@ export function EnrollmentModal({
                     <option value="amd64">{archLabel.amd64}</option>
                     {osSel === "linux" || osSel === "macos" ? (
                       <option value="arm64">{archLabel.arm64}</option>
+                    ) : null}
+                    {osSel === "linux" ? (
+                      <option value="arm">{archLabel.arm}</option>
                     ) : null}
                   </select>
                 </Field>

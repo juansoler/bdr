@@ -21,6 +21,7 @@ import (
 var installerOSArch = map[string]string{
 	"linux-amd64":   "bdr-agent",
 	"linux-arm64":   "bdr-agent",
+	"linux-arm":     "bdr-agent",
 	"windows-amd64": "bdr-agent.exe",
 	"darwin-amd64":  "bdr-agent", // macOS Intel
 	"darwin-arm64":  "bdr-agent", // macOS Apple Silicon (M1/M2/M3/…)
@@ -47,6 +48,8 @@ func validOSArch(osarch string) (osName, arch string, ok bool) {
 		return "linux", "amd64", true
 	case "linux-arm64":
 		return "linux", "arm64", true
+	case "linux-arm":
+		return "linux", "arm", true
 	case "windows-amd64":
 		return "windows", "amd64", true
 	case "darwin-amd64":

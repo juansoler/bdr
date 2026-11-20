@@ -44,17 +44,17 @@ jobs:
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           mkdir -p bin dist
-          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+          for t in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64; do
             os=${t%/*}; arch=${t#*/}
             # if/fi y no $( && ): con bash -e, una asignación cuyo comando de
             # sustitución falla aborta el script aunque el fallo sea esperado.
             ext=""
             if [ "$os" = windows ]; then ext=".exe"; fi
-            # Sin GOOS/GOARCH go build compila para el host aunque el -o
-            # nombre otra plataforma: hay que fijarlos explícitamente.
-            GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
+            # Raspberry Pi en 32 bits: GOARM=7 (armv7).
+            goarch="$arch"; [ "$arch" = arm ] && goarch="arm"
+            GOOS=$os GOARCH=$goarch GOARM=$([ "$arch" = arm ] && echo 7 || echo "") CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
               -o bin/bdr-control-$os-$arch$ext ./apps/server/cmd/bdr-control
-            GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
+            GOOS=$os GOARCH=$goarch GOARM=$([ "$arch" = arm ] && echo 7 || echo "") CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
               -o dist/bdr-agent-$os-$arch$ext ./apps/agent/cmd/bdr-agent
           done
 

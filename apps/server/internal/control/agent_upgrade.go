@@ -29,6 +29,8 @@ func agentOSArch(osFamily, arch string) string {
 		return "linux-amd64"
 	case "linux/arm64", "linux/aarch64":
 		return "linux-arm64"
+	case "linux/arm", "linux/armv7l":
+		return "linux-arm"
 	case "darwin/amd64", "darwin/x86_64":
 		return "darwin-amd64"
 	case "darwin/arm64", "darwin/aarch64":
