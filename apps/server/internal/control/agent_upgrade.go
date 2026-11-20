@@ -7,6 +7,7 @@ package control
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -105,17 +106,48 @@ func extFor(osarch string) string {
 }
 
 // agentUpgradeOffer construye la instrucción de actualización para un agente
-// cuya versión difiere de la del plano de control; nil si no hay binario
-// publicado o nada que actualizar.
+// cuya versión difiere de la del plano de control.
+//
+// La URL es RELATIVA: el agente la resuelve contra el servidor con el que ya
+// hace heartbeat (NetBird, LAN…) — sin depender de --public-url.
+//
+// El SHA-256 se toma de agents.json (junto al binario del control): el
+// registro de los binarios de agente de ESTA versión del control, escrito en
+// el release, en el build de Docker y por el propio self-update. La oferta
+// solo se emite si el fichero servido coincide con ese SHA — así nunca se
+// ofrece un binario desincronizado de la versión del control (bucle).
 func (s *Server) agentUpgradeOffer(osFamily, arch, reported string) *contracts.AgentUpgrade {
-	if s.PublicURL == "" || s.DownloadsDir == "" {
-		return nil
-	}
 	if reported == version.Version {
 		return nil
 	}
 	osarch := agentOSArch(osFamily, arch)
 	if osarch == "" {
+		return nil
+	}
+
+	// 1) Con agents.json: oferta con SHA del manifiesto (coherente con esta
+	//    versión del control), servido por el propio control.
+	if sum := s.agentsManifestSHA(osarch); sum != "" {
+		path := s.agentBinaryPath(osarch)
+		if path == "" {
+			return nil
+		}
+		local, ok := s.binarySHA.fileSHA(path)
+		if !ok || !strings.EqualFold(local, sum) {
+			// El fichero servido no coincide con la versión del control:
+			// no ofrecer (evita el bucle de descarga de binarios viejos).
+			return nil
+		}
+		return &contracts.AgentUpgrade{
+			Version: version.Version,
+			URL:     "/api/v1/download/agent/" + osarch,
+			SHA256:  sum,
+		}
+	}
+
+	// 2) Sin agents.json (instalaciones previas, Docker): la URL local solo
+	//    si el control conoce su propia dirección pública.
+	if s.PublicURL == "" || s.DownloadsDir == "" {
 		return nil
 	}
 	path := s.agentBinaryPath(osarch)
@@ -131,4 +163,28 @@ func (s *Server) agentUpgradeOffer(osFamily, arch, reported string) *contracts.A
 		URL:     strings.TrimRight(s.PublicURL, "/") + "/api/v1/download/agent/" + osarch,
 		SHA256:  sum,
 	}
+}
+
+// agentsManifestPath devuelve la ruta del manifiesto de SHAs de agentes
+// (agents.json) junto al binario del control en marcha.
+func (s *Server) agentsManifestPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(exe), "agents.json")
+}
+
+// agentsManifestSHA devuelve el SHA-256 registrado para una plataforma
+// (cadena vacía si no hay manifiesto o la plataforma no figura).
+func (s *Server) agentsManifestSHA(osarch string) string {
+	data, err := os.ReadFile(s.agentsManifestPath())
+	if err != nil {
+		return ""
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(m[osarch]))
 }

@@ -27,7 +27,25 @@ KEY=${BDR_RELEASE_KEY:?define BDR_RELEASE_KEY (ruta de la clave privada Ed25519)
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-rm -f "$OUT"/SHA256SUMS "$OUT"/latest.json "$OUT"/latest.json.sig
+rm -f "$OUT"/SHA256SUMS "$OUT"/latest.json "$OUT"/latest.json.sig "$OUT"/agents.json
+
+# agents.json: SHAs de los binarios de agente de esta versión (los consume
+# bdr-control para las ofertas de auto-actualización). Se genera ANTES del
+# bundle para que viaje dentro de él, junto al binario del control.
+python3 - "$OUT" <<'PY'
+import json, sys, os, hashlib
+out = sys.argv[1]
+m = {}
+for f in sorted(os.listdir(out)):
+    if f.startswith("bdr-agent-") and not f.endswith("SUMS") and "local" not in f:
+        plat = f[len("bdr-agent-"):]
+        plat = plat[:-4] if plat.endswith(".exe") else plat
+        m[plat] = hashlib.sha256(open(os.path.join(out, f), "rb").read()).hexdigest()
+with open(os.path.join(out, "agents.json"), "w") as fh:
+    json.dump(m, fh, indent=2)
+    fh.write("\n")
+print("agents.json:", json.dumps(m))
+PY
 
 for binpath in "$@"; do
   bin=$(basename "$binpath")                       # bdr-control-linux-amd64[.exe]
@@ -67,6 +85,10 @@ for binpath in "$@"; do
   [[ -f "$stage/kopia" || -f "$stage/kopia.exe" ]] || { echo "kopia no extraído para $plat" >&2; exit 1; }
 
   cp LICENSE NOTICE "$stage/"
+  # Manifiesto de SHAs de agentes para las ofertas de auto-actualización.
+  if [[ -f "$OUT/agents.json" ]]; then
+    cp "$OUT/agents.json" "$stage/"
+  fi
   if [[ -f THIRD_PARTY_NOTICES.md ]]; then
     cp THIRD_PARTY_NOTICES.md "$stage/"
   fi

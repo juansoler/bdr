@@ -291,6 +291,14 @@ func Apply(ctx context.Context, client *http.Client, manifest *Manifest, exePath
 		_ = os.Rename(old, exePath)
 		return "", fmt.Errorf("permisos del binario nuevo: %w", err)
 	}
+	// agents.json del release: junto al binario, alimenta las ofertas de
+	// auto-actualización de agentes de esta versión del control.
+	if newAgents := filepath.Join(staging, "agents.json"); fileExists(newAgents) {
+		dst := filepath.Join(dir, "agents.json")
+		if err := copyFile(newAgents, dst); err == nil {
+			_ = os.Chmod(dst, 0o644)
+		}
+	}
 	// Kopia: si el bundle lo trae y kopia vive junto al binario, se
 	// actualiza con la versión fijada del release.
 	if newKopia := filepath.Join(staging, "kopia"); fileExists(newKopia) {

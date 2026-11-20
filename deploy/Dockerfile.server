@@ -50,6 +50,15 @@ RUN apk add --no-cache curl \
 COPY --from=build /out/bdr-control /usr/local/bin/bdr-control
 COPY --from=kopia-bin /usr/bin/kopia /usr/local/bin/kopia
 COPY --from=agents /agents/ /opt/bdr/agents/
+# agents.json: SHAs de los agentes de la imagen para las ofertas de
+# auto-actualización (bdr-control lo lee junto a su binario).
+RUN cd /opt/bdr/agents \
+    && { first=1; for f in bdr-agent-*; do \
+           plat=${f#bdr-agent-}; plat=${plat%.exe}; \
+           sha=$(sha256sum "$f" | cut -d" " -f1); \
+           if [ "$first" -eq 1 ]; then printf '{' > /opt/bdr/bin/agents.json; first=0; else printf ',' >> /opt/bdr/bin/agents.json; fi; \
+           printf '"%s":"%s"' "$plat" "$sha" >> /opt/bdr/bin/agents.json; \
+         done; printf '}\n' >> /opt/bdr/bin/agents.json; }
 USER bdr
 # La contraseña de Kopia se pasa en runtime (-e BDR_KOPIA_PASSWORD), nunca en build.
 ENV BDR_KOPIA_KIND=filesystem \

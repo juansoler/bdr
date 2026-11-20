@@ -2,6 +2,19 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.9.5] — 2026-11-20
+
+### Añadido
+
+- Auto-actualización de agentes coherente de una vez: la oferta lleva URL
+  RELATIVA (el agente la resuelve contra el servidor con el que ya hace
+  heartbeat — NetBird, LAN — sin depender de --public-url) y el SHA-256 se
+  toma de agents.json: el manifiesto de SHAs de los binarios de agente de
+  ESTA versión del control, generado en el release, en el build de Docker y
+  escrito por el propio self-update junto al binario. La oferta solo se
+  emite si el fichero servido coincide con ese SHA — fin del bucle de
+  binarios desincronizados.
+
 ## [0.10.0] — 2026-11-20
 
 ### Añadido

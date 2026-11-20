@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -185,6 +186,11 @@ func (a *Agent) beat(ctx context.Context) {
 func (a *Agent) applyUpgrade(ctx context.Context, u contracts.AgentUpgrade) {
 	if a.restartSelf == nil {
 		return
+	}
+	// URL relativa: se resuelve contra el servidor con el que ya habla el
+	// agente (NetBird, LAN…) — el control no necesita --public-url.
+	if strings.HasPrefix(u.URL, "/") {
+		u.URL = strings.TrimRight(a.cfg.Endpoint(), "/") + u.URL
 	}
 	a.log.Info("autoactualización disponible", "version", u.Version)
 	if err := upgrade.Replace(ctx, a.log, u, a.restartSelf); err != nil {

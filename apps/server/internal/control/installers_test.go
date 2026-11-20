@@ -127,20 +127,30 @@ func TestInstallersFlow(t *testing.T) {
 }
 
 // TestAgentBinaryDownload: el binario se sirve desde DownloadsDir; si falta,
-// 404 con instrucción para el operador.
+// 302 a la release pública (nunca un 404 que rompa los one-liners).
 func TestAgentBinaryDownload(t *testing.T) {
 	dir := t.TempDir()
 	ts := newInstallersTestAPI(t, dir)
 
-	status, body := doJSON(t, http.MethodGet, ts.URL+"/api/v1/download/agent/linux-amd64", "", nil)
-	if status != http.StatusNotFound || !strings.Contains(string(body), "E_NO_BINARY") {
-		t.Fatalf("sin binario: esperaba 404, got %d %s", status, body)
+	// Cliente que NO sigue redirects: verificamos el 302 y el destino.
+	nofollow := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := nofollow.Get(ts.URL + "/api/v1/download/agent/linux-amd64")
+	if err != nil {
+		t.Fatalf("get: %v", err)
 	}
-
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("sin binario: esperaba 302 (redirect a la release pública), got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "github.com/juansoler/bdr/releases/download/") || !strings.Contains(loc, "bdr-agent-linux-amd64") {
+		t.Fatalf("Location inesperado: %q", loc)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "bdr-agent-linux-amd64"), []byte("BINARIO-FAKE"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	status, body = doJSON(t, http.MethodGet, ts.URL+"/api/v1/download/agent/linux-amd64", "", nil)
+	status, body := doJSON(t, http.MethodGet, ts.URL+"/api/v1/download/agent/linux-amd64", "", nil)
 	if status != http.StatusOK || !strings.Contains(string(body), "BINARIO-FAKE") {
 		t.Fatalf("con binario: %d %s", status, body)
 	}
