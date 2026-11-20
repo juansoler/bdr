@@ -188,13 +188,24 @@ func (m *Manifest) Newer(current string) (*Asset, bool) {
 // Devuelve la ruta del binario nuevo ya en su sitio; el llamante debe
 // re-ejecutar (restartFn) o salir para que el gestor de servicios reinicie.
 // Solo aplica a la plataforma del host.
-func Apply(ctx context.Context, client *http.Client, asset Asset, exePath string) (string, error) {
+//
+// agentsDir: si no es vacío, los binarios de agentes del manifiesto se
+// refrescan allí ANTES de tocar el binario en marcha — así los agentes que
+// se enrolen después reciben la versión nueva y no entra en bucle la oferta
+// de actualización. El swap del binario es lo último: si la descarga de
+// agentes falla, se devuelve error sin haber alterado nada.
+func Apply(ctx context.Context, client *http.Client, manifest *Manifest, exePath string, agentsDir string) (string, error) {
 	if runtime.GOOS == "windows" {
 		return "", fmt.Errorf("la actualización en Windows se aplica ejecutando el instalador de la release (el binario en ejecución no puede reemplazarse a sí mismo)")
 	}
 	if client == nil {
 		client = http.DefaultClient
 	}
+	asset, ok := manifest.Server[PlatformKey()]
+	if !ok {
+		return "", fmt.Errorf("el manifiesto no trae bundle de servidor para %s", PlatformKey())
+	}
+
 	tmp, err := os.CreateTemp("", "bdr-bundle-*.tar.gz")
 	if err != nil {
 		return "", err
@@ -226,6 +237,36 @@ func Apply(ctx context.Context, client *http.Client, asset Asset, exePath string
 	}
 
 	dir := filepath.Dir(exePath)
+
+	// Agentes: se descargan y verifican ANTES de tocar el binario en
+	// marcha. Si falla algo, se devuelve error sin haber alterado nada.
+	agentFiles := map[string]string{} // plat → fichero en staging
+	if agentsDir != "" && len(manifest.Agents) > 0 {
+		for plat, ag := range manifest.Agents {
+			if ag.URL == "" || len(ag.SHA256) != 64 {
+				continue
+			}
+			name := "bdr-agent-" + plat
+			if strings.HasPrefix(plat, "windows") {
+				name += ".exe"
+			}
+			dst := filepath.Join(staging, name)
+			f, err := os.Create(dst)
+			if err != nil {
+				return "", fmt.Errorf("staging del agente %s: %w", plat, err)
+			}
+			got, derr := download(ctx, client, ag.URL, f)
+			f.Close()
+			if derr != nil {
+				return "", fmt.Errorf("refresco del agente %s: %w", plat, derr)
+			}
+			if !strings.EqualFold(got, ag.SHA256) {
+				return "", fmt.Errorf("refresco del agente %s: el binario no coincide con el SHA-256 del manifiesto", plat)
+			}
+			agentFiles[plat] = dst
+		}
+	}
+
 	// Reemplazo del control (con respaldo .old para rollback manual).
 	newCtl := filepath.Join(staging, "bdr-control")
 	if _, err := os.Stat(newCtl); err != nil {
@@ -263,8 +304,30 @@ func Apply(ctx context.Context, client *http.Client, asset Asset, exePath string
 			}
 		}
 	}
+	// Agentes: colocación final en el directorio de descargas del control.
+	if agentsDir != "" && len(agentFiles) > 0 {
+		if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+			return "", fmt.Errorf("directorio de descargas %s: %w", agentsDir, err)
+		}
+		for plat, src := range agentFiles {
+			name := "bdr-agent-" + plat
+			if strings.HasPrefix(plat, "windows") {
+				name += ".exe"
+			}
+			dst := filepath.Join(agentsDir, name)
+			if err := copyFile(src, dst); err != nil {
+				return "", fmt.Errorf("colocación del agente %s: %w", name, err)
+			}
+			if err := os.Chmod(dst, 0o755); err != nil {
+				return "", fmt.Errorf("permisos del agente %s: %w", name, err)
+			}
+		}
+	}
 	return placed, nil
 }
+
+// mustCreate se eliminó: las descargas en staging se gestionan con
+// os.Create + cierre explícito en el bucle de Apply.
 
 // kopiaIsLocal evita pisar una instalación de kopia gestionada por el
 // sistema (docker: /usr/local/bin/kopia de la imagen es la misma ubicación

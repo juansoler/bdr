@@ -163,15 +163,14 @@ func (s *Server) handleSystemUpdateInstall(w http.ResponseWriter, r *http.Reques
 		s.problem(w, r, http.StatusInternalServerError, "E_UPDATE_EXE", "No se resolvió el binario en ejecución: "+err.Error())
 		return
 	}
-	asset, ok := m.Newer(version.Version)
-	if !ok {
+	if _, ok := m.Newer(version.Version); !ok {
 		s.problem(w, r, http.StatusConflict, "E_UPDATE_NONE", "El manifiesto ya no ofrece una versión posterior")
 		return
 	}
 	s.audit(r, a, "update.install.started", "system", m.Version, "ok",
 		map[string]string{"from": version.Version, "platform": selfupdate.PlatformKey()})
 
-	placed, err := selfupdate.Apply(r.Context(), nil, *asset, exe)
+	placed, err := selfupdate.Apply(r.Context(), nil, m, exe, s.DownloadsDir)
 	if err != nil {
 		s.audit(r, a, "update.install.failed", "system", m.Version, "error",
 			map[string]string{"error": err.Error()})

@@ -2,6 +2,34 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.9.0] — 2026-11-20
+
+### Añadido
+
+- La actualización del servidor refresca también los binarios de agente del
+  directorio de descargas: se descargan de la release firmada (verificación
+  SHA-256) en staging ANTES de tocar el binario en marcha — los agentes que
+  se enrolen después reciben la versión nueva sin pasos manuales y la oferta
+  de actualización no entra en bucle.
+
+### Corregido
+
+- Panel embebido: `/agents` servía la portada del panel (fallback SPA) hasta
+  que el router de cliente recuperaba la página — el handler resuelve ahora
+  `<ruta>.html` (export plano de Next), reescribe la URL para
+  `http.FileServer` y añade tests de regresión.
+- Instaladores: mensajes accionables cuando falta el binario del agente en
+  el servidor o falla el enrolamiento (antes se enmascaraban con `curl: (23)`).
+
+### Cambios de CI
+
+- `govulncheck` fijado a v1.10.0 (no reproducible con `@latest`).
+
+### Versiones intermedias no publicadas con entrada propia
+
+- 0.8.7: `--kopia-binary` en el launchd de macOS.
+- 0.8.8: one-liner `bash <(curl …)` y mensajes accionables del instalador.
+
 ## [0.8.6] — 2026-11-19
 
 ### Corregido
