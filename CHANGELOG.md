@@ -2,6 +2,16 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.9.2] — 2026-11-20
+
+### Corregido
+
+- La descarga del binario de agente ya no depende del estado del
+  directorio de descargas del control: si el binario local no está, el
+  endpoint REDIRIGE a la release pública de la misma versión, y el
+  instalador generado tiene fallback explícito a GitHub. Fin de los
+  E_NO_BINARY en los enrolamientos.
+
 ## [0.9.1] — 2026-11-20
 
 ### Corregido

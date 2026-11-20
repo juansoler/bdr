@@ -57,9 +57,25 @@ func validOSArch(osarch string) (osName, arch string, ok bool) {
 	return "", "", false
 }
 
+// githubAgentURL construye la URL pública del binario de agente en la
+// release de GitHub correspondiente a la versión de ESTE control: el
+// fallback cuando el directorio de descargas local no puede servir el
+// binario (repo público, misma versión garantizada).
+func (s *Server) githubAgentURL(osarch string) string {
+	name := "bdr-agent-" + osarch
+	if strings.HasPrefix(osarch, "windows") {
+		name += ".exe"
+	}
+	return "https://github.com/juansoler/bdr/releases/download/v" + s.Version + "/" + name
+}
+
 // downloadAgentBinary sirve el binario del agente desde el directorio de
 // descargas (bdr-agent-{osarch}); lo publica el operador con
 // scripts/build-agents.sh o colocando los binarios compilados.
+// Si el binario local no está (directorio vacío tras una actualización,
+// instalación a medias…), NO devolvemos 404 E_NO_BINARY: redirigimos a la
+// release pública de la MISMA versión — los one-liners del panel nunca
+// quedan bloqueados por el estado del directorio de descargas.
 func (s *Server) downloadAgentBinary(w http.ResponseWriter, r *http.Request, osarch string) {
 	if !allowMethod(w, r, http.MethodGet) {
 		return
@@ -69,7 +85,7 @@ func (s *Server) downloadAgentBinary(w http.ResponseWriter, r *http.Request, osa
 		return
 	}
 	if s.DownloadsDir == "" {
-		s.problem(w, r, http.StatusNotFound, "E_NO_BINARY", "El servidor no tiene directorio de descargas configurado")
+		http.Redirect(w, r, s.githubAgentURL(osarch), http.StatusFound)
 		return
 	}
 	name := "bdr-agent-" + osarch
@@ -79,8 +95,10 @@ func (s *Server) downloadAgentBinary(w http.ResponseWriter, r *http.Request, osa
 	path := filepath.Join(s.DownloadsDir, filepath.Base(name))
 	b, err := os.ReadFile(path)
 	if err != nil {
-		s.problem(w, r, http.StatusNotFound, "E_NO_BINARY",
-			"No hay binario para "+osarch+" en el servidor. Colócalo en el directorio de descargas (scripts/build-agents.sh)")
+		// Auditoría del fallback: el control no puede servir el binario.
+		s.audit(r, nil, "download.fallback", "agent_binary", osarch, "ok",
+			map[string]string{"dir": s.DownloadsDir})
+		http.Redirect(w, r, s.githubAgentURL(osarch), http.StatusFound)
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -166,7 +184,7 @@ func (s *Server) publicURLFor(r *http.Request) string {
 // registra (auto-enrol con el token embebido) e instala el servicio systemd
 // si existe; sin systemd imprime el comando manual.
 func (s *Server) linuxInstallerScript(serverURL, osarch, token string) string {
-	return "#!/bin/sh\n" +
+	return strings.ReplaceAll("#!/bin/sh\n" +
 		"# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n" +
 		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n" +
 		"set -e\n" +
@@ -178,7 +196,12 @@ func (s *Server) linuxInstallerScript(serverURL, osarch, token string) string {
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
 mkdir -p "$BIN_DIR" "$DATA_DIR"
-curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "el servidor no sirvió el binario del agente ($SERVER/api/v1/download/agent/$OSARCH) — revisa el directorio de descargas del control (E_NO_BINARY)" >&2; exit 1; }
+if curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent"; then
+  :
+else
+  echo "aviso: el control no sirvió el binario — descargando de la release pública…" >&2
+  curl -fsSL "https://github.com/juansoler/bdr/releases/download/v{VER}/bdr-agent-$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "no se pudo descargar el binario ni del control ni de GitHub" >&2; exit 1; }
+fi
 chmod 0755 "$BIN_DIR/bdr-agent"
 "$BIN_DIR/bdr-agent" register --server "$SERVER" --token "$TOKEN" --data-dir "$DATA_DIR" || { echo "el enrolamiento falló — revisa el token y la conexión" >&2; exit 1; }
 if command -v systemctl >/dev/null 2>&1 && [ -z "${BDR_NO_SERVICE:-}" ]; then
@@ -211,7 +234,7 @@ else
   echo "systemd no disponible; arranca el agente con:"
   echo "  $BIN_DIR/bdr-agent run --data-dir $DATA_DIR"
 fi
-`
+`, "{VER}", s.Version)
 }
 
 // windowsInstallerScript genera el instalador PowerShell: descarga el exe,
@@ -251,7 +274,7 @@ try {
 // binario, lo registra (auto-enrol con el token embebido) e instala el
 // servicio launchd (/Library/LaunchDaemons) para que arranque en el boot.
 func (s *Server) darwinInstallerScript(serverURL, osarch, token string) string {
-	return "#!/bin/sh\n" +
+	return strings.ReplaceAll("#!/bin/sh\n" +
 		"# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n" +
 		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n" +
 		"# Requiere sudo (macOS Intel darwin-amd64 o Apple Silicon darwin-arm64).\n" +
@@ -264,7 +287,12 @@ func (s *Server) darwinInstallerScript(serverURL, osarch, token string) string {
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
 mkdir -p "$BIN_DIR" "$DATA_DIR"
-curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "el servidor no sirvió el binario del agente ($SERVER/api/v1/download/agent/$OSARCH) — revisa el directorio de descargas del control (E_NO_BINARY)" >&2; exit 1; }
+if curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent"; then
+  :
+else
+  echo "aviso: el control no sirvió el binario — descargando de la release pública…" >&2
+  curl -fsSL "https://github.com/juansoler/bdr/releases/download/v{VER}/bdr-agent-$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "no se pudo descargar el binario ni del control ni de GitHub" >&2; exit 1; }
+fi
 chmod 0755 "$BIN_DIR/bdr-agent"
 "$BIN_DIR/bdr-agent" register --server "$SERVER" --token "$TOKEN" --data-dir "$DATA_DIR" || { echo "el enrolamiento falló — revisa el token y la conexión" >&2; exit 1; }
 if [ -z "${BDR_NO_SERVICE:-}" ]; then
@@ -298,7 +326,7 @@ else
   echo "arranca el agente con:"
   echo "  $BIN_DIR/bdr-agent run --data-dir \"$DATA_DIR\""
 fi
-`
+`, "{VER}", s.Version)
 }
 
 // handleInstallers crea instaladores preconfigurados («Añadir equipo»).
