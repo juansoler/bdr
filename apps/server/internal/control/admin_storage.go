@@ -217,6 +217,15 @@ func (s *Server) storageUpsert(w http.ResponseWriter, r *http.Request, id string
 			}
 			enc = e
 		}
+		// Nombre de bucket S3 válido (RFC 1123): sin "/" — en S3 no hay
+		// carpetas y el prefijo es parte del nombre del objeto. Un "/" en el
+		// bucket llega al proveedor como nombre inválido (InvalidRequest) y
+		// la prueba de escritura falla sin pista.
+		if strings.Contains(req.Bucket, "/") || strings.Contains(req.Bucket, " ") {
+			s.problem(w, r, http.StatusBadRequest, "E_VALIDATION",
+				"el bucket no puede contener \"/\" ni espacios (usa a-z, 0-9 y \"-\"); para separar datos usa buckets distintos o el campo prefix")
+			return "", nil, http.StatusBadRequest, ""
+		}
 	}
 	now := s.Now().UTC()
 	idOut := id

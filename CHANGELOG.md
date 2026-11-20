@@ -15,6 +15,14 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   emite si el fichero servido coincide con ese SHA — fin del bucle de
   binarios desincronizados.
 
+## [0.10.4] — 2026-11-20
+
+### Corregido
+
+- Destinos S3: validación del nombre de bucket — un "/" o espacios son
+  inválidos en S3 y la escritura de prueba falla con InvalidRequest sin
+  pista (en S3 no hay carpetas: usa buckets distintos o el campo prefix).
+
 ## [0.10.3] — 2026-11-20
 
 ### Añadido
