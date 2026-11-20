@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.9.4] — 2026-11-20
+
+### Corregido
+
+- Instaladores de agente: detienen el `bdr-agent` en marcha ANTES de
+  descargar el binario — Linux prohíbe reescribir el binario de un proceso
+  en ejecución (`ETXTBSY`) y el curl fallaba con (23) escribiendo sobre él.
+- Mensaje del fallo de descarga de binario: menciona también las causas
+  locales (disco lleno, permisos del destino), no solo el servidor.
+
+## [0.9.3] — 2026-11-20
+
+### Corregido
+
+- One-liner del panel en dos pasos (`curl … -o /tmp/bdr-install.sh && sudo
+  bash /tmp/bdr-install.sh`): la sustitución de proceso con sudo daba
+  "Bad file descriptor" en macOS (sudo cierra los fds extra).
+
 ## [0.9.2] — 2026-11-20
 
 ### Corregido

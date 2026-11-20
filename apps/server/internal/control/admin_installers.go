@@ -195,12 +195,19 @@ func (s *Server) linuxInstallerScript(serverURL, osarch, token string) string {
 		`DATA_DIR="${BDR_DATA_DIR:-/var/lib/bdr-agent}"` + "\n" +
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
+# Si hay un bdr-agent corriendo desde $BIN_DIR, hay que detenerlo ANTES de
+# descargar: Linux prohíbe reescribir (ETXTBSY) el binario de un proceso en
+# ejecución — y por eso el curl fallaba con (23) al escribir.
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet bdr-agent; then
+  echo "deteniendo el bdr-agent en marcha para actualizarlo…" >&2
+  systemctl stop bdr-agent
+fi
 mkdir -p "$BIN_DIR" "$DATA_DIR"
 if curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent"; then
   :
 else
   echo "aviso: el control no sirvió el binario — descargando de la release pública…" >&2
-  curl -fsSL "https://github.com/juansoler/bdr/releases/download/v{VER}/bdr-agent-$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "no se pudo descargar el binario ni del control ni de GitHub" >&2; exit 1; }
+  curl -fsSL "https://github.com/juansoler/bdr/releases/download/v{VER}/bdr-agent-$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "no se pudo descargar el binario ni del control ni de GitHub (¿disco lleno? ¿permisos de $BIN_DIR?)" >&2; exit 1; }
 fi
 chmod 0755 "$BIN_DIR/bdr-agent"
 "$BIN_DIR/bdr-agent" register --server "$SERVER" --token "$TOKEN" --data-dir "$DATA_DIR" || { echo "el enrolamiento falló — revisa el token y la conexión" >&2; exit 1; }
@@ -286,12 +293,19 @@ func (s *Server) darwinInstallerScript(serverURL, osarch, token string) string {
 		`DATA_DIR="${BDR_DATA_DIR:-/Library/Application Support/BDR}"` + "\n" +
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
+# Si hay un bdr-agent corriendo desde $BIN_DIR, hay que detenerlo ANTES de
+# descargar: Linux prohíbe reescribir (ETXTBSY) el binario de un proceso en
+# ejecución — y por eso el curl fallaba con (23) al escribir.
+if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet bdr-agent; then
+  echo "deteniendo el bdr-agent en marcha para actualizarlo…" >&2
+  systemctl stop bdr-agent
+fi
 mkdir -p "$BIN_DIR" "$DATA_DIR"
 if curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent"; then
   :
 else
   echo "aviso: el control no sirvió el binario — descargando de la release pública…" >&2
-  curl -fsSL "https://github.com/juansoler/bdr/releases/download/v{VER}/bdr-agent-$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "no se pudo descargar el binario ni del control ni de GitHub" >&2; exit 1; }
+  curl -fsSL "https://github.com/juansoler/bdr/releases/download/v{VER}/bdr-agent-$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "no se pudo descargar el binario ni del control ni de GitHub (¿disco lleno? ¿permisos de $BIN_DIR?)" >&2; exit 1; }
 fi
 chmod 0755 "$BIN_DIR/bdr-agent"
 "$BIN_DIR/bdr-agent" register --server "$SERVER" --token "$TOKEN" --data-dir "$DATA_DIR" || { echo "el enrolamiento falló — revisa el token y la conexión" >&2; exit 1; }
