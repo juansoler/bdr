@@ -182,3 +182,29 @@ conservan en el directorio de datos).
 - [ ] `db-backup` generando dumps y una restauración de prueba hecha.
 - [ ] Verificación de auditoría (`/admin/audit/verify`) en verde.
 - [ ] Un backup + restore de ficheros E2E por sistema operativo crítico.
+
+## 9. Acceso remoto por NetBird (o otra malla WireGuard)
+
+El plano de control no necesita puertos expuestos a internet si solo se
+alcanza por la malla. Dos reglas para que los one-liners del panel lleven
+una dirección alcanzable:
+
+- El `--public-url` del servicio manda sobre el Host de navegación: en
+  macOS, el instalador fija `http://$(hostname -s):8080` (mDNS — solo
+  resuelve en LAN). Para acceso remoto, sustitúyelo por la IP NetBird del
+  servidor o un nombre DNS de la malla:
+  ```bash
+  sudo sed -i '' "s|http://$(hostname -s):8080|http://100.121.229.XX:8080|g" \
+    /Library/LaunchDaemons/local.bdr.control.plist
+  sudo launchctl bootout system/local.bdr.control 2>/dev/null || true
+  sudo launchctl bootstrap system /Library/LaunchDaemons/local.bdr.control.plist
+  ```
+- Navega el panel por la dirección NetBird: los one-liners se generan con
+  esa URL y los agentes remotos alcanzan el enrolamiento sin rutas extra.
+
+Instalación con dirección fija desde el principio (sudo elimina las
+variables de entorno normales, usa `env`):
+```bash
+sudo env BDR_PUBLIC_HOST=100.121.229.XX bash install-macos.sh
+sudo env BDR_PUBLIC_HOST=100.121.229.XX bash install-linux.sh
+```
