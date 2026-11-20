@@ -2,6 +2,17 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.10.0] — 2026-11-20
+
+### Añadido
+
+- Instalador de servidor interactivo: pregunta en qué interfaz publicar el
+  servicio (LAN, NetBird… detectadas automáticamente) y si usar IP, hostname
+  o un nombre DNS propio. Prioridad: --public-host > BDR_PUBLIC_HOST >
+  pregunta (solo con terminal; sin terminal publica el hostname con aviso).
+- Instalador de Windows: parámetro -PublicHost equivalente, y ahora fija
+  --public-url y --agent-tls-names coherentes.
+
 ## [0.9.4] — 2026-11-20
 
 ### Corregido

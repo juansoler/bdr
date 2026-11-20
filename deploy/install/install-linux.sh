@@ -11,7 +11,10 @@
 #   less install.sh
 #   sudo bash install.sh
 #
-# Opciones: --version vX.Y.Z  --base URL  --data-dir DIR  --no-service
+# Con terminal, pregunta en qué interfaz publicar (LAN, NetBird…) y si usar
+# IP o un nombre DNS. Sin terminal (curl|bash) publica el hostname.
+# Opciones: --version vX.Y.Z  --base URL  --data-dir DIR
+#           --public-host <ip|nombre>  --no-service
 # Variables: BDR_PUBLIC_HOST (host que alcanzan los agentes), BDR_PORT,
 #            BDR_AGENT_PORT.
 # =============================================================================
@@ -20,6 +23,7 @@ set -euo pipefail
 VERSION=""
 BASE_URL="https://github.com/juansoler/bdr/releases"
 DATA_DIR=""
+PUBLIC_HOST=""
 NO_SERVICE=0
 
 while [[ $# -gt 0 ]]; do
@@ -27,6 +31,7 @@ while [[ $# -gt 0 ]]; do
     --version) VERSION="$2"; shift 2 ;;
     --base) BASE_URL="$2"; shift 2 ;;
     --data-dir) DATA_DIR="$2"; shift 2 ;;
+    --public-host) PUBLIC_HOST="$2"; shift 2 ;;
     --no-service) NO_SERVICE=1; shift ;;
     *) echo "opción desconocida: $1" >&2; exit 2 ;;
   esac
@@ -153,7 +158,66 @@ for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
   fi
 done
 
-PUBLIC_HOST="${BDR_PUBLIC_HOST:-$(hostname -s || hostname)}"
+# pick_public_host: decide la dirección que publicarán agentes y one-liners.
+# Prioridad: --public-host (arg) > BDR_PUBLIC_HOST (env) > pregunta
+# interactiva (solo con terminal) > hostname.
+# Con `curl | bash` el stdin es el pipe: sin terminal → hostname + aviso.
+pick_public_host() {
+  if [[ -n "${PUBLIC_HOST:-}" ]]; then return 0; fi
+  local def
+  def="$(hostname -s 2>/dev/null || hostname)"
+  if [[ ! -t 0 ]]; then
+    PUBLIC_HOST="$def"
+    echo "aviso: instalación sin terminal — publicando con el hostname '$PUBLIC_HOST' (solo resuelve en LAN/mDNS)." >&2
+    echo "       Para publicar en otra interfaz (p. ej. NetBird): BDR_PUBLIC_HOST=<ip|nombre> o --public-host <ip|nombre>." >&2
+    return 0
+  fi
+  echo ""
+  echo "== Dirección publicada =="
+  echo "Agentes y one-liners alcanzarán el control por esta dirección."
+  local -a cands=()
+  if [[ $PLATFORM_OS = linux ]]; then
+    while read -r iface ip; do
+      cands+=("$iface|$ip")
+    done < <(ip -4 -o addr show scope global 2>/dev/null | awk '{iface=$2; ip=$4; sub(/\/.*/,"",ip); print iface" "ip}' | sort -u)
+  else
+    local iface="" ip="" line
+    while IFS= read -r line; do
+      case "$line" in
+        *": flags"*) iface="${line%%: *}"; iface="${iface// /}" ;;
+        "	inet "*|"    inet "*|"        inet "*) ip="${line#*inet }"; ip="${ip%% *}"; ip="${ip%%--*}"; ip="$(echo "$ip" | tr -d ' ')" ;;
+      esac
+      if [[ -n "$iface" && -n "$ip" && "$ip" != 127.* && "$ip" != 169.254.* ]]; then
+        cands+=("$iface|$ip"); iface=""; ip=""
+      fi
+    done < <(ifconfig 2>/dev/null)
+  fi
+  local n=${#cands[@]}
+  echo ""
+  local i=1
+  for c in "${cands[@]}"; do
+    local iface="${c%%|*}" ip="${c##*|}" nota=""
+    if [[ "$ip" == 100.* || "$iface" == *netbird* ]]; then nota=" · NetBird"; fi
+    echo "   $i) $ip ($iface$nota)"
+    i=$((i+1))
+  done
+  echo "   $((n+1)) hostname: $def — solo resuelve en LAN/mDNS"
+  echo "   $((n+2)) otro nombre DNS o IP (introducirlo)"
+  local choice
+  read -r -p "Publicar en [1-$((n+2)), Enter=hostname]: " choice || choice=""
+  choice="${choice// /}"
+  if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= n )); then
+    PUBLIC_HOST="${cands[$((choice-1))]##*|}"
+  elif [[ "$choice" == "$((n+2))" ]]; then
+    read -r -p "Nombre DNS o IP: " PUBLIC_HOST || true
+  else
+    PUBLIC_HOST="$def"
+  fi
+  if [[ -z "${PUBLIC_HOST:-}" ]]; then PUBLIC_HOST="$def"; fi
+  echo "  → publicando como: $PUBLIC_HOST"
+}
+PUBLIC_HOST="${BDR_PUBLIC_HOST:-}"
+pick_public_host
 PORT="${BDR_PORT:-8080}"; AGENT_PORT="${BDR_AGENT_PORT:-8443}"
 
 start_service() {

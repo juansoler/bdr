@@ -17,6 +17,7 @@ param(
   [string]$BaseUrl = "https://github.com/juansoler/bdr/releases",
   [int]$Port = 8080,
   [int]$AgentPort = 8443,
+  [string]$PublicHost = "",
   [switch]$NoService
 )
 
@@ -93,7 +94,14 @@ try {
       Start-Sleep -Seconds 2
     }
     $exe = Join-Path $installDir "bdr-control.exe"
-    $binPath = "`"$exe`" --addr 0.0.0.0:$Port --agent-addr 0.0.0.0:$AgentPort --agent-url https://$env:COMPUTERNAME`.$($env:USERDNSDOMAIN):$AgentPort --agent-tls-names localhost,127.0.0.1 --data-dir `"$dataDir\control`" --downloads-dir `"$agentsDir`" --kopia-binary `"$installDir\kopia.exe`""
+    # Dirección publicada: parámetro -PublicHost (IP NetBird o DNS de la malla)
+  # o el nombre del equipo (mDNS/LAN) por defecto.
+  if ($PublicHost) {
+    $hostForAgents = $PublicHost
+  } else {
+    $hostForAgents = "$env:COMPUTERNAME.$($env:USERDNSDOMAIN)"
+  }
+  $binPath = "`"$exe`" --addr 0.0.0.0:$Port --agent-addr 0.0.0.0:$AgentPort --public-url `"http://$hostForAgents`:$Port`" --agent-url `"https://$hostForAgents`:$AgentPort`" --agent-tls-names `"$hostForAgents,localhost`" --data-dir `"$dataDir\control`" --downloads-dir `"$agentsDir`" --kopia-binary `"$installDir\kopia.exe`""
     New-Service -Name bdr-control -DisplayName "BDR Control" -BinaryPathName $binPath -StartupType Automatic | Out-Null
     sc.exe failure bdr-control reset= 86400 actions= restart/5000/restart/10000/restart/300000 | Out-Null
     sc.exe description bdr-control "Plano de control y panel de BDR Self-Hosted" | Out-Null
