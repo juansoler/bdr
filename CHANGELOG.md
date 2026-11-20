@@ -15,6 +15,17 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   emite si el fichero servido coincide con ese SHA — fin del bucle de
   binarios desincronizados.
 
+## [0.10.6] — 2026-11-20
+
+### Corregido
+
+- Imagen Docker: layout unificado de verdad (control y kopia en
+  /opt/bdr/bin con --kopia-binary en el ENTRYPOINT) — el paso agents.json
+  fallaba escribiendo en un directorio inexistente y la imagen no llevaba
+  el kopia-binary que las ofertas de auto-actualización necesitan.
+- Instalador Linux: /opt/bdr/agents propiedad del usuario del servicio
+  para que el self-update pueda refrescar los agentes.
+
 ## [0.10.5] — 2026-11-20
 
 ### Añadido

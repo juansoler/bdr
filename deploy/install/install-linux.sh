@@ -146,8 +146,7 @@ fi
 # release (el bundle del servidor no los lleva) y se verifican con SHA256SUMS.
 mkdir -p /opt/bdr/agents
 curl -fsSL "$LATEST_URL/SHA256SUMS" -o "$TMP/SHA256SUMS"
-for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
-  # if/fi y no $( && ): con set -e, una asignación cuyo comando de
+for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do  # if/fi y no $( && ): con set -e, una asignación cuyo comando de
   # sustitución falla aborta el script aunque el fallo sea esperado.
   name="bdr-agent-$a"
   if [[ $a = windows-* ]]; then name="$name.exe"; fi
@@ -157,6 +156,11 @@ for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
       || { echo "el agente $name no coincide con SHA256SUMS — NO continuar" >&2; rm -f "/opt/bdr/agents/$name"; exit 1; }
   fi
 done
+# El self-update refresca estos agentes como el usuario del servicio: el
+# directorio debe ser suyo (los ficheros nuevos ya se crean con su dueño).
+if [[ $PLATFORM_OS = linux ]]; then
+  chown bdr:bdr /opt/bdr/agents
+fi
 
 # pick_public_host: decide la dirección que publicarán agentes y one-liners.
 # Prioridad: --public-host (arg) > BDR_PUBLIC_HOST (env) > pregunta

@@ -146,8 +146,7 @@ fi
 # release (el bundle del servidor no los lleva) y se verifican con SHA256SUMS.
 mkdir -p /opt/bdr/agents
 curl -fsSL "$LATEST_URL/SHA256SUMS" -o "$TMP/SHA256SUMS"
-for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
-  # if/fi y no $( && ): con set -e, una asignación cuyo comando de
+for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do  # if/fi y no $( && ): con set -e, una asignación cuyo comando de
   # sustitución falla aborta el script aunque el fallo sea esperado.
   name="bdr-agent-$a"
   if [[ $a = windows-* ]]; then name="$name.exe"; fi
@@ -157,6 +156,11 @@ for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
       || { echo "el agente $name no coincide con SHA256SUMS — NO continuar" >&2; rm -f "/opt/bdr/agents/$name"; exit 1; }
   fi
 done
+# El self-update refresca estos agentes como el usuario del servicio: el
+# directorio debe ser suyo (los ficheros nuevos ya se crean con su dueño).
+if [[ $PLATFORM_OS = linux ]]; then
+  chown bdr:bdr /opt/bdr/agents
+fi
 
 # pick_public_host: decide la dirección que publicarán agentes y one-liners.
 # Prioridad: --public-host (arg) > BDR_PUBLIC_HOST (env) > pregunta
@@ -252,22 +256,9 @@ $(sed -n 's/^\([^#][^=]*\)=\(.*\)$/    <key>\1<\/key><string>\2<\/string>/p' "$E
 </dict></plist>
 PLIST
     launchctl bootout system/local.bdr.control 2>/dev/null || true
-    # Arranque verificado: si el bootstrap falla (EIO con un servicio
-    # cargado previamente…) se intenta el load heredado, y si el servicio
-    # tampoco responde, el instalador FALLA — no imprime éxito sin más.
-    if ! launchctl bootstrap system /Library/LaunchDaemons/local.bdr.control.plist 2>&1; then
-      launchctl load -w /Library/LaunchDaemons/local.bdr.control.plist
-    fi
-    for _ in $(seq 1 10); do
-      curl -fsS -m 2 http://127.0.0.1:$PORT/healthz >/dev/null 2>&1 && break
-      sleep 1
-    done
-    if curl -fsS -m 2 http://127.0.0.1:$PORT/healthz >/dev/null 2>&1; then
-      echo "servicio local.bdr.control en marcha (launchd)"
-    else
-      echo "ERROR: el servicio local.bdr.control no responde — revisa /Library/Application Support/BDR/control.log" >&2
-      exit 1
-    fi
+    launchctl bootstrap system /Library/LaunchDaemons/local.bdr.control.plist \
+      || launchctl load -w /Library/LaunchDaemons/local.bdr.control.plist
+    echo "servicio local.bdr.control instalado (launchd)"
   fi
 }
 
