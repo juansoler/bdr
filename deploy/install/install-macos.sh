@@ -252,9 +252,22 @@ $(sed -n 's/^\([^#][^=]*\)=\(.*\)$/    <key>\1<\/key><string>\2<\/string>/p' "$E
 </dict></plist>
 PLIST
     launchctl bootout system/local.bdr.control 2>/dev/null || true
-    launchctl bootstrap system /Library/LaunchDaemons/local.bdr.control.plist \
-      || launchctl load -w /Library/LaunchDaemons/local.bdr.control.plist
-    echo "servicio local.bdr.control instalado (launchd)"
+    # Arranque verificado: si el bootstrap falla (EIO con un servicio
+    # cargado previamente…) se intenta el load heredado, y si el servicio
+    # tampoco responde, el instalador FALLA — no imprime éxito sin más.
+    if ! launchctl bootstrap system /Library/LaunchDaemons/local.bdr.control.plist 2>&1; then
+      launchctl load -w /Library/LaunchDaemons/local.bdr.control.plist
+    fi
+    for _ in $(seq 1 10); do
+      curl -fsS -m 2 http://127.0.0.1:$PORT/healthz >/dev/null 2>&1 && break
+      sleep 1
+    done
+    if curl -fsS -m 2 http://127.0.0.1:$PORT/healthz >/dev/null 2>&1; then
+      echo "servicio local.bdr.control en marcha (launchd)"
+    else
+      echo "ERROR: el servicio local.bdr.control no responde — revisa /Library/Application Support/BDR/control.log" >&2
+      exit 1
+    fi
   fi
 }
 

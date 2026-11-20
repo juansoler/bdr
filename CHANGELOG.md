@@ -15,6 +15,14 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   emite si el fichero servido coincide con ese SHA — fin del bucle de
   binarios desincronizados.
 
+## [0.10.2] — 2026-11-20
+
+### Corregido
+
+- Instalador de macOS: verifica que el servicio responde tras el arranque
+  (bootstrap + load heredado) y FALLA con el log del daemon si no — antes
+  imprimía éxito aunque el control viejo siguiera corriendo.
+
 ## [0.10.1] — 2026-11-20
 
 > Publicada sobre la v0.10.0 y sustituye también a la v0.9.5 (misma fecha,
