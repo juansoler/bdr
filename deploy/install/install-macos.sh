@@ -231,34 +231,59 @@ start_service() {
     systemctl enable --now bdr-control
     sleep 2; systemctl --no-pager --lines=5 status bdr-control || true
   else
-    cat > /Library/LaunchDaemons/local.bdr.control.plist <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>local.bdr.control</string>
-  <key>ProgramArguments</key><array>
-    <string>$BIN_DIR/bdr-control</string>
-    <string>--addr</string><string>0.0.0.0:$PORT</string>
-    <string>--agent-addr</string><string>0.0.0.0:$AGENT_PORT</string>
-    <string>--public-url</string><string>http://$PUBLIC_HOST:$PORT</string>
-    <string>--agent-url</string><string>https://$PUBLIC_HOST:$AGENT_PORT</string>
-    <string>--agent-tls-names</string><string>$PUBLIC_HOST,localhost</string>
-    <string>--data-dir</string><string>$DATA_DIR/control</string>
-    <string>--downloads-dir</string><string>/opt/bdr/agents</string>
-  </array>
-  <key>EnvironmentVariables</key><dict>
-$(sed -n 's/^\([^#][^=]*\)=\(.*\)$/    <key>\1<\/key><string>\2<\/string>/p' "$ETC/bdr.env")
-  </dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>$DATA_DIR/control.log</string>
-  <key>StandardErrorPath</key><string>$DATA_DIR/control.log</string>
-</dict></plist>
-PLIST
+    # Plist generado con plistlib (XML válido y valores escapados — el
+    # heredoc+sed rompía con valores de entorno con caracteres XML).
+    BDR_BIN_DIR="$BIN_DIR" BDR_PUBLIC_HOST="$PUBLIC_HOST" \
+    BDR_PORT="$PORT" BDR_AGENT_PORT="$AGENT_PORT" BDR_DATA_DIR="$DATA_DIR" \
+    /usr/bin/python3 - <<'PY'
+import os, plistlib
+
+DATA_DIR = os.environ["BDR_DATA_DIR"]
+pl = {
+    "Label": "local.bdr.control",
+    "ProgramArguments": [
+        os.environ["BDR_BIN_DIR"] + "/bdr-control",
+        "--addr", "0.0.0.0:" + os.environ["BDR_PORT"],
+        "--agent-addr", "0.0.0.0:" + os.environ["BDR_AGENT_PORT"],
+        "--public-url", "http://" + os.environ["BDR_PUBLIC_HOST"] + ":" + os.environ["BDR_PORT"],
+        "--agent-url", "https://" + os.environ["BDR_PUBLIC_HOST"] + ":" + os.environ["BDR_AGENT_PORT"],
+        "--agent-tls-names", os.environ["BDR_PUBLIC_HOST"] + ",localhost",
+        "--data-dir", DATA_DIR + "/control",
+        "--downloads-dir", "/opt/bdr/agents",
+        "--kopia-binary", os.environ["BDR_BIN_DIR"] + "/kopia",
+    ],
+    "EnvironmentVariables": {},
+    "RunAtLoad": True,
+    "KeepAlive": True,
+    "StandardOutPath": DATA_DIR + "/control.log",
+    "StandardErrorPath": DATA_DIR + "/control.log",
+}
+for line in open("/etc/bdr/bdr.env"):
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    pl["EnvironmentVariables"][k] = v
+path = "/Library/LaunchDaemons/local.bdr.control.plist"
+with open(path, "wb") as f:
+    plistlib.dump(pl, f)
+os.chmod(path, 0o644)
+os.chown(path, 0, 0)
+PY
     launchctl bootout system/local.bdr.control 2>/dev/null || true
-    launchctl bootstrap system /Library/LaunchDaemons/local.bdr.control.plist \
-      || launchctl load -w /Library/LaunchDaemons/local.bdr.control.plist
-    echo "servicio local.bdr.control instalado (launchd)"
+    if ! launchctl bootstrap system /Library/LaunchDaemons/local.bdr.control.plist 2>&1; then
+      launchctl load -w /Library/LaunchDaemons/local.bdr.control.plist
+    fi
+    for _ in $(seq 1 10); do
+      curl -fsS -m 2 http://127.0.0.1:$PORT/healthz >/dev/null 2>&1 && break
+      sleep 1
+    done
+    if curl -fsS -m 2 http://127.0.0.1:$PORT/healthz >/dev/null 2>&1; then
+      echo "servicio local.bdr.control en marcha (launchd)"
+    else
+      echo "ERROR: el servicio local.bdr.control no responde — revisa $DATA_DIR/control.log" >&2
+      exit 1
+    fi
   fi
 }
 

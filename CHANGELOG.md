@@ -15,6 +15,14 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   emite si el fichero servido coincide con ese SHA — fin del bucle de
   binarios desincronizados.
 
+## [0.10.8] — 2026-11-20
+
+### Corregido
+
+- Instalador de macOS: la plist de launchd se genera con plistlib (XML
+  válido y valores de entorno escapados) en vez de heredoc+sed, y el
+  arranque se verifica con healthz antes de dar el ok.
+
 ## [0.10.7] — 2026-11-20
 
 ### Corregido
