@@ -10,6 +10,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -37,9 +38,20 @@ func Handler() http.Handler {
 	}
 	fileServer := http.FileServer(http.FS(sub))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" || strings.HasSuffix(r.URL.Path, "/") {
+		path := strings.Trim(r.URL.Path, "/")
+		if path == "" {
 			path = "index.html"
+		}
+		if _, err := fs.Stat(sub, path); err != nil {
+			// El export de Next sin trailingSlash genera agents.html (no
+			// /agents/index.html): probamos <ruta>.html antes de caer al
+			// índice, que llegaría a pintar la portada hasta que el router
+			// de cliente recuperara la página correcta.
+			if htmlPath := path + ".html"; htmlPath != "index.html" {
+				if _, err := fs.Stat(sub, htmlPath); err == nil {
+					path = htmlPath
+				}
+			}
 		}
 		if _, err := fs.Stat(sub, path); err != nil {
 			// Sin fichero: devolvemos el índice (SPA) salvo en peticiones
@@ -60,6 +72,17 @@ func Handler() http.Handler {
 		if strings.HasPrefix(path, "_next/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
-		fileServer.ServeHTTP(w, r)
+		// FileServer resuelve por r.URL.Path: lo reescribimos a la ruta que
+		// hemos localizado (p. ej. /agents → /agents.html). Con el índice no
+		// hace falta: FileServer resuelve / → index.html y evitamos el 301.
+		if path == "index.html" {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		r2 := *r
+		r2.URL = new(url.URL)
+		*r2.URL = *r.URL
+		r2.URL.Path = "/" + path
+		fileServer.ServeHTTP(w, &r2)
 	})
 }
