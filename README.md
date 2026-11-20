@@ -149,6 +149,8 @@ de un solo uso):
 ```bash
 # Linux — en el equipo protegido
 curl -fsSL "https://bdr.example/api/v1/download/installer/linux-amd64/<TOKEN>" | sudo bash
+# o, con la sustitución de proceso que muestra los errores inline:
+sudo bash <(curl -fsSL "https://bdr.example/api/v1/download/installer/linux-amd64/<TOKEN>")
 ```
 
 ```powershell

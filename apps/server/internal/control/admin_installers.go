@@ -178,9 +178,9 @@ func (s *Server) linuxInstallerScript(serverURL, osarch, token string) string {
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
 mkdir -p "$BIN_DIR" "$DATA_DIR"
-curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent"
+curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "el servidor no sirvió el binario del agente ($SERVER/api/v1/download/agent/$OSARCH) — revisa el directorio de descargas del control (E_NO_BINARY)" >&2; exit 1; }
 chmod 0755 "$BIN_DIR/bdr-agent"
-"$BIN_DIR/bdr-agent" register --server "$SERVER" --token "$TOKEN" --data-dir "$DATA_DIR"
+"$BIN_DIR/bdr-agent" register --server "$SERVER" --token "$TOKEN" --data-dir "$DATA_DIR" || { echo "el enrolamiento falló — revisa el token y la conexión" >&2; exit 1; }
 if command -v systemctl >/dev/null 2>&1 && [ -z "${BDR_NO_SERVICE:-}" ]; then
 cat > /etc/systemd/system/bdr-agent.service <<UNIT
 [Unit]
@@ -257,9 +257,9 @@ func (s *Server) darwinInstallerScript(serverURL, osarch, token string) string {
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
 mkdir -p "$BIN_DIR" "$DATA_DIR"
-curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent"
+curl -fsSL "$SERVER/api/v1/download/agent/$OSARCH" -o "$BIN_DIR/bdr-agent" || { echo "el servidor no sirvió el binario del agente ($SERVER/api/v1/download/agent/$OSARCH) — revisa el directorio de descargas del control (E_NO_BINARY)" >&2; exit 1; }
 chmod 0755 "$BIN_DIR/bdr-agent"
-"$BIN_DIR/bdr-agent" register --server "$SERVER" --token "$TOKEN" --data-dir "$DATA_DIR"
+"$BIN_DIR/bdr-agent" register --server "$SERVER" --token "$TOKEN" --data-dir "$DATA_DIR" || { echo "el enrolamiento falló — revisa el token y la conexión" >&2; exit 1; }
 if [ -z "${BDR_NO_SERVICE:-}" ]; then
 cat > /Library/LaunchDaemons/local.bdr.agent.plist <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -360,9 +360,11 @@ func (s *Server) handleInstallers(w http.ResponseWriter, r *http.Request) {
 			one = "irm " + instURL + ext + " | iex"
 			instURL += ext
 		case "darwin":
-			one = "curl -fsSL " + instURL + " | sudo bash"
+			// Sustitución de proceso: los errores del instalador se ven
+			// inline, sin el (23) que enmascara el pipe de `| sudo bash`.
+			one = "sudo bash <(curl -fsSL " + instURL + ")"
 		default:
-			one = "curl -fsSL " + instURL + " | sudo bash"
+			one = "sudo bash <(curl -fsSL " + instURL + ")"
 		}
 		return http.StatusCreated, contracts.InstallerResponse{
 			OS: osName, Arch: arch, Token: token, ExpiresAt: rec.ExpiresAt,
