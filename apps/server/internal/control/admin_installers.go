@@ -198,7 +198,14 @@ RestartSec=15
 WantedBy=multi-user.target
 UNIT
   systemctl daemon-reload
-  systemctl enable --now bdr-agent
+  # Re-instalación sobre un agente vivo: register ya reescribió la config
+  # en el data-dir; sin el restart el proceso seguiría con la config vieja
+  # (heartbeats al control antiguo) y el panel no lo vería nunca online.
+  if systemctl is-active --quiet bdr-agent; then
+    systemctl restart bdr-agent
+  else
+    systemctl enable --now bdr-agent
+  fi
   echo "servicio bdr-agent instalado y en marcha"
 else
   echo "systemd no disponible; arranca el agente con:"

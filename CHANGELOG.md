@@ -2,6 +2,14 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.9.1] — 2026-11-20
+
+### Corregido
+
+- Instalador de agente Linux: al re-instalar sobre un agente ya activo,
+  reinicia el servicio — sin esto el proceso seguía con la config vieja
+  (heartbeats al control anterior) tras re-enrolar.
+
 ## [0.9.0] — 2026-11-20
 
 ### Añadido
