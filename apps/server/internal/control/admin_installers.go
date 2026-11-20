@@ -395,11 +395,13 @@ func (s *Server) handleInstallers(w http.ResponseWriter, r *http.Request) {
 			one = "irm " + instURL + ext + " | iex"
 			instURL += ext
 		case "darwin":
-			// Sustitución de proceso: los errores del instalador se ven
-			// inline, sin el (23) que enmascara el pipe de `| sudo bash`.
-			one = "sudo bash <(curl -fsSL " + instURL + ")"
+			// Dos pasos: sudo cierra los descriptores extra, así que la
+			// sustitución de proceso (bash <(curl …)) falla con "Bad file
+			// descriptor". Descargar a fichero y ejecutar después funciona
+			// en macOS, Linux con sudo y Linux sin sudo.
+			one = "curl -fsSL " + instURL + " -o /tmp/bdr-install.sh && sudo bash /tmp/bdr-install.sh"
 		default:
-			one = "sudo bash <(curl -fsSL " + instURL + ")"
+			one = "curl -fsSL " + instURL + " -o /tmp/bdr-install.sh && sudo bash /tmp/bdr-install.sh"
 		}
 		return http.StatusCreated, contracts.InstallerResponse{
 			OS: osName, Arch: arch, Token: token, ExpiresAt: rec.ExpiresAt,

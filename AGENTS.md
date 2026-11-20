@@ -58,8 +58,11 @@ para que cualquier corrección o feature llegue publicada.
   falla en falso.
 - `shasum -c` resuelve los nombres **tal y como figuran en SHA256SUMS**:
   descarga los ficheros con su nombre real, no con un alias.
-- Los one-liners del panel son `sudo bash <(curl -fsSL URL)` — el pipe
-  `| bash` enmascara los errores reales del instalador con `curl: (23)`.
+- Los one-liners del panel son **dos pasos**: `curl … -o /tmp/bdr-install.sh &&
+  sudo bash /tmp/bdr-install.sh`. **Nunca `bash <(curl …)` con sudo** (sudo
+  cierra los descriptores extra → "Bad file descriptor") ni `| bash` con
+  sudo (enmascara errores con `curl: (23)`). Sistemas sin sudo (Debian
+  minimal, pve): ejecutar directamente como root.
 - El instalador nativo debe: inicializar el repositorio Kopia una vez
   (idempotente), exportar `BDR_KOPIA_KIND`/`BDR_KOPIA_REPO_PATH`, y en la
   unidad pasar `--kopia-binary` y `--downloads-dir` (systemd/launchd no ven

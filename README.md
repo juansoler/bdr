@@ -148,9 +148,9 @@ de un solo uso):
 
 ```bash
 # Linux — en el equipo protegido
-curl -fsSL "https://bdr.example/api/v1/download/installer/linux-amd64/<TOKEN>" | sudo bash
-# o, con la sustitución de proceso que muestra los errores inline:
-sudo bash <(curl -fsSL "https://bdr.example/api/v1/download/installer/linux-amd64/<TOKEN>")
+# Linux — dos pasos: descarga a fichero y ejecuta (evita el clásico
+# "Bad file descriptor" de sudo+fd y funciona con o sin sudo)
+curl -fsSL "https://bdr.example/api/v1/download/installer/linux-amd64/<TOKEN>" -o /tmp/bdr-install.sh && sudo bash /tmp/bdr-install.sh
 ```
 
 ```powershell
