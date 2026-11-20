@@ -209,7 +209,8 @@ func runControl(ctx context.Context, o controlOpts) error {
 	if kopia.ServerSide() {
 		logger.Info("repositorio Kopia accesible por el plano de control", "kind", kopia.KindName)
 	} else if kopia.KindName != "" {
-		logger.Warn("repositorio Kopia declarado pero sin conexión directa; navegación y verificación deshabilitadas")
+		logger.Warn("repositorio Kopia declarado pero sin conexión directa; navegación y verificación deshabilitadas",
+			"detalle", kopia.LastConnError)
 	}
 
 	api := control.New(st, token, logger, version.Version)

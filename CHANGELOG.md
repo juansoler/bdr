@@ -15,6 +15,14 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   emite si el fichero servido coincide con ese SHA — fin del bucle de
   binarios desincronizados.
 
+## [0.10.7] — 2026-11-20
+
+### Corregido
+
+- La conexión Kopia del control registra el error real
+  (kopia repository status) en el aviso "sin conexión directa" — antes se
+  tragaba y la depuración era a ciegas.
+
 ## [0.10.6] — 2026-11-20
 
 ### Corregido

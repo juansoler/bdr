@@ -38,6 +38,9 @@ type KopiaControl struct {
 	ServerControlPass string
 	// serverSide indica si hay conexión directa usable.
 	serverSide bool
+	// LastConnError conserva el fallo real de la comprobación de conexión
+	// (`kopia repository status`) para poder depurar el "sin conexión".
+	LastConnError string
 }
 
 // NewKopiaControl crea el wrapper; determina si hay conexión directa probando
@@ -55,6 +58,10 @@ func NewKopiaControl(binary, configFile, password, kind, repoPath, serverURL, se
 		if _, err := os.Stat(configFile); err == nil {
 			if _, err := k.run(context.Background(), 20*time.Second, "repository", "status"); err == nil {
 				k.serverSide = true
+			} else {
+				// El detalle del fallo (contraseña, repo inexistente…) es
+				// lo que permite depurar la conexión del plano de control.
+				k.LastConnError = err.Error()
 			}
 		}
 	}
