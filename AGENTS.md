@@ -74,6 +74,11 @@ para que cualquier corrección o feature llegue publicada.
   — un `cp` de `RUN` no ve el filesystem de otra fase.
 - `govulncheck` en CI debe ir **fijado a versión** (no `@latest`): no
   reproducible y candidato a fallos esporádicos.
+- NetBird: el primer "NetBird IP" de `netbird status --detail` es el del
+  **servidor de gestión** (primer peer listado), NO el de la máquina propia.
+  La identidad propia está en `netbird status` (líneas `FQDN:` y
+  `NetBird IP:`). Para `--public-url` usa el FQDN propio de NetBird
+  (`<host>.netbird.cloud`) — lo resuelve el DNS de la malla y es estable.
 - La instalación del agente Windows genera servicio con recuperación
   automática (SCM); la de Linux systemd y la de macOS launchd — no mezclar
   tareas programadas con servicios.
