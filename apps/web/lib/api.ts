@@ -705,6 +705,7 @@ export interface StorageTargetView {
   endpoint?: string;
   bucket?: string;
   prefix?: string;
+  region?: string;
   path?: string;
   smb?: boolean;
   smb_user?: string;

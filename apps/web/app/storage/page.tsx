@@ -25,6 +25,7 @@ export default function StoragePage() {
   const [endpoint, setEndpoint] = useState("");
   const [bucket, setBucket] = useState("");
   const [prefix, setPrefix] = useState("");
+  const [region, setRegion] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [secretKey, setSecretKey] = useState("");
   const [noTLS, setNoTLS] = useState(true);
@@ -80,6 +81,7 @@ export default function StoragePage() {
           }
         : {
             name, kind, endpoint, bucket, prefix: prefix || undefined,
+            region: region || undefined,
             access_key: accessKey, secret_key: secretKey, no_tls: noTLS,
             object_lock: objectLock, retention_days: retentionDays,
             sync_interval_minutes: syncInterval, enabled: true,
@@ -117,6 +119,7 @@ export default function StoragePage() {
     setEndpoint(t.endpoint ?? "");
     setBucket(t.bucket ?? "");
     setPrefix(t.prefix ?? "");
+    setRegion(t.region ?? "");
     setAccessKey(t.access_key ?? "");
     setSecretKey(""); // vacío = conserva el secreto cifrado actual
     setNoTLS(t.no_tls);
@@ -259,6 +262,11 @@ export default function StoragePage() {
             <Field label="Prefijo (opcional)" hint={isSMB ? "Subdirectorio dentro del recurso" : isFS ? "Subdirectorio dentro de la ruta" : "Para separar usos del mismo bucket (p. ej. imagen)"}>
               <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder={isFS ? "imagen" : "imagen"} />
             </Field>
+            {!isFS && !isSMB ? (
+              <Field label="Región (opcional)" hint="Código de ubicación del proveedor S3 (p. ej. hel1 en Hetzner, us-east-1 en AWS)">
+                <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="hel1" />
+              </Field>
+            ) : null}
             {!isFS ? (
               <Field label="Retención (días)" hint="Object Lock GOVERNANCE: 0 = sin lock">
                 <Input type="number" min={0} value={retentionDays}

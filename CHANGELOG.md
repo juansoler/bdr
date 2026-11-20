@@ -15,6 +15,16 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   emite si el fichero servido coincide con ese SHA — fin del bucle de
   binarios desincronizados.
 
+## [0.10.5] — 2026-11-20
+
+### Añadido
+
+- Destinos S3: campo Región (opcional) — el verify la pasa al cliente
+  MinIO y la réplica sync-to ya la incluía. Útil en proveedores que exigen
+  la región en la firma (hel1 en Hetzner).
+- Mensaje de fallo de escritura con pista accionable cuando el Object Lock
+  es la causa (bucket creado sin lock — InvalidRequest en Hetzner).
+
 ## [0.10.4] — 2026-11-20
 
 ### Corregido

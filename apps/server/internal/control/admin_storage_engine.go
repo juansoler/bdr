@@ -40,6 +40,7 @@ func (s *Server) storageCheck(ctx context.Context, t *store.StorageTarget) strin
 	mc, err := minio.New(endpoint, &minio.Options{
 		Creds:        credentials.NewStaticV4(t.AccessKey, sk, ""),
 		Secure:       secure,
+		Region:       t.Region,
 		BucketLookup: minio.BucketLookupPath,
 	})
 	if err != nil {
@@ -69,7 +70,14 @@ func (s *Server) storageCheck(ctx context.Context, t *store.StorageTarget) strin
 	}
 	_, err = mc.PutObject(ctx, t.Bucket, key, strings.NewReader("verificación BDR"), 16, opts)
 	if err != nil {
-		return "error: escritura de prueba fallida (" + firstLines(err.Error(), 1) + ")"
+		msg := "error: escritura de prueba fallida (" + firstLines(err.Error(), 1) + ")"
+		if t.ObjectLock && t.RetentionDays > 0 && strings.Contains(err.Error(), "InvalidRequest") {
+			// Un PUT con cabeceras de lock sobre un bucket creado sin lock
+			// da InvalidRequest (Hetzner: el lock solo se habilita al crear
+			// el bucket). Damos la pista accionable.
+			msg += " — con Object Lock activo, el bucket debe haberse creado con Object Lock en el proveedor; crea el bucket con lock o desactiva el Object Lock en el destino"
+		}
+		return msg
 	}
 	err = mc.RemoveObject(ctx, t.Bucket, key, minio.RemoveObjectOptions{
 		GovernanceBypass: t.ObjectLock,
