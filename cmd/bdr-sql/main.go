@@ -105,7 +105,9 @@ func runBackup(ctx context.Context, args []string) error {
 	bt := fs.String("type", "full", "tipo: full|diff|log|copy-only")
 	verify := fs.Bool("verify", true, "verificar el medio tras el backup (RESTORE VERIFYONLY)")
 	stagingRoot := fs.String("staging", "/tmp/bdr-staging", "carpeta staging (accesible por SQL Server)")
-	repoPath := fs.String("repo", "/tmp/bdr-repo", "carpeta destino repositorio (NAS local)")
+	repoPath := fs.String("repo", "/tmp/bdr-repo", "carpeta destino repositorio local (NAS local)")
+	target := fs.String("target", "", "destino alternativo: s3://endpoint/bucket[/prefijo] o //host/recurso[/ruta]; credenciales por entorno (BDR_S3_*, BDR_SMB_*)")
+	retainDays := fs.Int("retain-days", 0, "Object Lock GOVERNANCE en S3 (días; 0 = sin bloqueo)")
 	fs.Parse(args)
 
 	if *database == "" {
@@ -122,7 +124,20 @@ func runBackup(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	transferer := storage.NewTransferer(storage.Repository{Type: "nas", Path: *repoPath})
+
+	// Destino del repositorio: -target (S3/SMB con credenciales por entorno)
+	// o -repo (ruta local del lab).
+	var transferer storage.Transferer
+	if *target != "" {
+		transferer, err = storage.ParseTargetURI(*target, os.Getenv, *retainDays)
+	} else {
+		transferer = storage.NewTransferer(storage.Repository{Type: "nas", Path: *repoPath})
+	}
+	if err != nil {
+		return err
+	}
+	defer transferer.Close()
+
 	catalog := metadata.NewInMemoryCatalog()
 	orch := orchestrator.New(db, sm, transferer, catalog, *database)
 

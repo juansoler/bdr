@@ -14,13 +14,14 @@ import (
 type Orquestador struct {
 	db         *connector.DB
 	staging    *backup.StagingManager
-	transferer *storage.Transferer
+	transferer storage.Transferer
 	catalog    metadata.Catalog
 	database   string
 }
 
 // New crea un Orquestador listo para ejecutar planes de backup.
-func New(db *connector.DB, sm *backup.StagingManager, t *storage.Transferer, c metadata.Catalog, database string) *Orquestador {
+// t puede ser cualquier backend de storage.Transferer (local, SMB o S3).
+func New(db *connector.DB, sm *backup.StagingManager, t storage.Transferer, c metadata.Catalog, database string) *Orquestador {
 	return &Orquestador{
 		db:         db,
 		staging:    sm,

@@ -16,6 +16,7 @@ type BackupInfo struct {
 	BackupType  backup.Type       `json:"backup_type"`
 	StartedAt   time.Time         `json:"started_at"`
 	FinishedAt  time.Time         `json:"finished_at"`
+	DurationSec float64           `json:"duration_sec"`
 	SizeBytes   int64             `json:"size_bytes"`
 	Checksum    bool              `json:"checksum"`
 	Compression bool              `json:"compression"`
@@ -144,6 +145,7 @@ func NewBackupInfo(res *backup.Result, database, instance string, t backup.Type,
 	if !res.FinishedAt.IsZero() {
 		info.StartedAt = now.Add(-time.Duration(res.DurationSec) * time.Second)
 	}
+	info.DurationSec = res.DurationSec
 	return info
 }
 

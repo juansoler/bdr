@@ -12,34 +12,36 @@ import (
 )
 
 type Repository struct {
-	Type      string // "nas" | "s3"
+	Type      string // "nas" | "s3" (solo informativo para el backend local)
 	Path      string // ruta local o bucket/S3
 	Retention backup.RetentionPolicy
 	Labels    map[string]string
 }
 
-type Transferer struct {
+// localTransferer transfiere a una ruta local o montada en el host
+// (laboratorio: NAS simulado o NAS ya montado por el sistema).
+type localTransferer struct {
 	repo Repository
 }
 
-// NewTransferer crea un transferidor para el repositorio dado.
-func NewTransferer(repo Repository) *Transferer {
-	return &Transferer{repo: repo}
-}
-
-// Transfer mueve un archivo de staging al repositorio.
-// En producción, si Type == "s3", se usaría la SDK de S3 (AWS CLI, MinIO, etc.).
-func (t *Transferer) Transfer(ctx context.Context, stagingPath string) (repoPath string, err error) {
+// Transfer mueve un archivo de staging al repositorio local.
+// La escritura es atómica (temporal + rename): si el proceso muere a mitad
+// no queda un fichero a medias con nombre definitivo.
+func (t *localTransferer) Transfer(ctx context.Context, stagingPath string) (string, error) {
 	if err := os.MkdirAll(t.repo.Path, 0750); err != nil {
 		return "", fmt.Errorf("crear destino repo %s: %w", t.repo.Path, err)
 	}
 
-	base := filepath.Base(stagingPath)
-	dest := filepath.Join(t.repo.Path, base)
+	dest := filepath.Join(t.repo.Path, filepath.Base(stagingPath))
+	tmp := dest + ".bdr-tmp"
 
-	// Copiar archivo (en producción, esto sería un upload S3 o movimiento NFS)
-	if err := copyFile(stagingPath, dest); err != nil {
+	if err := copyFile(stagingPath, tmp); err != nil {
+		_ = os.Remove(tmp)
 		return "", fmt.Errorf("transferir %s -> %s: %w", stagingPath, dest, err)
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("renombrar %s -> %s: %w", tmp, dest, err)
 	}
 
 	// En el control plane real, este paso registraría el objeto y su checksum
@@ -50,7 +52,7 @@ func (t *Transferer) Transfer(ctx context.Context, stagingPath string) (repoPath
 
 // Cleanup elimina el archivo del repositorio (para pruebas o emergencia).
 // En S3 Object Lock, esto depende de las credenciales del agente (sin bypass).
-func (t *Transferer) Cleanup(ctx context.Context, repoPath string) error {
+func (t *localTransferer) Cleanup(ctx context.Context, repoPath string) error {
 	if err := os.Remove(repoPath); err != nil {
 		return fmt.Errorf("eliminar %s: %w", repoPath, err)
 	}
@@ -58,7 +60,7 @@ func (t *Transferer) Cleanup(ctx context.Context, repoPath string) error {
 }
 
 // List lista los objetos del repositorio (para diagnóstico).
-func (t *Transferer) List(ctx context.Context, prefix string) ([]string, error) {
+func (t *localTransferer) List(ctx context.Context, prefix string) ([]string, error) {
 	entries, err := os.ReadDir(t.repo.Path)
 	if err != nil {
 		return nil, fmt.Errorf("leer directorio repo: %w", err)
@@ -74,6 +76,9 @@ func (t *Transferer) List(ctx context.Context, prefix string) ([]string, error) 
 	}
 	return out, nil
 }
+
+// Close no-op para el backend local.
+func (t *localTransferer) Close() error { return nil }
 
 // copyFile copia un archivo local.
 func copyFile(src, dst string) error {
