@@ -288,7 +288,7 @@ func (s *Server) storageEnsureRepo(ctx context.Context, t *store.StorageTarget) 
 			region = contracts.DetectS3Region(t.Endpoint)
 		}
 		connect = []string{"repository", "connect", "s3",
-			"--endpoint=" + t.Endpoint, "--bucket=" + t.Bucket}
+			"--endpoint=" + contracts.S3EndpointHost(t.Endpoint), "--bucket=" + t.Bucket}
 		if p := strings.Trim(t.Prefix, "/"); p != "" {
 			connect = append(connect, "--prefix="+p+"/")
 		}

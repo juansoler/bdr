@@ -6,6 +6,21 @@ import (
 	"strings"
 )
 
+// S3EndpointHost normaliza un endpoint S3 a "host[:puerto]" sin esquema ni
+// ruta: kopia (minio-go v7.2) rechaza endpoints con esquema ("Endpoint url
+// cannot have fully qualified paths") y el puerto indicado debe respetarse
+// tal cual (MinIO/SILO separan API y consola: 9000 vs 9001).
+func S3EndpointHost(endpoint string) string {
+	e := strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if i := strings.Index(e, "://"); i > 0 && !strings.ContainsAny(e[:i], "/?#") {
+		e = e[i+3:]
+	}
+	if i := strings.IndexAny(e, "/?#"); i >= 0 {
+		e = e[:i]
+	}
+	return e
+}
+
 // DetectS3Region deduce la región a partir del endpoint de proveedores S3
 // conocidos (Hetzner Object Storage, DigitalOcean Spaces, AWS S3, Wasabi,
 // Linode/Akamai, Scaleway, Backblaze B2). Devuelve "" si no se puede deducir.

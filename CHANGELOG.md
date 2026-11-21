@@ -26,6 +26,17 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   vía env `KOPIA_PASSWORD`; keychain/persist eran no determinados en
   servicios con PATH mínimo).
 
+## [0.11.7] — 2026-11-21
+
+### Corregido
+
+- Endpoints S3 con esquema y puerto (p. ej. `http://10.10.9.58:9000`): el
+  puerto indicado se respeta en verificación, réplica (`sync-to`),
+  aprovisionamiento y credenciales entregadas al agente. El esquema ya no
+  llega a kopia (minio-go interno lo rechaza con "Endpoint url cannot have
+  fully qualified paths"): se normaliza a host:puerto y el TLS lo decide
+  `no_tls`/el esquema registrado.
+
 ## [0.11.6] — 2026-11-21
 
 ### Corregido

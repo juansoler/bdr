@@ -2,6 +2,24 @@ package contracts
 
 import "testing"
 
+func TestS3EndpointHost(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"10.10.9.58:9000", "10.10.9.58:9000"},
+		{"http://10.10.9.58:9000", "10.10.9.58:9000"},
+		{"https://10.10.9.58:9000/", "10.10.9.58:9000"},
+		{"http://10.10.9.58:9000/", "10.10.9.58:9000"},
+		{"HTTPS://fsn1.your-objectstorage.com", "fsn1.your-objectstorage.com"},
+		{"https://minio.local:9000/ruta", "minio.local:9000"},
+		{" fsn1.your-objectstorage.com ", "fsn1.your-objectstorage.com"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := S3EndpointHost(c.in); got != c.want {
+			t.Errorf("S3EndpointHost(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestDetectS3Region(t *testing.T) {
 	cases := []struct {
 		endpoint string

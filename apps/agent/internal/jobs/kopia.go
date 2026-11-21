@@ -227,7 +227,7 @@ func ConnectArgs(creds contracts.RepositoryCredentials, configFile, cacheDir str
 			return nil, &CodeError{Code: "E_KOPIA_AUTH", Message: "las credenciales del repositorio S3 no incluyen endpoint o bucket"}
 		}
 		args = []string{"repository", "connect", "s3",
-			"--endpoint=" + creds.Endpoint, "--bucket=" + creds.Bucket}
+			"--endpoint=" + contracts.S3EndpointHost(creds.Endpoint), "--bucket=" + creds.Bucket}
 		region := creds.Region
 		if region == "" {
 			region = contracts.DetectS3Region(creds.Endpoint)
