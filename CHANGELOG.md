@@ -31,6 +31,16 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   (kopia repository status) en el aviso "sin conexión directa" — antes se
   tragaba y la depuración era a ciegas.
 
+## [0.11.0] — 2026-11-21
+
+### Añadido
+
+- **Autodetección de kopia junto al binario del control**: si `kopia` vive en
+  el directorio del propio binario (layout /opt/bdr, Docker) se usa aunque
+  launchd/systemd no lo vean en el PATH — el flag `--kopia-binary` queda
+  como override explícito. Elimina la clase de fallos "sin conexión directa"
+  por PATH mínimo de servicios.
+
 ## [0.10.6] — 2026-11-20
 
 ### Corregido

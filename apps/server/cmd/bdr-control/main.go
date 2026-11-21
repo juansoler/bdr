@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -201,6 +202,22 @@ func runControl(ctx context.Context, o controlOpts) error {
 	// Conexión directa del plano de control al repositorio Kopia (opcional):
 	// el operador la crea con el CLI estándar de Kopia usando el mismo
 	// kopia.config; el servidor la usa para navegar y verificar.
+	// Autodetección de kopia junto al binario: en los layouts /opt/bdr y
+	// Docker kopia vive junto al control, pero launchd/servicios tienen un
+	// PATH mínimo que no lo encuentra. Si el operador fijó --kopia-binary
+	// explícito, se respeta.
+	if o.kopiaBinary == "kopia" {
+		if exe, err := os.Executable(); err == nil {
+			name := "kopia"
+			if runtime.GOOS == "windows" {
+				name = "kopia.exe"
+			}
+			if local := filepath.Join(filepath.Dir(exe), name); fileExists(local) {
+				o.kopiaBinary = local
+				logger.Info("kopia autodetectado junto al binario del control", "path", local)
+			}
+		}
+	}
 	kopiaConfig := filepath.Join(filepath.Clean(o.dataDir), "kopia.config")
 	kopia := control.NewKopiaControl(o.kopiaBinary, kopiaConfig, os.Getenv("BDR_KOPIA_PASSWORD"),
 		os.Getenv("BDR_KOPIA_KIND"), os.Getenv("BDR_KOPIA_REPO_PATH"),
@@ -377,6 +394,12 @@ func runControl(ctx context.Context, o controlOpts) error {
 		logger.Error("no se pudo cerrar el almacenamiento limpiamente", "error", err.Error())
 	}
 	return nil
+}
+
+// fileExists comprueba que existe un fichero regular.
+func fileExists(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
 }
 
 // bootstrapAdmin crea el primer usuario si BDR_ADMIN_EMAIL y BDR_ADMIN_PASSWORD están definidos.
