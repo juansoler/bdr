@@ -4,7 +4,10 @@
 package control
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -44,9 +47,19 @@ func (s *Server) handleCreateTerminalSession(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
+	// Todos los campos son opcionales: un cuerpo vacío (POST sin JSON)
+	// equivale a la petición por defecto.
 	var req contracts.CreateTerminalSessionRequest
-	if !decodeJSON(w, r, &req, maxBodyAdmin) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyAdmin))
+	if err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "No se pudo leer el cuerpo")
 		return
+	}
+	if len(bytes.TrimSpace(body)) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "El cuerpo no es JSON válido")
+			return
+		}
 	}
 	if err := validateCreateRequest(req); err != nil {
 		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", err.Error())
@@ -54,7 +67,7 @@ func (s *Server) handleCreateTerminalSession(w http.ResponseWriter, r *http.Requ
 	}
 
 	var agent store.Agent
-	err := s.Store.View(r.Context(), func(st *store.State) error {
+	err = s.Store.View(r.Context(), func(st *store.State) error {
 		a0 := st.Agents[agentID]
 		if a0 == nil || a0.RevokedAt != nil {
 			return store.ErrNotFound

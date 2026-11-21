@@ -2,6 +2,15 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.4] — 2026-11-21
+
+### Corregido
+
+- **`POST …/terminal/sessions` con cuerpo vacío devolvía 400
+  `E_VALIDATION`** («El cuerpo está vacío»): el handler exigía JSON válido,
+  pero la petición tiene todos los campos opcionales. Ahora un cuerpo vacío
+  equivale a los valores por defecto y el panel envía `{}` explícito.
+
 ## [0.12.3] — 2026-11-21
 
 ### Corregido

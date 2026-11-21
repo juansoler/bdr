@@ -73,6 +73,7 @@ export function TerminalConsole({ agentId }: { agentId: string }) {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           credentials: "include",
+          body: "{}",
         });
         if (!resp.ok) {
           const txt = await resp.text();
