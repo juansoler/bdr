@@ -235,6 +235,7 @@ func cmdRun(args []string) {
 	executor.SetImageRunner(jobs.NewImageRunner(*dataDir, log, *kopiaBinary, *kopiaConfig))
 	executor.SetVMRunner(jobs.NewVMRunner(*dataDir, log))
 	executor.SetLXCRunner(jobs.NewVMRunner(*dataDir, log))
+	executor.SetSQLRunner(jobs.NewSQLMotor())
 
 	hbInterval := *interval
 	leaseWait := 20

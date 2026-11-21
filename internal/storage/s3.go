@@ -3,8 +3,10 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -97,6 +99,39 @@ func (s *s3Transferer) Transfer(ctx context.Context, srcPath string) (string, er
 		return "", fmt.Errorf("subir %s a s3://%s/%s: %w", fi.Name(), s.bucket, key, err)
 	}
 	return "s3://" + s.bucket + "/" + key, nil
+}
+
+// Fetch descarga un objeto del bucket (por URI s3://bucket/clave) al
+// staging local con streaming.
+func (s *s3Transferer) Fetch(ctx context.Context, uri, destPath string) error {
+	key, err := s.uriToKey(uri)
+	if err != nil {
+		return err
+	}
+	obj, err := s.mc.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("descargar s3://%s/%s: %w", s.bucket, key, err)
+	}
+	defer obj.Close()
+
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+		return err
+	}
+	tmp := destPath + ".bdr-tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, obj); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("descargar %s: %w", key, err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, destPath)
 }
 
 // List lista las URIs s3:// bajo el prefijo dado (o el del destino).

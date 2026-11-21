@@ -134,6 +134,44 @@ func (s *smbTransferer) Transfer(ctx context.Context, srcPath string) (string, e
 	return s.uri(dest), nil
 }
 
+// Fetch descarga un objeto del share (por URI UNC del propio destino) al
+// staging local con streaming y escritura atómica.
+func (s *smbTransferer) Fetch(ctx context.Context, uri, destPath string) error {
+	p := `\\` + s.host + `\` + s.shareName + `\`
+	if !strings.HasPrefix(uri, p) {
+		return fmt.Errorf("URI %s no pertenece al recurso \\\\%s\\%s", uri, s.host, s.shareName)
+	}
+	rel := strings.ReplaceAll(strings.TrimPrefix(uri, p), `\`, "/")
+	if s.root != "" && !strings.HasPrefix(rel, s.root+"/") {
+		return fmt.Errorf("ruta %s fuera del subdirectorio del destino", rel)
+	}
+
+	in, err := s.share.Open(rel)
+	if err != nil {
+		return fmt.Errorf("abrir %s en el recurso: %w", rel, err)
+	}
+	defer in.Close()
+
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+		return err
+	}
+	tmp := destPath + ".bdr-tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("descargar %s: %w", rel, err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, destPath)
+}
+
 // uri construye la URI UNC de una ruta relativa al root.
 func (s *smbTransferer) uri(relPath string) string {
 	full := smbJoin(s.root, relPath)

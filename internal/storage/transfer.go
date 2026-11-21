@@ -50,6 +50,22 @@ func (t *localTransferer) Transfer(ctx context.Context, stagingPath string) (str
 	return dest, nil
 }
 
+// Fetch copia un objeto del repositorio local al staging (por ruta).
+func (t *localTransferer) Fetch(ctx context.Context, uri, destPath string) error {
+	if uri == "" {
+		return fmt.Errorf("URI de objeto vacía")
+	}
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
+		return err
+	}
+	tmp := destPath + ".bdr-tmp"
+	if err := copyFile(uri, tmp); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, destPath)
+}
+
 // Cleanup elimina el archivo del repositorio (para pruebas o emergencia).
 // En S3 Object Lock, esto depende de las credenciales del agente (sin bypass).
 func (t *localTransferer) Cleanup(ctx context.Context, repoPath string) error {

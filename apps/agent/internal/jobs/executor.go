@@ -96,6 +96,7 @@ type Executor struct {
 	imageRunner ImageCapturer
 	vmRunner    VMOperator
 	lxcRunner   LXOperator
+	sqlRunner   SQLRunner
 }
 
 // NewExecutor crea un ejecutor.
@@ -123,6 +124,14 @@ func (e *Executor) Execute(ctx context.Context, job contracts.JobView, opts RunO
 		return e.executeBackupLXC(ctx, job, opts)
 	case contracts.JobTypeRestoreLXC:
 		return e.executeRestoreLXC(ctx, job, opts)
+	case contracts.JobTypeSQLBackup:
+		return e.executeSQLBackup(ctx, job, opts)
+	case contracts.JobTypeSQLRestore:
+		return e.executeSQLRestore(ctx, job, opts)
+	case contracts.JobTypeSQLVerify:
+		return e.executeSQLVerify(ctx, job, opts)
+	case contracts.JobTypeSQLInventory:
+		return e.executeSQLInventory(ctx, job, opts)
 	default:
 		return nil, &CodeError{Code: "E_JOB_TYPE", Message: "tipo de job no soportado: " + job.Type}
 	}
@@ -161,6 +170,23 @@ type LXOperator interface {
 // SetLXCRunner inyecta el runner de contenedores LXC.
 func (e *Executor) SetLXCRunner(r LXOperator) { e.lxcRunner = r }
 
+// SQLRunner ejecuta los jobs del motor SQL Server (RF-40/A-11): backup,
+// restauración, verificación e inventario sobre la instancia del host.
+// Opcional: los agentes sin soporte SQL responden E_JOB_TYPE, como el resto
+// de runners.
+type SQLRunner interface {
+	Backup(ctx context.Context, creds *contracts.RepositoryCredentials,
+		payload contracts.SQLBackupJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
+	Restore(ctx context.Context, creds *contracts.RepositoryCredentials,
+		payload contracts.SQLRestoreJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
+	Verify(ctx context.Context, creds *contracts.RepositoryCredentials,
+		payload contracts.SQLVerifyJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
+	Inventory(ctx context.Context, payload contracts.SQLInventoryJobPayload) (json.RawMessage, error)
+}
+
+// SetSQLRunner inyecta el runner del motor SQL Server.
+func (e *Executor) SetSQLRunner(r SQLRunner) { e.sqlRunner = r }
+
 func (e *Executor) executeBackupLXC(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
 	if e.lxcRunner == nil {
 		return nil, &CodeError{Code: "E_JOB_TYPE",
@@ -189,6 +215,63 @@ func (e *Executor) executeRestoreLXC(ctx context.Context, job contracts.JobView,
 		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
 		e.log(opts, "info", msg)
 	})
+}
+
+func (e *Executor) executeSQLBackup(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.sqlRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor SQL Server (instala el agente en el host SQL, versión >= 0.14.0)"}
+	}
+	var payload contracts.SQLBackupJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.sqlRunner.Backup(ctx, opts.Credentials, payload, func(percent int, msg string, bytesDone int64) {
+		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
+		e.log(opts, "info", msg)
+	})
+}
+
+func (e *Executor) executeSQLRestore(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.sqlRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor SQL Server (instala el agente en el host SQL, versión >= 0.14.0)"}
+	}
+	var payload contracts.SQLRestoreJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.sqlRunner.Restore(ctx, opts.Credentials, payload, func(percent int, msg string, bytesDone int64) {
+		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
+		e.log(opts, "info", msg)
+	})
+}
+
+func (e *Executor) executeSQLVerify(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.sqlRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor SQL Server (instala el agente en el host SQL, versión >= 0.14.0)"}
+	}
+	var payload contracts.SQLVerifyJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.sqlRunner.Verify(ctx, opts.Credentials, payload, func(percent int, msg string, bytesDone int64) {
+		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
+		e.log(opts, "info", msg)
+	})
+}
+
+func (e *Executor) executeSQLInventory(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.sqlRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor SQL Server (instala el agente en el host SQL, versión >= 0.14.0)"}
+	}
+	var payload contracts.SQLInventoryJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.sqlRunner.Inventory(ctx, payload)
 }
 
 func (e *Executor) executeBackupVM(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {

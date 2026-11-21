@@ -22,6 +22,9 @@ type Transferer interface {
 	// URI del objeto destino ("s3://bucket/clave", UNC de Windows
 	// \\servidor\recurso\... o ruta local).
 	Transfer(ctx context.Context, srcPath string) (string, error)
+	// Fetch descarga al staging local destPath el objeto uri del
+	// repositorio (operación inversa de Transfer; la usa el restore).
+	Fetch(ctx context.Context, uri, destPath string) error
 	// List lista las URIs de los objetos bajo el prefijo (diagnóstico).
 	List(ctx context.Context, prefix string) ([]string, error)
 	// Cleanup elimina un objeto del repositorio. Solo para emergencias: los

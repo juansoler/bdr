@@ -189,6 +189,25 @@ type RestorePoint struct {
 	// imagen/VM o repo Kopia del destino en backups de archivo); vacío en
 	// puntos del repo central.
 	TargetID string `json:"TargetID,omitempty"`
+
+	// SQL: metadatos del motor SQL Server (Kind "sql"); nil en el resto.
+	SQL *SQLBackupMeta `json:"SQL,omitempty"`
+}
+
+// SQLBackupMeta guarda lo propio de un punto de restauración SQL Server:
+// instancia/base, tipo de backup, LSNs (numeric(25,0) como texto) y flags
+// de integridad. Los LSN permiten seleccionar la cadena para PITR.
+type SQLBackupMeta struct {
+	Instance    string `json:"Instance"` // host o host\instancia consultada
+	Database    string `json:"Database"`
+	BackupType  string `json:"BackupType"` // FULL | DIFFERENTIAL | LOG | COPY_ONLY
+	RepoURI     string `json:"RepoURI,omitempty"`
+	DatabaseLSN string `json:"DatabaseLSN,omitempty"`
+	FirstLSN    string `json:"FirstLSN,omitempty"`
+	LastLSN     string `json:"LastLSN,omitempty"`
+	Checksum    bool   `json:"Checksum"`
+	Compression bool   `json:"Compression"`
+	Verified    bool   `json:"Verified"`
 }
 
 // Alert es una alerta deduplicada por Key.

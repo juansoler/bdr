@@ -597,6 +597,9 @@ func (s *Server) handleAgentJobAction(w http.ResponseWriter, r *http.Request) {
 			if req.State == store.JobSucceeded && j.Type == contracts.JobTypeBackupLXC {
 				s.recordLXCRestorePoint(st, j, now)
 			}
+			if req.State == store.JobSucceeded && j.Type == contracts.JobTypeSQLBackup {
+				s.recordSQLRestorePoint(st, j, now)
+			}
 			cj := *j
 			finished = &cj
 			return nil
@@ -732,6 +735,65 @@ func (s *Server) recordLXCRestorePoint(st *store.State, j *store.Job, now time.T
 		"vmid", result.VMID, "manifest", result.ManifestKey)
 }
 
+// recordSQLRestorePoint registra el punto de restauración de un backup SQL
+// Server (Kind "sql"): SnapshotID = URI del objeto en el destino. Los LSN
+// del resultado (texto) permiten reconstruir la cadena para PITR (RF-42).
+func (s *Server) recordSQLRestorePoint(st *store.State, j *store.Job, now time.Time) {
+	var payload contracts.SQLBackupJobPayload
+	if err := json.Unmarshal(j.Payload, &payload); err != nil {
+		s.Logger.Warn("payload de SQL_BACKUP no interpretable", "job_id", j.ID, "error", err.Error())
+		return
+	}
+	var result contracts.SQLBackupJobResult
+	if err := json.Unmarshal(j.Result, &result); err != nil {
+		s.Logger.Warn("resultado de SQL_BACKUP no interpretable", "job_id", j.ID, "error", err.Error())
+		return
+	}
+	if result.RepoURI == "" {
+		s.Logger.Warn("resultado de SQL_BACKUP sin repo_uri", "job_id", j.ID)
+		return
+	}
+	id, _ := newID()
+	start, end := now, now
+	if t, perr := time.Parse(time.RFC3339, result.BackupStart); perr == nil {
+		start = t
+	}
+	if t, perr := time.Parse(time.RFC3339, result.BackupFinish); perr == nil {
+		end = t
+	}
+	rp := &store.RestorePoint{
+		ID: id, AgentID: j.AgentID, JobID: j.ID,
+		Kind:       "sql",
+		SnapshotID: result.RepoURI, TargetID: payload.StorageTargetID,
+		SourcePath: "sql/" + payload.Server + "/" + payload.Database,
+		CreatedAt:  now,
+		StartTime:  start,
+		EndTime:    end,
+		SizeBytes:  result.SizeBytes,
+		VerifyState: func() string {
+			if result.Verified {
+				return contracts.VerifyOK
+			}
+			return contracts.VerifyNone
+		}(),
+		SQL: &store.SQLBackupMeta{
+			Instance:    payload.Server,
+			Database:    payload.Database,
+			BackupType:  result.Type,
+			RepoURI:     result.RepoURI,
+			DatabaseLSN: result.DatabaseLSN,
+			FirstLSN:    result.FirstLSN,
+			LastLSN:     result.LastLSN,
+			Checksum:    result.Checksum,
+			Compression: result.Compression,
+			Verified:    result.Verified,
+		},
+	}
+	st.RestorePoints[id] = rp
+	s.Logger.Info("punto de restauración SQL registrado", "job_id", j.ID,
+		"database", payload.Database, "type", result.Type, "repo", result.RepoURI)
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -857,16 +919,18 @@ func (s *Server) handleTargetRepoCredentials(w http.ResponseWriter, r *http.Requ
 				break
 			}
 		}
-		// Los jobs ad-hoc de VM/LXC (backup/restore desde Proxmox) no llevan
-		// plan: el agente del nodo recibe credenciales mientras tenga un
-		// job activo que use ese destino.
+		// Los jobs ad-hoc de VM/LXC (backup/restore desde Proxmox) y del
+		// motor SQL (RF-40) no llevan plan: el agente recibe credenciales
+		// mientras tenga un job activo que use ese destino.
 		if !authorized {
 			for _, j := range st.Jobs {
 				if j.AgentID != agent.ID || j.Payload == nil {
 					continue
 				}
 				if j.Type != contracts.JobTypeBackupVM && j.Type != contracts.JobTypeRestoreVM &&
-					j.Type != contracts.JobTypeBackupLXC && j.Type != contracts.JobTypeRestoreLXC {
+					j.Type != contracts.JobTypeBackupLXC && j.Type != contracts.JobTypeRestoreLXC &&
+					j.Type != contracts.JobTypeSQLBackup && j.Type != contracts.JobTypeSQLRestore &&
+					j.Type != contracts.JobTypeSQLVerify {
 					continue
 				}
 				if j.State != store.JobPending && j.State != store.JobLeased && j.State != store.JobRunning {

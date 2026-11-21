@@ -29,13 +29,17 @@ const (
 
 // Tipos de job.
 const (
-	JobTypeBackupFile  = "BACKUP_FILE"
-	JobTypeRestoreFile = "RESTORE_FILE"
-	JobTypeBackupImage = "BACKUP_IMAGE"
-	JobTypeBackupVM    = "BACKUP_VM"
-	JobTypeRestoreVM   = "RESTORE_VM"
-	JobTypeBackupLXC   = "BACKUP_LXC"
-	JobTypeRestoreLXC  = "RESTORE_LXC"
+	JobTypeBackupFile   = "BACKUP_FILE"
+	JobTypeRestoreFile  = "RESTORE_FILE"
+	JobTypeBackupImage  = "BACKUP_IMAGE"
+	JobTypeBackupVM     = "BACKUP_VM"
+	JobTypeRestoreVM    = "RESTORE_VM"
+	JobTypeBackupLXC    = "BACKUP_LXC"
+	JobTypeRestoreLXC   = "RESTORE_LXC"
+	JobTypeSQLBackup    = "SQL_BACKUP"
+	JobTypeSQLRestore   = "SQL_RESTORE"
+	JobTypeSQLVerify    = "SQL_VERIFY"
+	JobTypeSQLInventory = "SQL_INVENTORY"
 )
 
 // Estados de job (docs/06-api.md §5).
@@ -651,6 +655,110 @@ type RestoreLXCJobPayload struct {
 	TargetName      string `json:"target_name,omitempty"`
 	TargetStorage   string `json:"target_storage,omitempty"` // p. ej. local-lvm
 	RetentionDays   int    `json:"retention_days,omitempty"`
+}
+
+// --- SQL Server (motor bdr-sql, RF-40/A-11) ---
+
+// SQLBackupJobPayload es el payload de un job SQL_BACKUP: backup nativo
+// (T-SQL BACKUP DATABASE/LOG) de una base de SQL Server en el host del
+// agente con la identidad de su cuenta de servicio (SSPI), transferencia
+// del fichero al destino de almacenamiento y registro en el catálogo.
+type SQLBackupJobPayload struct {
+	Server   string `json:"server"`             // host o host\instancia
+	Instance string `json:"instance,omitempty"` // instancia con nombre
+	Database string `json:"database"`
+	Type     string `json:"type"` // FULL | DIFFERENTIAL | LOG | COPY_ONLY
+	// StorageTargetID: destino de los ficheros de backup (filesystem/S3).
+	// Los destinos Kopia server no soportan SQL directo.
+	StorageTargetID string `json:"storage_target_id"`
+	RetentionDays   int    `json:"retention_days,omitempty"` // Object Lock GOVERNANCE (S3)
+	Verify          *bool  `json:"verify,omitempty"`         // nil = verificar (por defecto)
+}
+
+// SQLRestoreJobPayload es el payload de un job SQL_RESTORE: descarga la
+// cadena de ficheros del destino al staging del host y restaura la base
+// con la secuencia nativa (NORECOVERY salvo el último, MOVE, STOPAT).
+type SQLRestoreJobPayload struct {
+	Server   string `json:"server"`
+	Instance string `json:"instance,omitempty"`
+	Database string `json:"database"` // base destino
+	// Files: URIs de repositorio en orden (full, diff, logs...), tal como
+	// las devuelve el catálogo (s3://bucket/clave, \\host\recurso\ruta,
+	// ruta local).
+	Files    []string `json:"files"`
+	Mode     string   `json:"mode,omitempty"`    // "" | NORECOVERY | RECOVERY
+	StopAt   string   `json:"stop_at,omitempty"` // RFC3339 (PITR, solo final)
+	MoveData string   `json:"move_data,omitempty"`
+	MoveLog  string   `json:"move_log,omitempty"`
+	// StorageTargetID: de dónde descargar los ficheros.
+	StorageTargetID string `json:"storage_target_id"`
+}
+
+// SQLVerifyJobPayload es el payload de un job SQL_VERIFY: descarga un
+// fichero del destino y ejecuta RESTORE VERIFYONLY WITH CHECKSUM contra
+// la instancia local (RF-44, verificación programada).
+type SQLVerifyJobPayload struct {
+	Server          string `json:"server"`
+	Instance        string `json:"instance,omitempty"`
+	RepoURI         string `json:"repo_uri"`
+	StorageTargetID string `json:"storage_target_id"`
+}
+
+// SQLInventoryJobPayload es el payload de un job SQL_INVENTORY: inventario
+// de bases de la instancia (rápido, sin backup).
+type SQLInventoryJobPayload struct {
+	Server   string `json:"server"`
+	Instance string `json:"instance,omitempty"`
+}
+
+// SQLBackupJobResult es el resultado de un job SQL_BACKUP. Los LSN viajan
+// como texto (numeric(25,0) de msdb no cabe garantizado en un JSON number
+// de los clientes JS).
+type SQLBackupJobResult struct {
+	Database     string  `json:"database"`
+	Type         string  `json:"type"`
+	RepoURI      string  `json:"repo_uri"`
+	SizeBytes    int64   `json:"size_bytes"`
+	DurationSec  float64 `json:"duration_sec"`
+	Checksum     bool    `json:"checksum"`
+	Compression  bool    `json:"compression"`
+	Verified     bool    `json:"verified"`
+	DatabaseLSN  string  `json:"database_lsn,omitempty"`
+	FirstLSN     string  `json:"first_lsn,omitempty"`
+	LastLSN      string  `json:"last_lsn,omitempty"`
+	BackupStart  string  `json:"backup_start,omitempty"`  // msdb (UTC ISO)
+	BackupFinish string  `json:"backup_finish,omitempty"` // msdb (UTC ISO)
+}
+
+// SQLRestoreJobResult es el resultado de un job SQL_RESTORE.
+type SQLRestoreJobResult struct {
+	Database    string   `json:"database"`
+	Files       []string `json:"files"`
+	Mode        string   `json:"mode"`
+	DurationSec float64  `json:"duration_sec"`
+}
+
+// SQLVerifyJobResult es el resultado de un job SQL_VERIFY.
+type SQLVerifyJobResult struct {
+	RepoURI     string  `json:"repo_uri"`
+	OK          bool    `json:"ok"`
+	DurationSec float64 `json:"duration_sec"`
+}
+
+// SQLInventoryJobResult es el resultado de un job SQL_INVENTORY.
+type SQLInventoryJobResult struct {
+	Items []SQLDatabaseView `json:"items"`
+}
+
+// SQLDatabaseView describe una base de datos de la instancia (panel §23).
+type SQLDatabaseView struct {
+	Name          string `json:"name"`
+	RecoveryModel string `json:"recovery_model"`
+	State         string `json:"state"`
+	ReadOnly      bool   `json:"read_only"`
+	CompatLevel   int    `json:"compatibility_level"`
+	System        bool   `json:"is_system"`
+	Protectable   bool   `json:"protectable"`
 }
 
 // ImageJobResult es el resultado de un job BACKUP_IMAGE.
