@@ -13,13 +13,17 @@ mkdir -p "$OUT"
 build() {
   local goos=$1 goarch=$2
   echo "== agente $goos/$goarch =="
-  CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "$LDFLAGS" \
+  # Raspberry Pi 32-bit (armv7): GOARM=7, igual que la matriz del release CI.
+  local goarm=""
+  [ "$goarch" = arm ] && goarm=7
+  CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" GOARM="$goarm" go build -trimpath -ldflags "$LDFLAGS" \
     -o "$OUT/bdr-agent-$goos-$goarch$( [ "$goos" = windows ] && echo .exe )" \
     ./apps/agent/cmd/bdr-agent
 }
 
 build linux amd64
 build linux arm64
+build linux arm
 build windows amd64
 build darwin amd64
 build darwin arm64
