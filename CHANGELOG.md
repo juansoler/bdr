@@ -2,6 +2,25 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.14.3] — 2026-11-21
+
+### Añadido
+
+- **Panel: pestaña SQL Server (§23)** con la operativa completa del motor:
+  - **Operaciones**: backup manual por agente/instancia/base (tipo
+    FULL/DIFFERENTIAL/LOG/COPY_ONLY, destino de almacenamiento, retención
+    Object Lock, verificación VERIFYONLY), inventario de bases y creación
+    de planes programados.
+  - **Planes**: tabla con próxima ejecución, pausar/activar y eliminar.
+  - **Puntos de restauración**: fecha, base, tipo, tamaño, último LSN,
+    estado de verificación y acción de verificación por punto (job
+    SQL_VERIFY).
+- La vista de puntos de restauración expone ahora los metadatos SQL
+  (`sql`: instancia, base, tipo, LSNs como texto, verificación) — antes
+  no llegaban al panel ni a la API de vistas.
+- El restore destructivo sigue solo disponible por API (`confirm=true`);
+  no se expone desde el panel por seguridad operativa.
+
 ## [0.14.2] — 2026-11-21
 
 ### Corregido
