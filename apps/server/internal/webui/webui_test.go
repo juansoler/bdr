@@ -12,6 +12,12 @@ import (
 
 func TestAgentsRouteServesAgentsHTML(t *testing.T) {
 	sub := FS()
+	if _, err := fs.Stat(sub, "agents.html"); err != nil {
+		// El export de Next (out/agents.html) no está en el repo: se genera
+		// con make web-build. En un checkout limpio (p. ej. CI) solo existe
+		// el placeholder out/index.html; aquí no hay nada que verificar.
+		t.Skip("export del panel no compilado en este checkout (make web-build)")
+	}
 	want, err := fs.ReadFile(sub, "agents.html")
 	if err != nil {
 		t.Fatalf("export sin agents.html: %v", err)
