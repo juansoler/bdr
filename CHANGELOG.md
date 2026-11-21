@@ -2,6 +2,28 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.14.1] — 2026-11-21
+
+### Añadido
+
+- **Planes programados de backup SQL** (cierra la integración A-11): los
+  backups SQL ya no son solo manuales.
+  - `store.SQLPlan`: binding directo agente+instancia+base, cron con zona
+    horaria, tipo (FULL/DIFFERENTIAL/LOG/COPY_ONLY), destino, retención y
+    verificación.
+  - API: `POST/GET /api/v1/admin/sql/plans` y `PUT/DELETE
+    /api/v1/admin/sql/plans/{id}` con validación de agente, destino y
+    expresión cron; el update es conservador (los campos ausentes heredan
+    del plan existente).
+  - Scheduler: cada tick lanza `SQL_BACKUP` de los planes vencidos con
+    deduplicación (no solapa ejecuciones si el agente está ocupado o hay
+    un job pendiente; reintenta sin avanzar la programación) y avanza
+    `NextRunAt` tras cada lanzamiento.
+  - Nota de distribución: esta release completa también la imagen Docker
+    `ghcr.io/juansoler/bdr-control`, cuyo push falló de forma transitoria
+    en la 0.14.0 (los binarios y el canal firmado de la 0.14.0 sí
+    se publicaron correctamente).
+
 ## [0.14.0] — 2026-11-21
 
 ### Añadido
