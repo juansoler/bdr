@@ -2,6 +2,40 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.13.0] — 2026-11-21
+
+### Añadido
+
+- **Motor de backup para Microsoft SQL Server (RF-40, fase laboratorio)**:
+  paquetes internos (`connector`, `backup`, `restore`, `metadata`,
+  `orchestrator`, `storage`) y CLI `bdr-sql` con subcomandos `discover`,
+  `inventory`, `backup`, `chain`, `restore` y `health`. La vía de producto
+  (jobs del agente, catálogo PostgreSQL, transferencia SMB/S3, panel,
+  scheduler) llegará en próximas versiones; esta fase habilita el lab
+  (criterios P-24–P-29, requiere VM con SQL Server 2022).
+  - Conector TDS (`go-mssqldb`): SQL Auth con DSN escapado (contraseñas
+    con `@`/`:` no rompen la URL) y Windows Auth por SSPI; discovery de
+    instancias por registro (solo Windows, build tags); inventario de
+    bases que excluye `tempdb` (A-12) y cadenas desde `msdb.dbo.backupset`
+    con LSNs reales (`numeric(25,0)` casteado a varchar y parseado en Go
+    para no truncar).
+  - Backups nativos FULL/DIFFERENTIAL/LOG/COPY_ONLY con `COMPRESSION`,
+    `CHECKSUM` y `STATS`; verificación `RESTORE VERIFYONLY` tras cada
+    backup (configurable con `-verify`, por defecto activada).
+  - Restauración real de cadenas: `NORECOVERY` en todos los archivos
+    salvo el último (que recupera), rechazo de `master` (exige single-user
+    manual, ver RF-46), `WITH REPLACE`, `MOVE` con los nombres lógicos
+    reales del backup (`RESTORE FILELISTONLY`, sin asumir el nombre de la
+    base) y `STOPAT` para PITR solo en la restauración final; validación
+    de continuidad de LSN (`ValidateChain`) y subcomando `chain` que
+    lista y valida la cadena de msdb.
+  - Captura de LSNs post-backup para el catálogo (antes quedaban a 0);
+    contrato único de rutas staging/repositorio con nombres únicos.
+  - `bdr-sql` se publica como asset por plataforma en la release, con
+    attestations de procedencia y suma SHA-256 verificable.
+  - 27 tests unitarios: builders T-SQL (backup/restore), ValidateChain,
+    StagingManager, catálogo in-memory, parseo de LSNs y DSN.
+
 ## [0.12.10] — 2026-11-21
 
 ### Corregido
