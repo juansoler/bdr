@@ -31,11 +31,15 @@ func New(db *connector.DB, sm *backup.StagingManager, t *storage.Transferer, c m
 }
 
 // RunBackup ejecuta un backup del tipo indicado y lo transfiere al repositorio.
+// verifyAfter controla si se verifica el medio tras el backup (RESTORE
+// VERIFYONLY; por diseño true en los planes, RF-44).
 // Devuelve el resultado del backup y la ruta en el repositorio.
-func (o *Orquestador) RunBackup(ctx context.Context, t backup.Type, copyOnly bool) (*backup.Result, string, error) {
+func (o *Orquestador) RunBackup(ctx context.Context, t backup.Type, copyOnly, verifyAfter bool) (*backup.Result, string, error) {
+	// Contrato de rutas: FullPath devuelve el FICHERO final; backup escribe
+	// ahí, storage transfiere ese fichero y Cleanup lo elimina.
 	stagingPath := o.staging.FullPath(o.database, t)
 
-	res, err := runSingle(ctx, o.db, o.database, t, copyOnly, stagingPath)
+	res, err := runSingle(ctx, o.db, o.database, t, copyOnly, stagingPath, verifyAfter)
 	if err != nil {
 		return nil, "", err
 	}
@@ -51,23 +55,30 @@ func (o *Orquestador) RunBackup(ctx context.Context, t backup.Type, copyOnly boo
 		return res, repoPath, fmt.Errorf("transferido pero error limpiando staging: %w", err)
 	}
 
-	if err := o.catalog.StoreBackup(ctx, metadata.NewBackupInfo(res, o.database, o.db.Params().Server, t, stagingPath, repoPath, 0, 0, 0)); err != nil {
+	// RF-41: capturar los LSN reales que SQL Server registró en msdb tras
+	// el BACKUP (antes iban siempre a 0 en el catálogo).
+	lsns, err := o.db.LastBackupLSNs(ctx, o.database)
+	if err != nil {
+		return res, repoPath, fmt.Errorf("backup transferido pero captura de LSN falló: %w", err)
+	}
+
+	if err := o.catalog.StoreBackup(ctx, metadata.NewBackupInfo(res, o.database, o.db.Params().Server, t, stagingPath, repoPath, lsns.DatabaseLSN, lsns.FirstLSN, lsns.LastLSN)); err != nil {
 		return res, repoPath, fmt.Errorf("guardado en catálogo: %w", err)
 	}
 
 	return res, repoPath, nil
 }
 
-func runSingle(ctx context.Context, db *connector.DB, database string, t backup.Type, copyOnly bool, stagingPath string) (*backup.Result, error) {
+func runSingle(ctx context.Context, db *connector.DB, database string, t backup.Type, copyOnly bool, backupPath string, verifyAfter bool) (*backup.Result, error) {
 	switch t {
 	case backup.TypeFull:
-		return backup.Full(ctx, db, database, stagingPath)
+		return backup.Full(ctx, db, database, backupPath, verifyAfter)
 	case backup.TypeDifferential:
-		return backup.Differential(ctx, db, database, stagingPath)
+		return backup.Differential(ctx, db, database, backupPath, verifyAfter)
 	case backup.TypeLog:
-		return backup.Log(ctx, db, database, stagingPath)
+		return backup.Log(ctx, db, database, backupPath, verifyAfter)
 	case backup.TypeCopyOnly:
-		return backup.CopyOnly(ctx, db, database, stagingPath)
+		return backup.CopyOnly(ctx, db, database, backupPath, verifyAfter)
 	default:
 		return nil, fmt.Errorf("tipo no soportado: %s", t)
 	}

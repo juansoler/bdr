@@ -30,6 +30,7 @@ type Result struct {
 	SizeBytes   int64     `json:"size_bytes"`
 	Checksum    bool      `json:"checksum"`
 	Compression bool      `json:"compression"`
+	Verified    bool      `json:"verified"` // RESTORE VERIFYONLY ejecutado y OK
 	StartedAt   time.Time `json:"started_at"`
 	FinishedAt  time.Time `json:"finished_at"`
 	Error       string    `json:"error,omitempty"`
@@ -73,15 +74,24 @@ func NewStagingManager(root string) (*StagingManager, error) {
 	return &StagingManager{root: root}, nil
 }
 
-// FullPath genera la ruta completa para un archivo de backup.
+// FullPath genera la ruta FINAL (fichero) de un nuevo backup para la base
+// y tipo indicados. El nombre lleva timestamp; si el fichero ya existe
+// (dos ejecuciones en el mismo segundo), añade un sufijo incremental para
+// que SQL Server nunca escriba sobre un medio existente.
+//
+// Este es el contrato único de rutas del motor: el orquestador resuelve el
+// path de fichero aquí, y backup/restore/storage trabajan siempre con la
+// ruta del FICHERO, nunca con la carpeta staging.
 func (s *StagingManager) FullPath(dbName string, t Type) string {
 	ts := time.Now().Format("20060102_150405")
-	ext := ".bak"
-	if t == TypeLog {
-		ext = ".trn"
+	path := filepath.Join(s.root, fmt.Sprintf("%s_%s_%s.%s", dbName, t, ts, ext(t)))
+	for i := 1; i <= 99; i++ {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return path
+		}
+		path = filepath.Join(s.root, fmt.Sprintf("%s_%s_%s_%d.%s", dbName, t, ts, i, ext(t)))
 	}
-	name := fmt.Sprintf("%s_%s_%s%s", dbName, t, ts, ext)
-	return filepath.Join(s.root, name)
+	return path
 }
 
 // Cleanup elimina el archivo de staging tras transferencia exitosa.
@@ -90,10 +100,12 @@ func (s *StagingManager) Cleanup(path string) error {
 }
 
 // BackupOperations define la interfaz de operaciones de backup.
+// backupPath es siempre la ruta FINAL del fichero; verifyAfter controla
+// si se verifica el medio (RESTORE VERIFYONLY) justo tras el backup.
 type BackupOperations interface {
-	Full(ctx context.Context, db *connector.DB, database, stagingPath string) (*Result, error)
-	Differential(ctx context.Context, db *connector.DB, database, stagingPath string) (*Result, error)
-	Log(ctx context.Context, db *connector.DB, database, stagingPath string) (*Result, error)
-	CopyOnly(ctx context.Context, db *connector.DB, database, stagingPath string) (*Result, error)
+	Full(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error)
+	Differential(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error)
+	Log(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error)
+	CopyOnly(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error)
 	Verify(ctx context.Context, db *connector.DB, path string) error
 }

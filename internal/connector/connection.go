@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"time"
 
 	_ "github.com/microsoft/go-mssqldb"
@@ -39,9 +40,12 @@ func Open(ctx context.Context, params ConnectionParams) (*DB, error) {
 // Ver: https://github.com/microsoft/go-mssqldb#connection-string-parameters
 func buildDSN(p ConnectionParams) string {
 	if p.User != "" {
-		// SQL Auth
+		// SQL Auth: usuario y contraseña van en la URL, hay que escaparlos
+		// (contraseñas con @, / o : romperían el parseo del DSN).
+		user := url.PathEscape(p.User)
+		pass := url.PathEscape(p.Password)
 		return fmt.Sprintf("sqlserver://%s:%s@%s/%s?database=master&encrypt=disable",
-			p.User, p.Password, p.Server, p.Instance)
+			user, pass, p.Server, p.Instance)
 	}
 	// Windows Auth (SSPI): sin usuario/contraseña en el DSN, el driver usa
 	// la identidad del proceso que ejecuta el agente (cuenta de servicio).
@@ -68,6 +72,11 @@ func (d *DB) ExecContext(ctx context.Context, query string) error {
 // QueryContext ejecuta una consulta que devuelve filas.
 func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	return d.DB.QueryContext(ctx, query, args...)
+}
+
+// QueryRowContext ejecuta una consulta que devuelve como máximo una fila.
+func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return d.DB.QueryRowContext(ctx, query, args...)
 }
 
 // Ping verifica que la conexión sigue viva.
@@ -112,17 +121,20 @@ ORDER BY name`
 
 // ListBackupChain consulta msdb.dbo.backupset para reconstruir la cadena de
 // backups de una base, ordenada cronológicamente (más antiguo primero).
+//
+// Los campos *_lsn son numeric(25,0): se CASTean a varchar y se parsean en
+// Go (parseLSN) para no depender de cómo el driver represente el decimal.
 func (d *DB) ListBackupChain(ctx context.Context, database string) ([]ChainEntry, error) {
 	const q = `
 SELECT type,
        CONVERT(varchar(30), backup_start_date, 127)  AS backup_start,
        CONVERT(varchar(30), backup_finish_date, 127) AS backup_finish,
-       database_backup_lsn,
-       checkpoint_lsn,
-       first_lsn,
-       last_lsn,
-       is_copy_only,
-       compressed_backup_size
+       CAST(database_backup_lsn   AS varchar(30)),
+       CAST(checkpoint_lsn        AS varchar(30)),
+       CAST(first_lsn             AS varchar(30)),
+       CAST(last_lsn              AS varchar(30)),
+       CONVERT(bit, is_copy_only),
+       CAST(compressed_backup_size AS varchar(30))
 FROM msdb.dbo.backupset
 WHERE database_name = @db
 ORDER BY backup_start_date ASC`
@@ -136,12 +148,64 @@ ORDER BY backup_start_date ASC`
 	var result []ChainEntry
 	for rows.Next() {
 		var e ChainEntry
+		var dbLSN, ckptLSN, firstLSN, lastLSN, compressed string
 		if err := rows.Scan(&e.Type, &e.BackupStart, &e.BackupFinish,
-			&e.DatabaseLSN, &e.CheckpointLSN, &e.FirstLSN, &e.LastLSN,
-			&e.CopyOnly, &e.CompressedBytes); err != nil {
+			&dbLSN, &ckptLSN, &firstLSN, &lastLSN,
+			&e.CopyOnly, &compressed); err != nil {
 			return nil, fmt.Errorf("leer fila backupset: %w", err)
+		}
+		if e.DatabaseLSN, err = parseLSN(dbLSN); err != nil {
+			return nil, err
+		}
+		if e.CheckpointLSN, err = parseLSN(ckptLSN); err != nil {
+			return nil, err
+		}
+		if e.FirstLSN, err = parseLSN(firstLSN); err != nil {
+			return nil, err
+		}
+		if e.LastLSN, err = parseLSN(lastLSN); err != nil {
+			return nil, err
+		}
+		if cbLSN, err := parseLSN(compressed); err != nil {
+			return nil, err
+		} else {
+			e.CompressedBytes = uint64(cbLSN)
 		}
 		result = append(result, e)
 	}
 	return result, rows.Err()
+}
+
+// LastBackupLSNs devuelve los LSN del backup más reciente registrado en
+// msdb.dbo.backupset para la base indicada (cualquier tipo: D, I o L).
+// Se ejecuta tras cada BACKUP para capturar los LSN reales del catálogo.
+func (d *DB) LastBackupLSNs(ctx context.Context, database string) (LSNSet, error) {
+	const q = `
+SELECT TOP 1 CAST(database_backup_lsn AS varchar(30)),
+       CAST(first_lsn AS varchar(30)),
+       CAST(last_lsn  AS varchar(30))
+FROM msdb.dbo.backupset
+WHERE database_name = @db
+ORDER BY backup_finish_date DESC, first_lsn DESC`
+
+	var set LSNSet
+	var dbLSN, firstLSN, lastLSN string
+	err := d.QueryRowContext(ctx, q, sql.Named("db", database)).
+		Scan(&dbLSN, &firstLSN, &lastLSN)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return set, fmt.Errorf("msdb no registra ningún backup de %s", database)
+		}
+		return set, fmt.Errorf("consultar LSN post-backup: %w", err)
+	}
+	if set.DatabaseLSN, err = parseLSN(dbLSN); err != nil {
+		return set, err
+	}
+	if set.FirstLSN, err = parseLSN(firstLSN); err != nil {
+		return set, err
+	}
+	if set.LastLSN, err = parseLSN(lastLSN); err != nil {
+		return set, err
+	}
+	return set, nil
 }

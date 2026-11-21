@@ -1,6 +1,11 @@
 package connector
 
-import "time"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // Instance representa una instancia registrada de Microsoft SQL Server.
 type Instance struct {
@@ -51,6 +56,31 @@ func (p ConnectionParams) CurrentAuth() AuthMode {
 
 // LSN es un número de secuencia de registro de SQL Server.
 type LSN uint64
+
+// LSNSet agrupa los LSN que msdb.dbo.backupset registra para un backup.
+type LSNSet struct {
+	DatabaseLSN LSN
+	FirstLSN    LSN
+	LastLSN     LSN
+}
+
+// parseLSN convierte un LSN recibido como texto en LSN.
+//
+// En msdb.dbo.backupset los campos *_lsn son numeric(25,0); las consultas
+// los CASTean a varchar y se parsean aquí, en lugar de escanear directo a
+// uint64 (el driver puede entregar el decimal con otra representación y
+// truncar o fallar: ver criterio de laboratorio P-26).
+func parseLSN(s string) (LSN, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("LSN inválido %q: %w", s, err)
+	}
+	return LSN(v), nil
+}
 
 // ChainEntry representa una fila de msdb.dbo.backupset.
 type ChainEntry struct {

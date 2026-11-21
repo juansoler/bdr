@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -46,27 +45,33 @@ func buildBackupTSQL(database string, t Type, copyOnly bool, path string) string
 }
 
 // Full ejecuta un backup completo.
-func Full(ctx context.Context, db *connector.DB, database, stagingPath string) (*Result, error) {
-	return execute(ctx, db, database, TypeFull, false, stagingPath)
+//
+// backupPath es la ruta FINAL del fichero .bak (resuelta por el
+// StagingManager); el motor no genera nombres, solo escribe en esa ruta.
+// verifyAfter controla si se ejecuta RESTORE VERIFYONLY tras el backup.
+func Full(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error) {
+	return execute(ctx, db, database, TypeFull, false, backupPath, verifyAfter)
 }
 
-func Differential(ctx context.Context, db *connector.DB, database, stagingPath string) (*Result, error) {
-	return execute(ctx, db, database, TypeDifferential, false, stagingPath)
+// Differential ejecuta un backup diferencial. Mismo contrato de ruta que Full.
+func Differential(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error) {
+	return execute(ctx, db, database, TypeDifferential, false, backupPath, verifyAfter)
 }
 
-func Log(ctx context.Context, db *connector.DB, database, stagingPath string) (*Result, error) {
-	return execute(ctx, db, database, TypeLog, false, stagingPath)
+// Log ejecuta un backup de log (transacciones). Mismo contrato de ruta que Full.
+func Log(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error) {
+	return execute(ctx, db, database, TypeLog, false, backupPath, verifyAfter)
 }
 
-func CopyOnly(ctx context.Context, db *connector.DB, database, stagingPath string) (*Result, error) {
-	return execute(ctx, db, database, TypeCopyOnly, true, stagingPath)
+// CopyOnly ejecuta un backup copy-only (no rompe la cadena de restauración).
+// Mismo contrato de ruta que Full.
+func CopyOnly(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error) {
+	return execute(ctx, db, database, TypeCopyOnly, true, backupPath, verifyAfter)
 }
 
-func execute(ctx context.Context, db *connector.DB, database string, t Type, copyOnly bool, stagingPath string) (*Result, error) {
+func execute(ctx context.Context, db *connector.DB, database string, t Type, copyOnly bool, backupPath string, verifyAfter bool) (*Result, error) {
 	start := time.Now()
-
-	path := filepath.Join(stagingPath, fmt.Sprintf("%s_%s_%s.%s",
-		database, t, start.Format("20060102_150405"), ext(t)))
+	path := backupPath
 
 	q := buildBackupTSQL(database, t, copyOnly, path)
 
@@ -81,15 +86,19 @@ func execute(ctx context.Context, db *connector.DB, database string, t Type, cop
 		}, fmt.Errorf("BACKUP %s de %s: %w", t, database, err)
 	}
 
-	if err := Verify(ctx, db, path); err != nil {
-		return &Result{
-			Database:   database,
-			Type:       t,
-			Path:       path,
-			StartedAt:  start,
-			FinishedAt: time.Now(),
-			Error:      err.Error(),
-		}, err
+	verified := false
+	if verifyAfter {
+		if err := Verify(ctx, db, path); err != nil {
+			return &Result{
+				Database:   database,
+				Type:       t,
+				Path:       path,
+				StartedAt:  start,
+				FinishedAt: time.Now(),
+				Error:      err.Error(),
+			}, err
+		}
+		verified = true
 	}
 
 	fi, err := os.Stat(path)
@@ -117,6 +126,7 @@ func execute(ctx context.Context, db *connector.DB, database string, t Type, cop
 		SizeBytes:   size,
 		Checksum:    true, // CHECKSUM siempre activo por diseño
 		Compression: true, // COMPRESSION siempre activo por diseño
+		Verified:    verified,
 		StartedAt:   start,
 		FinishedAt:  time.Now(),
 	}, nil

@@ -138,6 +138,7 @@ func NewBackupInfo(res *backup.Result, database, instance string, t backup.Type,
 		FirstLSN:    firstLSN,
 		LastLSN:     lastLSN,
 		CopyOnly:    t == backup.TypeCopyOnly,
+		Verify:      res.Verified,
 		Tags:        map[string]string{"type": string(t)},
 	}
 	if !res.FinishedAt.IsZero() {
@@ -146,10 +147,26 @@ func NewBackupInfo(res *backup.Result, database, instance string, t backup.Type,
 	return info
 }
 
+// msdbTypeToBackupType traduce los códigos de la columna type de
+// msdb.dbo.backupset (D=full, I=differential, L=log) a los tipos del motor.
+// Los códigos desconocidos pasan tal cual para no perder información.
+func msdbTypeToBackupType(code string) backup.Type {
+	switch code {
+	case "D":
+		return backup.TypeFull
+	case "I":
+		return backup.TypeDifferential
+	case "L":
+		return backup.TypeLog
+	default:
+		return backup.Type(code)
+	}
+}
+
 // ChainEntryFromDBEntry transforma una fila msdb.dbo.backupset en ChainEntryInfo.
 func ChainEntryFromDBEntry(e connector.ChainEntry) ChainEntryInfo {
 	return ChainEntryInfo{
-		Type:         backup.Type(e.Type),
+		Type:         msdbTypeToBackupType(e.Type),
 		BackupStart:  e.BackupStart,
 		BackupFinish: e.BackupFinish,
 		DatabaseLSN:  e.DatabaseLSN,

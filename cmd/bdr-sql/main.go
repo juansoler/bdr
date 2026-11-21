@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -23,6 +24,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  discover  - enumera instancias registradas")
 		fmt.Fprintln(os.Stderr, "  inventory         - lista bases de datos de una instancia")
 		fmt.Fprintln(os.Stderr, "  backup              - ejecuta backups de bases de datos")
+		fmt.Fprintln(os.Stderr, "  chain               - muestra y valida la cadena de backups (msdb)")
 		fmt.Fprintln(os.Stderr, "  restore                 - restaura una base de datos")
 		fmt.Fprintln(os.Stderr, "  health                - verifica la conexión")
 		os.Exit(1)
@@ -40,6 +42,8 @@ func main() {
 		err = runInventory(ctx, args)
 	case "backup":
 		err = runBackup(ctx, args)
+	case "chain":
+		err = runChain(ctx, args)
 	case "restore":
 		err = runRestore(ctx, args)
 	case "health":
@@ -99,6 +103,7 @@ func runBackup(ctx context.Context, args []string) error {
 	password := fs.String("password", "", "contraseña SQL (usar G10_SQL_PASSWORD)")
 	database := fs.String("db", "", "base de datos")
 	bt := fs.String("type", "full", "tipo: full|diff|log|copy-only")
+	verify := fs.Bool("verify", true, "verificar el medio tras el backup (RESTORE VERIFYONLY)")
 	stagingRoot := fs.String("staging", "/tmp/bdr-staging", "carpeta staging (accesible por SQL Server)")
 	repoPath := fs.String("repo", "/tmp/bdr-repo", "carpeta destino repositorio (NAS local)")
 	fs.Parse(args)
@@ -121,10 +126,11 @@ func runBackup(ctx context.Context, args []string) error {
 	catalog := metadata.NewInMemoryCatalog()
 	orch := orchestrator.New(db, sm, transferer, catalog, *database)
 
-	t := backup.Type(strings.ToUpper(*bt))
+	// Normalización: se aceptan "copy-only" y "copy_only" (TypeCopyOnly es COPY_ONLY).
+	t := backup.Type(strings.ReplaceAll(strings.ToUpper(*bt), "-", "_"))
 	copyOnly := t == backup.TypeCopyOnly
 
-	res, repoFile, err := orch.RunBackup(ctx, t, copyOnly)
+	res, repoFile, err := orch.RunBackup(ctx, t, copyOnly, *verify)
 	if err != nil {
 		return err
 	}
@@ -177,6 +183,9 @@ func runRestore(ctx context.Context, args []string) error {
 	if len(files) == 0 {
 		return fmt.Errorf("falta -file (puede repetirse)")
 	}
+	if norecov && recover {
+		return fmt.Errorf("-norecovery y -recovery son excluyentes")
+	}
 
 	db, err := connector.Open(ctx, connectionParams(server, instance, user, password))
 	if err != nil {
@@ -184,16 +193,12 @@ func runRestore(ctx context.Context, args []string) error {
 	}
 	defer db.Close()
 
-	sm, err := backup.NewStagingManager("/tmp/bdr-staging")
-	if err != nil {
-		return err
-	}
-	transferer := storage.NewTransferer(storage.Repository{Type: "nas", Path: "/tmp/bdr-repo"})
-	orch := orchestrator.New(db, sm, transferer, metadata.NewInMemoryCatalog(), database)
-
-	mode := restore.Mode("RECOVERY")
-	if norecov {
-		mode = restore.Mode("NORECOVERY")
+	mode := restore.Mode("")
+	switch {
+	case norecov:
+		mode = restore.ModeNoRecovery
+	case recover:
+		mode = restore.ModeRecovery
 	}
 
 	var stopT *time.Time
@@ -205,7 +210,9 @@ func runRestore(ctx context.Context, args []string) error {
 		stopT = &t
 	}
 
-	opts := restore.Options{
+	// El restore no necesita staging/transfer/catálogo: ejecuta RESTORE
+	// directamente contra la instancia.
+	res, err := restore.Execute(ctx, db, restore.Options{
 		Database:    database,
 		SourceFiles: files,
 		Mode:        mode,
@@ -213,9 +220,52 @@ func runRestore(ctx context.Context, args []string) error {
 		MoveLog:     moveLog,
 		StopAt:      stopT,
 		Stats:       stats,
+	})
+	if err != nil {
+		return err
 	}
-	_, err = orch.RunRestore(ctx, opts)
-	return err
+	j, _ := json.MarshalIndent(res, "", "  ")
+	fmt.Println(string(j))
+	return nil
+}
+
+// runChain muestra la cadena de backups de una base (msdb.dbo.backupset)
+// y valida la continuidad de LSN con restore.ValidateChain.
+func runChain(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("chain", flag.ExitOnError)
+	server := fs.String("server", "localhost", "host o host\\instancia")
+	instance := fs.String("instance", "", "instancia con nombre (opcional)")
+	user := fs.String("user", "", "login SQL (vacío = Windows Auth)")
+	password := fs.String("password", "", "contraseña SQL (usar G10_SQL_PASSWORD)")
+	database := fs.String("db", "", "base de datos")
+	fs.Parse(args)
+
+	if *database == "" {
+		return fmt.Errorf("falta -db")
+	}
+
+	db, err := connector.Open(ctx, connectionParams(*server, *instance, *user, *password))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	chain, err := db.ListBackupChain(ctx, *database)
+	if err != nil {
+		return err
+	}
+
+	if err := restore.ValidateChain(chain); err != nil {
+		fmt.Printf("cadena de %s: %d backups — INVÁLIDA: %v\n", *database, len(chain), err)
+	} else {
+		fmt.Printf("cadena de %s: %d backups — válida\n", *database, len(chain))
+	}
+	for _, e := range chain {
+		fmt.Printf("  %s | %s -> %s | dbLSN=%d first=%d last=%d | copy_only=%v | %d bytes\n",
+			e.Type, e.BackupStart, e.BackupFinish,
+			e.DatabaseLSN, e.FirstLSN, e.LastLSN, e.CopyOnly, e.CompressedBytes)
+	}
+	return nil
 }
 
 func runHealth(ctx context.Context, args []string) error {
