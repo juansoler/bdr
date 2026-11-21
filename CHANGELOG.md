@@ -2,6 +2,46 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.14.0] — 2026-11-21
+
+### Añadido
+
+- **Motor SQL Server integrado en la plataforma (RF-41, A-11)**: los jobs
+  del motor corren ahora dentro del agente instalado en el host SQL y el
+  plano de control los orquesta y cataloga.
+  - **Jobs del agente**: `SQL_BACKUP`, `SQL_RESTORE`, `SQL_VERIFY` y
+    `SQL_INVENTORY` (tipos nuevos del contrato). El runner va embebido en
+    el agente como los demás (imagen/VM/LXC); agentes sin soporte responden
+    `E_JOB_TYPE`. El backup usa la identidad de la cuenta de servicio del
+    host SQL (SSPI): nunca viajan contraseñas SQL en los payloads. El
+    restore/verify descarga la cadena del destino al staging con streaming
+    y la limpia al terminar. Staging configurable con `BDR_SQL_STAGING`.
+  - **API del plano de control**: `POST /api/v1/admin/sql/{backup,restore,
+    verify,inventory}` (patrón de los jobs ad-hoc de Proxmox; el restore
+    es destructivo y exige `confirm=true`) y
+    `GET /api/v1/admin/sql/restore-points`.
+  - **Catálogo**: cada backup SQL exitoso se ingiere como punto de
+    restauración `Kind "sql"` con metadatos propios (instancia, base,
+    tipo, LSNs como texto, verificación) para reconstruir cadenas y PITR.
+    Esquema PostgreSQL nuevo `sql_backups`/`sql_backup_chains` (migración
+    `0002_sql_catalog.sql`; DDL idempotente también disponible para el lab
+    con `metadata.PGCatalog.EnsureSchema`).
+  - **Transferencia real al repositorio**: backend SMB nativo (`go-smb2`,
+    NTLM, sin montaje; streaming y escritura atómica) y backend S3
+    (`minio-go`, streaming, Object Lock GOVERNANCE por días) junto al
+    local del lab. Los destinos usan el mismo contrato
+    (`RepositoryCredentials`) que el resto de la plataforma. Nuevo `Fetch`
+    (inverso de `Transfer`) para bajar ficheros del repo al staging.
+  - **CLI de lab (`bdr-sql`)**: subcomando `chain` (lista y valida la
+    cadena de msdb por LSN), flags `-target`
+    (`s3://endpoint/bucket[/prefijo]`, `//host/recurso[/ruta]`, credenciales
+    por entorno `BDR_S3_*`/`BDR_SMB_*`) y `-retain-days`.
+  - Motor (ya publicado en 0.13.0) corregido: restauración real de cadenas
+    (NORECOVERY/RECOVERY, `MOVE` con nombres lógicos de
+    `RESTORE FILELISTONLY`, `STOPAT`, rechazo de `master`), contrato único
+    de rutas staging/repositorio, captura de LSNs post-backup,
+    `VerifyAfter` cableado y 27+ tests unitarios.
+
 ## [0.13.0] — 2026-11-21
 
 ### Añadido
