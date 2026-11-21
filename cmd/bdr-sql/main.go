@@ -248,5 +248,5 @@ func connectionParams(server, instance, user, password string) connector.Connect
 // stringSlice permite repetir flag -file
 type stringSlice []string
 
-func (s *stringSlice) String() string { return strings.Join(*s, ", ") }
+func (s *stringSlice) String() string     { return strings.Join(*s, ", ") }
 func (s *stringSlice) Set(v string) error { *s = append(*s, v); return nil }
