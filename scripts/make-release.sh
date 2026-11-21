@@ -164,6 +164,12 @@ for f in "$OUT"/bdr-agent-*; do
   [[ "$f" == *local* ]] && continue
   (cd "$OUT" && shasum -a 256 "$(basename "$f")" >> SHA256SUMS)
 done
+
+# CLI del motor SQL Server (bdr-sql) también verificable.
+for f in "$OUT"/bdr-sql-*; do
+  [[ -f "$f" ]] || continue
+  (cd "$OUT" && shasum -a 256 "$(basename "$f")" >> SHA256SUMS)
+done
 sort -o "$OUT/SHA256SUMS" "$OUT/SHA256SUMS"
 
 # Instaladores: se publican como assets de la release (los consume el

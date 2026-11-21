@@ -56,6 +56,10 @@ jobs:
               -o bin/bdr-control-$os-$arch$ext ./apps/server/cmd/bdr-control
             GOOS=$os GOARCH=$goarch GOARM=$([ "$arch" = arm ] && echo 7 || echo "") CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
               -o dist/bdr-agent-$os-$arch$ext ./apps/agent/cmd/bdr-agent
+            # CLI del motor SQL Server (lab RF-40; discovery solo en Windows
+            # por build tags, el resto compila para todas las plataformas).
+            GOOS=$os GOARCH=$goarch GOARM=$([ "$arch" = arm ] && echo 7 || echo "") CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
+              -o dist/bdr-sql-$os-$arch$ext ./cmd/bdr-sql
           done
 
       - name: Clave privada del canal (secreto del entorno)
@@ -75,6 +79,8 @@ jobs:
         with:
           subject-path: |
             dist/bdr-control-*
+            dist/bdr-agent-*
+            dist/bdr-sql-*
             dist/latest.json
             dist/latest.json.sig
             dist/SHA256SUMS
@@ -86,6 +92,7 @@ jobs:
           files: |
             dist/bdr-control-*
             dist/bdr-agent-*
+            dist/bdr-sql-*
             dist/install-*
             dist/SHA256SUMS
             dist/latest.json
