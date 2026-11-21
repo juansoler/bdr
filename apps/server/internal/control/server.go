@@ -49,7 +49,7 @@ const (
 var roleCaps = map[string][]string{
 	contracts.RoleViewer:   {"read"},
 	contracts.RoleOperator: {"read", "operate", contracts.CapTerminalRead, contracts.CapTerminalConnect},
-	contracts.RoleAdmin:    {"read", "operate", "admin",
+	contracts.RoleAdmin: {"read", "operate", "admin",
 		contracts.CapTerminalRead, contracts.CapTerminalConnect,
 		contracts.CapTerminalElevated, contracts.CapTerminalTerminate, contracts.CapTerminalAudit},
 }

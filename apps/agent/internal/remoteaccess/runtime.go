@@ -12,10 +12,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"os"
 	"os/exec"
 	"sync"
-	"syscall"
 
 	"github.com/coder/websocket"
 )
@@ -274,26 +272,6 @@ func decodeAgentData(frame []byte) (sessionID string, payload []byte, err error)
 		return "", nil, errMalformedFrame
 	}
 	return string(frame[2 : 2+n]), frame[2+n:], nil
-}
-
-// signalFromName traduce un nombre de señal a su equivalente unix.
-func signalFromName(name string) os.Signal {
-	switch name {
-	case "INT":
-		return syscall.SIGINT
-	case "TERM":
-		return syscall.SIGTERM
-	case "KILL":
-		return syscall.SIGKILL
-	case "HUP":
-		return syscall.SIGHUP
-	case "USR1":
-		return syscall.SIGUSR1
-	case "USR2":
-		return syscall.SIGUSR2
-	default:
-		return nil
-	}
 }
 
 // errMalformedFrame indica un frame binario con formato inválido.

@@ -2,6 +2,19 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.2] — 2026-11-21
+
+### Corregido
+
+- **Compilación multiplataforma del agente** (fallaba el release para
+  Windows): `terminal_unix.go` no tenía restricción de build y se compilaba
+  también en Windows, chocando con el stub (`StartShell redeclared`), y
+  `signalFromName` usaba señales inexistentes allí (`SIGUSR1`, `SIGUSR2`,
+  `SIGKILL`, `SIGHUP`). Ahora la terminal Unix lleva `//go:build unix`, el
+  stub de Windows declara sus propios imports y cada plataforma define su
+  mapeo de señales (en Windows solo `INT` → `os.Interrupt`).
+- `gofmt` en ficheros con formato desactualizado (Go 1.26).
+
 ## [0.12.1] — 2026-11-21
 
 Correcciones del acceso remoto publicado en 0.12.0: el canal del agente no

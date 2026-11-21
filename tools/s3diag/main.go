@@ -82,8 +82,8 @@ func main() {
 
 	fmt.Printf("PUT con Object Lock GOVERNANCE 7d: ")
 	if _, err := mc.PutObject(ctx, *bucket, "bdr-diag/lock-7d.txt", strings.NewReader("prueba"), 7, minio.PutObjectOptions{
-		Mode:             minio.Governance,
-		RetainUntilDate:  ret,
+		Mode:            minio.Governance,
+		RetainUntilDate: ret,
 	}); err != nil {
 		fmt.Println("✗", err)
 	} else {

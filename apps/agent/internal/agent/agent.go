@@ -164,8 +164,8 @@ func (a *Agent) terminalLoop(ctx context.Context) {
 	defer rt.Close()
 
 	const (
-		retryDelay  = 10 * time.Second
-		redoDelay   = 3 * time.Second
+		retryDelay = 10 * time.Second
+		redoDelay  = 3 * time.Second
 	)
 	for {
 		if ctx.Err() != nil {

@@ -70,14 +70,14 @@ type ExitPayload struct {
 
 // constantes de tipo de mensaje
 const (
-	MsgOpen      = "open"
-	MsgOpened    = "opened"
-	MsgError     = "error"
-	MsgExit      = "exit"
-	MsgAckClose  = "ack_close"
-	MsgClose     = "close"
-	MsgResize    = "resize"
-	MsgSignal    = "signal"
-	MsgPing      = "ping"
-	MsgPong      = "pong"
+	MsgOpen     = "open"
+	MsgOpened   = "opened"
+	MsgError    = "error"
+	MsgExit     = "exit"
+	MsgAckClose = "ack_close"
+	MsgClose    = "close"
+	MsgResize   = "resize"
+	MsgSignal   = "signal"
+	MsgPing     = "ping"
+	MsgPong     = "pong"
 )

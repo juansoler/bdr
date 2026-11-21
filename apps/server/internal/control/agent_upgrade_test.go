@@ -19,8 +19,8 @@ import (
 
 	"github.com/juansoler/bdr/apps/server/internal/control"
 	"github.com/juansoler/bdr/apps/server/internal/secrets"
-	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/apps/server/internal/selfupdate"
+	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/packages/contracts"
 	"github.com/juansoler/bdr/packages/logging"
 	"github.com/juansoler/bdr/packages/version"

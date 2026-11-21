@@ -290,21 +290,21 @@ type RepoCredential struct {
 
 // TerminalSession es la metadata de una sesión de terminal remota.
 type TerminalSession struct {
-	ID          string     `json:"ID"`
-	AgentID     string     `json:"AgentID"`
-	OperatorID  string     `json:"OperatorID"`
-	OperatorName string    `json:"OperatorName,omitempty"`
-	Shell       string     `json:"Shell"`
-	Privilege   string     `json:"Privilege"`
-	Cols        uint16     `json:"Cols"`
-	Rows        uint16     `json:"Rows"`
-	State       string     `json:"State"`
-	CreatedAt   time.Time  `json:"CreatedAt"`
-	OpenedAt    *time.Time `json:"OpenedAt,omitempty"`
-	ClosedAt    *time.Time `json:"ClosedAt,omitempty"`
-	ExpiresAt   time.Time  `json:"ExpiresAt"`
-	Reason      string     `json:"Reason,omitempty"`
-	AgentName   string     `json:"AgentName,omitempty"` // optional display name
+	ID           string     `json:"ID"`
+	AgentID      string     `json:"AgentID"`
+	OperatorID   string     `json:"OperatorID"`
+	OperatorName string     `json:"OperatorName,omitempty"`
+	Shell        string     `json:"Shell"`
+	Privilege    string     `json:"Privilege"`
+	Cols         uint16     `json:"Cols"`
+	Rows         uint16     `json:"Rows"`
+	State        string     `json:"State"`
+	CreatedAt    time.Time  `json:"CreatedAt"`
+	OpenedAt     *time.Time `json:"OpenedAt,omitempty"`
+	ClosedAt     *time.Time `json:"ClosedAt,omitempty"`
+	ExpiresAt    time.Time  `json:"ExpiresAt"`
+	Reason       string     `json:"Reason,omitempty"`
+	AgentName    string     `json:"AgentName,omitempty"` // optional display name
 }
 
 // ScheduleEntry es el estado del programador por (plan, agente).
@@ -482,27 +482,27 @@ const MaxInventoryHistory = 30
 
 // State es el documento completo del plano de control.
 type State struct {
-	Meta          Meta                            `json:"meta"`
-	Settings      Settings                        `json:"settings"`
-	Tokens        map[string]*EnrollmentToken     `json:"tokens"`
-	Agents        map[string]*Agent               `json:"agents"`
-	Plans         map[string]*Plan                `json:"plans"`
-	Assignments   map[string]*Assignment          `json:"assignments"`
-	Groups        map[string]*Group               `json:"groups"`
-	Jobs          map[string]*Job                 `json:"jobs"`
-	JobEvents     map[string][]contracts.JobEvent `json:"job_events"`
-	RestorePoints map[string]*RestorePoint        `json:"restore_points"`
-	Alerts        map[string]*Alert               `json:"alerts"`
-	Users         map[string]*User                `json:"users"`
-	Sessions      map[string]*Session             `json:"sessions"`
-	APITokens     map[string]*APIToken            `json:"api_tokens"`
-	Idempotency   map[string]*IdempotencyRecord   `json:"idempotency"`
-	Inventory     map[string][]InventoryRecord    `json:"inventory_history"`
-	RepoCreds     map[string]*RepoCredential      `json:"repository_credentials"`
-	Schedule      map[string]*ScheduleEntry       `json:"schedule"`
-	PVE             map[string]*PVEInstance        `json:"proxmox_instances"`
-	Storage         map[string]*StorageTarget      `json:"storage_targets"`
-	TerminalSessions map[string]*TerminalSession   `json:"terminal_sessions,omitempty"`
+	Meta             Meta                            `json:"meta"`
+	Settings         Settings                        `json:"settings"`
+	Tokens           map[string]*EnrollmentToken     `json:"tokens"`
+	Agents           map[string]*Agent               `json:"agents"`
+	Plans            map[string]*Plan                `json:"plans"`
+	Assignments      map[string]*Assignment          `json:"assignments"`
+	Groups           map[string]*Group               `json:"groups"`
+	Jobs             map[string]*Job                 `json:"jobs"`
+	JobEvents        map[string][]contracts.JobEvent `json:"job_events"`
+	RestorePoints    map[string]*RestorePoint        `json:"restore_points"`
+	Alerts           map[string]*Alert               `json:"alerts"`
+	Users            map[string]*User                `json:"users"`
+	Sessions         map[string]*Session             `json:"sessions"`
+	APITokens        map[string]*APIToken            `json:"api_tokens"`
+	Idempotency      map[string]*IdempotencyRecord   `json:"idempotency"`
+	Inventory        map[string][]InventoryRecord    `json:"inventory_history"`
+	RepoCreds        map[string]*RepoCredential      `json:"repository_credentials"`
+	Schedule         map[string]*ScheduleEntry       `json:"schedule"`
+	PVE              map[string]*PVEInstance         `json:"proxmox_instances"`
+	Storage          map[string]*StorageTarget       `json:"storage_targets"`
+	TerminalSessions map[string]*TerminalSession     `json:"terminal_sessions,omitempty"`
 }
 
 // NewState crea un estado vacío.

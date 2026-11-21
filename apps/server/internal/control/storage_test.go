@@ -364,7 +364,8 @@ func TestStorageAdoptRepoPassword(t *testing.T) {
 	}
 }
 
-func TestStorageTargetHetznerAutoRegionAndPreserve(t *testing.T) {	ts, st := newStorageTestAPI(t, t.TempDir(), "/bin/true")
+func TestStorageTargetHetznerAutoRegionAndPreserve(t *testing.T) {
+	ts, st := newStorageTestAPI(t, t.TempDir(), "/bin/true")
 
 	// Crear target Hetzner sin especificar región → se deduce fsn1
 	req := contracts.StorageTargetRequest{

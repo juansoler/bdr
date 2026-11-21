@@ -1,3 +1,5 @@
+//go:build unix
+
 // Package remoteaccess implementa la terminal Unix (Linux y macOS) usando
 // creack/pty. Crea una pseudoterminal, inicia el shell especificado y expone
 // operaciones de lectura/escritura sobre el descriptor maestro.
@@ -6,6 +8,7 @@ package remoteaccess
 import (
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/creack/pty"
 )
@@ -96,5 +99,25 @@ func SignalToString(sig string) string {
 		return "SIGUSR2"
 	default:
 		return sig
+	}
+}
+
+// signalFromName traduce un nombre de señal a su equivalente unix.
+func signalFromName(name string) os.Signal {
+	switch name {
+	case "INT":
+		return syscall.SIGINT
+	case "TERM":
+		return syscall.SIGTERM
+	case "KILL":
+		return syscall.SIGKILL
+	case "HUP":
+		return syscall.SIGHUP
+	case "USR1":
+		return syscall.SIGUSR1
+	case "USR2":
+		return syscall.SIGUSR2
+	default:
+		return nil
 	}
 }
