@@ -151,3 +151,86 @@ func TestSQLBackupEnqueueYRestorePoints(t *testing.T) {
 		t.Fatalf("restore-points debería estar vacío; hay %d", len(list.Items))
 	}
 }
+
+func TestSQLPlanesCRUD(t *testing.T) {
+	srv, targetID, agentID := newSQLTestAPI(t)
+	defer srv.Close()
+
+	// Crear con cron válido.
+	status, body := doJSON(t, http.MethodPost, srv.URL+"/api/v1/admin/sql/plans", adminToken,
+		map[string]any{"agent_id": agentID, "server": "sqlhost", "database": "app",
+			"type": "diff", "schedule": "0 3 * * *", "timezone": "UTC",
+			"storage_target_id": targetID, "retention_days": 14})
+	if status != http.StatusCreated {
+		t.Fatalf("crear plan: %d %s", status, body)
+	}
+	var plan contracts.SQLPlanView
+	if err := json.Unmarshal(body, &plan); err != nil {
+		t.Fatalf("plan parse: %s", body)
+	}
+	if plan.Type != "DIFFERENTIAL" || !plan.Enabled || !plan.Verify {
+		t.Fatalf("plan con defaults incorrectos: %+v", plan)
+	}
+	if plan.NextRunAt == nil || plan.ID == "" {
+		t.Fatalf("plan sin id o next_run_at: %+v", plan)
+	}
+
+	// Cron inválido rechazado.
+	status, _ = doJSON(t, http.MethodPost, srv.URL+"/api/v1/admin/sql/plans", adminToken,
+		map[string]any{"agent_id": agentID, "server": "sqlhost", "database": "app",
+			"schedule": "todos los días", "storage_target_id": targetID})
+	if status != http.StatusBadRequest {
+		t.Fatalf("cron inválido aceptado: %d", status)
+	}
+
+	// Destino inexistente rechazado.
+	status, _ = doJSON(t, http.MethodPost, srv.URL+"/api/v1/admin/sql/plans", adminToken,
+		map[string]any{"agent_id": agentID, "server": "sqlhost", "database": "app",
+			"schedule": "0 3 * * *", "storage_target_id": "nope"})
+	if status != http.StatusBadRequest {
+		t.Fatalf("destino inexistente aceptado: %d", status)
+	}
+
+	// Listado contiene el plan.
+	status, body = doJSON(t, http.MethodGet, srv.URL+"/api/v1/admin/sql/plans", adminToken, nil)
+	if status != http.StatusOK {
+		t.Fatalf("listar planes: %d %s", status, body)
+	}
+	var list struct {
+		Items []contracts.SQLPlanView `json:"items"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil || len(list.Items) != 1 {
+		t.Fatalf("listado: %d items (%v)", len(list.Items), err)
+	}
+
+	// Update: deshabilitar y cambiar horario.
+	status, body = doJSON(t, http.MethodPut, srv.URL+"/api/v1/admin/sql/plans/"+plan.ID, adminToken,
+		map[string]any{"enabled": false, "schedule": "30 4 * * *"})
+	if status != http.StatusOK {
+		t.Fatalf("update plan: %d %s", status, body)
+	}
+	var upd contracts.SQLPlanView
+	if err := json.Unmarshal(body, &upd); err != nil {
+		t.Fatalf("update parse: %s", body)
+	}
+	if upd.Enabled || upd.Schedule != "30 4 * * *" || upd.Type != "DIFFERENTIAL" {
+		t.Fatalf("update no aplicado: %+v", upd)
+	}
+
+	// Delete + listado vacío.
+	status, _ = doJSON(t, http.MethodDelete, srv.URL+"/api/v1/admin/sql/plans/"+plan.ID, adminToken, nil)
+	if status != http.StatusNoContent {
+		t.Fatalf("delete plan: %d", status)
+	}
+	status, _ = doJSON(t, http.MethodDelete, srv.URL+"/api/v1/admin/sql/plans/"+plan.ID, adminToken, nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("delete repetido: %d", status)
+	}
+	status, body = doJSON(t, http.MethodGet, srv.URL+"/api/v1/admin/sql/plans", adminToken, nil)
+	if status != http.StatusOK {
+		t.Fatalf("listar tras delete: %d %s", status, body)
+	}
+	if err := json.Unmarshal(body, &list); err != nil || len(list.Items) != 0 {
+		t.Fatalf("listado tras delete: %d items (%v)", len(list.Items), err)
+	}
+}

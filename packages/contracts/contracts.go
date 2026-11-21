@@ -761,6 +761,41 @@ type SQLDatabaseView struct {
 	Protectable   bool   `json:"protectable"`
 }
 
+// SQLPlanRequest crea o actualiza un plan programado de backup SQL.
+type SQLPlanRequest struct {
+	AgentID         string `json:"agent_id"` // agente del host SQL
+	Server          string `json:"server"`   // host o host\instancia
+	Instance        string `json:"instance,omitempty"`
+	Database        string `json:"database"`
+	Type            string `json:"type,omitempty"` // FULL (default) | DIFF | LOG | COPY_ONLY
+	Schedule        string `json:"schedule"`       // cron
+	Timezone        string `json:"timezone,omitempty"`
+	StorageTargetID string `json:"storage_target_id"`
+	RetentionDays   int    `json:"retention_days,omitempty"` // 0 = el del destino
+	Verify          *bool  `json:"verify,omitempty"`         // nil = verificar
+	Enabled         *bool  `json:"enabled,omitempty"`        // nil = true
+}
+
+// SQLPlanView es la vista de un plan SQL para la API y el panel.
+type SQLPlanView struct {
+	ID              string     `json:"id"`
+	AgentID         string     `json:"agent_id"`
+	Server          string     `json:"server"`
+	Instance        string     `json:"instance,omitempty"`
+	Database        string     `json:"database"`
+	Type            string     `json:"type"`
+	Schedule        string     `json:"schedule"`
+	Timezone        string     `json:"timezone,omitempty"`
+	StorageTargetID string     `json:"storage_target_id"`
+	RetentionDays   int        `json:"retention_days,omitempty"`
+	Verify          bool       `json:"verify"`
+	Enabled         bool       `json:"enabled"`
+	LastJobID       string     `json:"last_job_id,omitempty"`
+	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
 // ImageJobResult es el resultado de un job BACKUP_IMAGE.
 type ImageJobResult struct {
 	ManifestID      string            `json:"manifest_id"`

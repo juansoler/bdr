@@ -44,6 +44,7 @@ func (s *Server) runSchedulerTick(ctx context.Context) {
 
 	type launch struct{ planID, agentID string }
 	var due []launch
+	var sqlDue []string
 	var offlineAlerts []notifPayload
 	var expiredJobs []string
 
@@ -115,6 +116,24 @@ func (s *Server) runSchedulerTick(ctx context.Context) {
 			}
 			due = append(due, launch{planID: se.PlanID, agentID: se.AgentID})
 		}
+
+		// 4. Planes SQL vencidos: modelo plano (NextRunAt en el propio plan,
+		// binding directo agente+instancia+base, sin asignaciones).
+		for _, p := range st.SQLPlans {
+			if !p.Enabled || !agentActive(st, p.AgentID) {
+				continue
+			}
+			if p.NextRunAt.IsZero() || p.NextRunAt.After(now) {
+				continue
+			}
+			if tg := st.Storage[p.StorageTargetID]; tg == nil || !tg.Enabled {
+				continue // destino inválido: no lanzar ni avanzar
+			}
+			if planHasPendingJob(st, p.AgentID, p.ID) || agentBusy(st, p.AgentID) {
+				continue // reintenta en el próximo tick sin avanzar
+			}
+			sqlDue = append(sqlDue, p.ID)
+		}
 		return nil
 	})
 	if err != nil {
@@ -156,6 +175,11 @@ func (s *Server) runSchedulerTick(ctx context.Context) {
 	// Lanzar los vencidos (uno a uno, cada uno en su Update).
 	for _, d := range due {
 		s.launchScheduled(ctx, d.planID, d.agentID, now)
+	}
+
+	// Planes SQL vencidos.
+	for _, id := range sqlDue {
+		s.launchSQLScheduled(ctx, id, now)
 	}
 
 	// Alertas de offline.
@@ -242,6 +266,51 @@ func (s *Server) launchScheduled(ctx context.Context, planID, agentID string, no
 	})
 	if err == nil {
 		s.Logger.Info("job programado creado", "plan_id", planID, "agent_id", agentID)
+	}
+}
+
+// launchSQLScheduled crea el job SQL_BACKUP de un plan SQL vencido y avanza
+// su NextRunAt. Espeja launchScheduled con el modelo plano de SQLPlan.
+func (s *Server) launchSQLScheduled(ctx context.Context, planID string, now time.Time) {
+	err := s.Store.Update(ctx, func(st *store.State) error {
+		p := st.SQLPlans[planID]
+		if p == nil || !p.Enabled || !agentActive(st, p.AgentID) {
+			return errAbort
+		}
+		if planHasPendingJob(st, p.AgentID, p.ID) || agentBusy(st, p.AgentID) {
+			// Reintenta en el próximo tick; no avanza la programación.
+			return errAbort
+		}
+		tg := st.Storage[p.StorageTargetID]
+		if tg == nil || !tg.Enabled {
+			return errAbort
+		}
+		retentionDays := p.RetentionDays
+		if retentionDays == 0 {
+			retentionDays = tg.RetentionDays
+		}
+		payload, _ := json.Marshal(contracts.SQLBackupJobPayload{
+			Server: p.Server, Instance: p.Instance, Database: p.Database,
+			Type: p.Type, StorageTargetID: tg.ID,
+			RetentionDays: retentionDays, Verify: p.Verify,
+		})
+		id, _ := newID()
+		j := &store.Job{
+			ID: id, Type: contracts.JobTypeSQLBackup, State: store.JobPending,
+			AgentID: p.AgentID, PlanID: p.ID, Trigger: "schedule",
+			Payload: payload, MaxAttempts: 3, CreatedAt: now, UpdatedAt: now,
+		}
+		st.Jobs[id] = j
+		st.AppendJobEvent(contracts.JobEvent{JobID: id, Kind: "state", State: store.JobPending, At: now})
+		p.LastJobID = id
+		p.UpdatedAt = now
+		if sch, err := cron.Parse(p.Schedule); err == nil {
+			p.NextRunAt = sch.Next(now.In(timeZone(p.Timezone)))
+		}
+		return nil
+	})
+	if err == nil {
+		s.Logger.Info("job SQL programado creado", "plan_id", planID)
 	}
 }
 

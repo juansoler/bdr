@@ -194,6 +194,28 @@ type RestorePoint struct {
 	SQL *SQLBackupMeta `json:"SQL,omitempty"`
 }
 
+// SQLPlan es un plan programado de backup para una base de SQL Server.
+// Se ejecuta en el agente del host SQL (SSPI de la cuenta de servicio) y
+// transfiere el resultado al destino de almacenamiento indicado.
+type SQLPlan struct {
+	ID              string    `json:"ID"`
+	AgentID         string    `json:"AgentID"`            // agente del host SQL
+	Server          string    `json:"Server"`             // host o host\instancia
+	Instance        string    `json:"Instance,omitempty"` // instancia con nombre
+	Database        string    `json:"Database"`
+	Type            string    `json:"Type"` // FULL | DIFFERENTIAL | LOG | COPY_ONLY
+	Schedule        string    `json:"Schedule"`
+	Timezone        string    `json:"Timezone,omitempty"`
+	StorageTargetID string    `json:"StorageTargetID"`
+	RetentionDays   int       `json:"RetentionDays,omitempty"` // 0 = el del destino
+	Verify          *bool     `json:"Verify,omitempty"`        // nil = verificar
+	Enabled         bool      `json:"Enabled"`
+	LastJobID       string    `json:"LastJobID,omitempty"`
+	NextRunAt       time.Time `json:"NextRunAt,omitempty"`
+	CreatedAt       time.Time `json:"CreatedAt"`
+	UpdatedAt       time.Time `json:"UpdatedAt"`
+}
+
 // SQLBackupMeta guarda lo propio de un punto de restauración SQL Server:
 // instancia/base, tipo de backup, LSNs (numeric(25,0) como texto) y flags
 // de integridad. Los LSN permiten seleccionar la cadena para PITR.
@@ -522,6 +544,7 @@ type State struct {
 	PVE              map[string]*PVEInstance         `json:"proxmox_instances"`
 	Storage          map[string]*StorageTarget       `json:"storage_targets"`
 	TerminalSessions map[string]*TerminalSession     `json:"terminal_sessions,omitempty"`
+	SQLPlans         map[string]*SQLPlan             `json:"sql_plans,omitempty"`
 }
 
 // NewState crea un estado vacío.
@@ -591,6 +614,9 @@ func (s *State) ensureMaps() {
 	}
 	if s.TerminalSessions == nil {
 		s.TerminalSessions = map[string]*TerminalSession{}
+	}
+	if s.SQLPlans == nil {
+		s.SQLPlans = map[string]*SQLPlan{}
 	}
 }
 
