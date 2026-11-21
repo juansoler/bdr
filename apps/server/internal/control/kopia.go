@@ -266,8 +266,8 @@ func firstLines(s string, n int) string {
 		lines = lines[:n]
 	}
 	out := strings.Join(lines, " · ")
-	if len(out) > 300 {
-		out = out[:300] + "…"
+	if len(out) > 2000 {
+		out = out[:2000] + "…"
 	}
 	return out
 }

@@ -177,6 +177,39 @@ func (a *Agent) beat(ctx context.Context) {
 	if state == contracts.StateIdle && upgrade.OfferValid(resp.Upgrade, version.Version) {
 		a.applyUpgrade(ctx, *resp.Upgrade)
 	}
+	if resp.AgentURL != "" && resp.AgentURL != a.cfg.Endpoint() {
+		a.log.Info("agente: URL del plano de control actualizada por el servidor", "agent_url", resp.AgentURL, "anterior", a.cfg.Endpoint())
+		if err := a.updateEndpoint(ctx, resp.AgentURL); err != nil {
+			a.log.Warn("no se pudo actualizar la URL del agente", "error", err.Error())
+		}
+	}
+}
+
+// updateEndpoint persiste y aplica la URL del plano de control reportada por
+// el servidor (heartbeat). Cubre el drift entre el --agent-url con el que se
+// enroló el agente y el actual (p. ej. LAN → NetBird): sin esto el TLS se
+// sigue validando contra un host obsoleto y todas las llamadas fallan.
+func (a *Agent) updateEndpoint(ctx context.Context, endpoint string) error {
+	a.cfgMu.Lock()
+	a.cfg.AgentURL = endpoint
+	cfg := a.cfg
+	a.cfgMu.Unlock()
+	if err := config.Save(a.dataDir, cfg); err != nil {
+		return err
+	}
+	keyPEM, certPEM, caPEM, err := identity.Load(a.dataDir)
+	if err != nil {
+		return err
+	}
+	opts := client.Options{BaseURL: endpoint, APIKey: cfg.APIKey, CertPEM: certPEM, KeyPEM: keyPEM, CAPEM: caPEM}
+	c, err := client.NewWithOptions(opts)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.client = c
+	a.mu.Unlock()
+	return nil
 }
 
 // applyUpgrade se autoactualiza: descarga, verifica y reemplaza el binario;

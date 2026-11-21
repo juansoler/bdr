@@ -242,6 +242,11 @@ func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Oferta de autoactualización si el agente reporta otra versión y hay
 	// binario publicado con su SHA-256.
 	resp.Upgrade = s.agentUpgradeOffer(agent.OSFamily, agent.Arch, req.AgentVersion)
+	// URL vigente del plano de control para agentes: la adoptan los agentes
+	// con URL obsoleta (p. ej. --agent-url cambiado de LAN a NetBird).
+	if s.AgentPublicURL != "" {
+		resp.AgentURL = s.AgentPublicURL
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

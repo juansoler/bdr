@@ -26,6 +26,22 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   vía env `KOPIA_PASSWORD`; keychain/persist eran no determinados en
   servicios con PATH mínimo).
 
+## [0.11.5] — 2026-11-21
+
+### Corregido
+
+- Aprovisionamiento de repos: el error de Kopia ya no se trunca a 300
+  caracteres (`firstLines`), de modo que el motivo real del fallo (conexión
+  storage/SigV4, credenciales, lock del proveedor, cuota…) llega completo al
+  error del job y a los logs.
+
+### Añadido
+
+- El heartbeat del agente adopta la `AgentURL` vigente del plano de control
+  (campo `agent_url` en `HeartbeatResponse`): si el operador cambió el
+  `--agent-url` (p. ej. de LAN a NetBird) tras un enrolamiento, el agente
+  reconfigura su endpoint y persiste el cambio sin re-enrolarse.
+
 ## [0.9.5] — 2026-11-20
 
 ### Añadido

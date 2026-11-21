@@ -114,6 +114,12 @@ type HeartbeatResponse struct {
 	CancelRequested  []string  `json:"cancel_requested"`
 	ConfigVersion    int       `json:"config_version"`
 	HeartbeatSeconds int       `json:"heartbeat_seconds"`
+	// AgentURL es la URL actual del plano de control para agentes. El
+	// agente la persiste y reconfigura si difiere de la suya: cubre el caso
+	// de que el operador cambió --agent-url (p. ej. de LAN a NetBird) tras
+	// un enrolamiento — la URL antigua queda obsoleta y el TLS falla con
+	// certificado emitido para la nueva.
+	AgentURL         string     `json:"agent_url,omitempty"`
 	// CertRenewAfter indica cuándo debe renovar el certificado mTLS.
 	CertRenewAfter *time.Time `json:"cert_renew_after,omitempty"`
 	// Upgrade ofrece al agente una versión nueva de sí mismo: los agentes
