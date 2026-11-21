@@ -16,6 +16,7 @@ import (
 
 	"github.com/juansoler/bdr/apps/server/internal/auth"
 	"github.com/juansoler/bdr/apps/server/internal/store"
+	"github.com/juansoler/bdr/packages/contracts"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -37,10 +38,14 @@ func (s *Server) storageCheck(ctx context.Context, t *store.StorageTarget) strin
 		return "error: no se pudo descifrar el secreto (¿cambió secret.key?)"
 	}
 	endpoint, secure := t.Endpoint, !t.NoTLS
+	region := t.Region
+	if region == "" {
+		region = contracts.DetectS3Region(endpoint)
+	}
 	mc, err := minio.New(endpoint, &minio.Options{
 		Creds:        credentials.NewStaticV4(t.AccessKey, sk, ""),
 		Secure:       secure,
-		Region:       t.Region,
+		Region:       region,
 		BucketLookup: minio.BucketLookupPath,
 	})
 	if err != nil {
@@ -138,6 +143,10 @@ func (s *Server) storageRunSync(ctx context.Context, t *store.StorageTarget) (st
 			return "error: no se pudo descifrar el secreto", false
 		}
 		endpoint, _ := parseEndpoint(t.Endpoint)
+		region := t.Region
+		if region == "" {
+			region = contracts.DetectS3Region(endpoint)
+		}
 		args = []string{
 			"repository", "sync-to", "s3",
 			"--endpoint=" + endpoint,
@@ -146,8 +155,8 @@ func (s *Server) storageRunSync(ctx context.Context, t *store.StorageTarget) (st
 		if t.Prefix != "" {
 			args = append(args, "--prefix="+strings.Trim(t.Prefix, "/")+"/")
 		}
-		if t.Region != "" {
-			args = append(args, "--region="+t.Region)
+		if region != "" {
+			args = append(args, "--region="+region)
 		}
 		if t.AccessKey != "" {
 			args = append(args,
@@ -157,6 +166,7 @@ func (s *Server) storageRunSync(ctx context.Context, t *store.StorageTarget) (st
 		if t.NoTLS {
 			args = append(args, "--disable-tls")
 		}
+		args = append(args, "--no-use-keychain", "--no-persist-credentials")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
@@ -273,6 +283,10 @@ func (s *Server) storageEnsureRepo(ctx context.Context, t *store.StorageTarget) 
 		}
 		connect = []string{"repository", "connect", "filesystem", "--path=" + t.RepoPath()}
 	} else {
+		region := t.Region
+		if region == "" {
+			region = contracts.DetectS3Region(t.Endpoint)
+		}
 		connect = []string{"repository", "connect", "s3",
 			"--endpoint=" + t.Endpoint, "--bucket=" + t.Bucket}
 		if p := strings.Trim(t.Prefix, "/"); p != "" {
@@ -280,19 +294,24 @@ func (s *Server) storageEnsureRepo(ctx context.Context, t *store.StorageTarget) 
 		}
 		// Región en el scope SigV4: la guía oficial de Hetzner la pasa
 		// siempre (--region=<ubicación>) y algunos proveedores la exigen.
-		if t.Region != "" {
-			connect = append(connect, "--region="+t.Region)
+		if region != "" {
+			connect = append(connect, "--region="+region)
 		}
 		connect = append(connect, "--access-key="+t.AccessKey, "--secret-access-key="+sk)
 		if t.NoTLS {
 			connect = append(connect, "--disable-tls")
 		}
 	}
+	connect = append(connect, "--no-use-keychain", "--no-persist-credentials")
 	if _, err := s.Kopia.RunRepoOp(ctx, 2*time.Minute, cfgFile, pw, connect...); err != nil {
+		// Una conexión fallida puede dejar un archivo a medias; se limpia
+		// antes de intentar el create.
+		_ = os.Remove(cfgFile)
 		// No era un repo: se crea (formatea el destino con el layout).
 		create := append([]string{}, connect...)
 		create[1] = "create"
 		if _, cerr := s.Kopia.RunRepoOp(ctx, 2*time.Minute, cfgFile, pw, create...); cerr != nil {
+			_ = os.Remove(cfgFile)
 			// Detalle completo: el fallo del create en proveedores externos
 			// (quotas, lock, región, multipart…) se pierde con pocas líneas.
 			msg := firstLines(cerr.Error(), 8)

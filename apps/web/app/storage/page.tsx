@@ -28,8 +28,8 @@ export default function StoragePage() {
   const [region, setRegion] = useState("");
   const [accessKey, setAccessKey] = useState("");
   const [secretKey, setSecretKey] = useState("");
-  const [noTLS, setNoTLS] = useState(true);
-  const [objectLock, setObjectLock] = useState(true);
+  const [noTLS, setNoTLS] = useState(false);
+  const [objectLock, setObjectLock] = useState(false);
   const [retentionDays, setRetentionDays] = useState(7);
   const [syncInterval, setSyncInterval] = useState(60);
 
@@ -169,7 +169,21 @@ export default function StoragePage() {
   function reset() {
     setKind("s3");
     setName(""); setPath(""); setSmbUser(""); setSmbPassword(""); setSmbDomain("");
-    setEndpoint(""); setBucket(""); setPrefix(""); setAccessKey(""); setSecretKey("");
+    setEndpoint(""); setBucket(""); setPrefix(""); setRegion(""); setAccessKey(""); setSecretKey("");
+    setNoTLS(false);
+    setObjectLock(false);
+    setRetentionDays(7);
+    setSyncInterval(60);
+  }
+
+  function handleEndpointChange(val: string) {
+    setEndpoint(val);
+    if (!region) {
+      const match = val.match(/(?:^|\/\/)(?:[^/.]+\.)?([a-z0-9-]+)\.your-objectstorage\.com/i);
+      if (match && match[1]) {
+        setRegion(match[1].toLowerCase());
+      }
+    }
   }
 
   return (
@@ -232,8 +246,8 @@ export default function StoragePage() {
               </Field>
             ) : (
               <>
-                <Field label="Endpoint" hint="host:puerto (p. ej. 203.0.113.5:9000)">
-                  <Input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="203.0.113.5:9000" required />
+                <Field label="Endpoint" hint="host:puerto o dominio (p. ej. fsn1.your-objectstorage.com)">
+                  <Input value={endpoint} onChange={(e) => handleEndpointChange(e.target.value)} placeholder="fsn1.your-objectstorage.com" required />
                 </Field>
                 <Field label="Bucket" hint="Debe existir en el proveedor">
                   <Input value={bucket} onChange={(e) => setBucket(e.target.value)} placeholder="bdr-backups" required />
@@ -263,8 +277,8 @@ export default function StoragePage() {
               <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder={isFS ? "imagen" : "imagen"} />
             </Field>
             {!isFS && !isSMB ? (
-              <Field label="Región (opcional)" hint="Código de ubicación del proveedor S3 (p. ej. hel1 en Hetzner, us-east-1 en AWS)">
-                <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="hel1" />
+              <Field label="Región (opcional)" hint="Código de ubicación (fsn1, hel1, nbg1… en Hetzner; auto-detectada del endpoint si se omite)">
+                <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="fsn1" />
               </Field>
             ) : null}
             {!isFS ? (

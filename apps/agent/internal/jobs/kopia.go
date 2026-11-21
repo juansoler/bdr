@@ -228,6 +228,13 @@ func ConnectArgs(creds contracts.RepositoryCredentials, configFile, cacheDir str
 		}
 		args = []string{"repository", "connect", "s3",
 			"--endpoint=" + creds.Endpoint, "--bucket=" + creds.Bucket}
+		region := creds.Region
+		if region == "" {
+			region = contracts.DetectS3Region(creds.Endpoint)
+		}
+		if region != "" {
+			args = append(args, "--region="+region)
+		}
 		if creds.Prefix != "" {
 			args = append(args, "--prefix="+strings.Trim(creds.Prefix, "/")+"/")
 		}
@@ -516,9 +523,9 @@ func kopiaEnv(creds *contracts.RepositoryCredentials) []string {
 
 func repoSignature(creds *contracts.RepositoryCredentials) string {
 	sum := sha256.Sum256([]byte(creds.Password))
-	return fmt.Sprintf("%s|%d|%s|%s|%s|%s|%s|%s|%s|%s",
+	return fmt.Sprintf("%s|%d|%s|%s|%s|%s|%s|%s|%s|%s|%s",
 		creds.RepositoryID, creds.Version, creds.Kind, creds.URL, creds.Path,
-		creds.Endpoint, creds.Bucket, creds.Prefix, creds.AccessKey, hex.EncodeToString(sum[:]))
+		creds.Endpoint, creds.Bucket, creds.Region, creds.Prefix, creds.AccessKey, hex.EncodeToString(sum[:]))
 }
 
 func normalizeFingerprint(s string) string {

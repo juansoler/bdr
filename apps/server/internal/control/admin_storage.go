@@ -51,7 +51,7 @@ func storageView(t *store.StorageTarget) contracts.StorageTargetView {
 	return contracts.StorageTargetView{
 		ID: t.ID, Name: t.Name, Kind: t.KindName(),
 		Endpoint: t.Endpoint, Bucket: t.Bucket,
-		Prefix: t.Prefix, Path: t.Path, AccessKey: t.AccessKey, NoTLS: t.NoTLS,
+		Prefix: t.Prefix, Path: t.Path, Region: t.Region, AccessKey: t.AccessKey, NoTLS: t.NoTLS,
 		SMB: t.IsSMB(), SMBUser: t.SMBUser, SMBDomain: t.SMBDomain,
 		ObjectLock: t.ObjectLock, RetentionDays: t.RetentionDays,
 		SyncIntervalMinutes: t.SyncIntervalMinutes, Enabled: t.Enabled,
@@ -61,6 +61,7 @@ func storageView(t *store.StorageTarget) contracts.StorageTargetView {
 	}
 }
 
+// storageList devuelve el catálogo de destinos de almacenamiento.
 func (s *Server) storageList(w http.ResponseWriter, r *http.Request) {
 	if !allowMethod(w, r, http.MethodGet) {
 		return
@@ -86,13 +87,13 @@ func (s *Server) storageList(w http.ResponseWriter, r *http.Request) {
 
 // parseEndpoint separa el esquema del endpoint: devuelve host:puerto y TLS.
 func parseEndpoint(endpoint string) (string, bool) {
-	e := strings.TrimSpace(endpoint)
+	e := strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	if strings.Contains(e, "://") {
 		u, err := url.Parse(e)
 		if err != nil {
-			return strings.TrimPrefix(e, "https://"), false
+			return strings.TrimRight(strings.TrimPrefix(e, "https://"), "/"), true
 		}
-		return u.Host, u.Scheme == "https"
+		return strings.TrimRight(u.Host, "/"), u.Scheme == "https"
 	}
 	return e, true
 }
@@ -247,6 +248,7 @@ func (s *Server) storageUpsert(w http.ResponseWriter, r *http.Request, id string
 		// Si cambia el tipo o la ubicación de datos, el repo previo del
 		// destino ya no sirve: se re-aprovisiona en el próximo uso.
 		prevKind, prevPrefix, prevPath := t.Kind, t.Prefix, t.Path
+		prevRegion, prevEndpoint := t.Region, t.Endpoint
 		t.Name = req.Name
 		t.Kind = req.Kind
 		t.Prefix = req.Prefix
@@ -277,7 +279,14 @@ func (s *Server) storageUpsert(w http.ResponseWriter, r *http.Request, id string
 				t.NoTLS = req.NoTLS
 			}
 			t.Bucket = req.Bucket
-			t.Region = strings.TrimSpace(req.Region)
+			reg := strings.TrimSpace(req.Region)
+			if reg == "" && id != "" && t.Region != "" && t.Endpoint == parseEndpointHost(req.Endpoint) {
+				reg = t.Region
+			}
+			if reg == "" {
+				reg = contracts.DetectS3Region(req.Endpoint)
+			}
+			t.Region = reg
 			t.AccessKey = req.AccessKey
 			if enc != "" {
 				t.SecretKeyEnc = enc
@@ -285,7 +294,7 @@ func (s *Server) storageUpsert(w http.ResponseWriter, r *http.Request, id string
 			t.ObjectLock = req.ObjectLock
 			t.RetentionDays = req.RetentionDays
 		}
-		if id != "" && (t.Kind != prevKind || t.Prefix != prevPrefix || t.Path != prevPath) {
+		if id != "" && (t.Kind != prevKind || t.Prefix != prevPrefix || t.Path != prevPath || t.Region != prevRegion || t.Endpoint != prevEndpoint) {
 			t.RepoReady = false
 		}
 		st.Storage[t.ID] = t

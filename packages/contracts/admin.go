@@ -337,6 +337,7 @@ type StorageTargetView struct {
 	Endpoint            string     `json:"endpoint,omitempty"`
 	Bucket              string     `json:"bucket,omitempty"`
 	Prefix              string     `json:"prefix,omitempty"`
+	Region              string     `json:"region,omitempty"`
 	Path                string     `json:"path,omitempty"` // ruta física (filesystem)
 	SMB                 bool       `json:"smb,omitempty"`  // la ruta física es compartida SMB
 	SMBUser             string     `json:"smb_user,omitempty"`

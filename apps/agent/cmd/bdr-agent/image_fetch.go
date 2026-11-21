@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/juansoler/bdr/packages/contracts"
 	pkgimg "github.com/juansoler/bdr/packages/image"
 	"github.com/juansoler/bdr/packages/logging"
 
@@ -26,6 +27,7 @@ func cmdImageFetch(args []string) {
 	endpoint := fs.String("endpoint", "", "endpoint S3 (host:puerto)")
 	bucket := fs.String("bucket", "", "bucket del destino")
 	prefix := fs.String("prefix", "", "prefijo de objetos de imagen (opcional)")
+	region := fs.String("region", "", "región S3 (fsn1, hel1… opcional; auto-detectada si vacía)")
 	accessKey := fs.String("access-key", "", "access key del bucket")
 	secretKey := fs.String("secret-key", "", "secret key del bucket")
 	noTLS := fs.Bool("no-tls", false, "sin TLS (MinIO local)")
@@ -41,10 +43,15 @@ func cmdImageFetch(args []string) {
 		fs.Usage()
 		os.Exit(2)
 	}
+	reg := *region
+	if reg == "" {
+		reg = contracts.DetectS3Region(*endpoint)
+	}
 	log := logging.New("info")
 	mc, err := minio.New(*endpoint, &minio.Options{
 		Creds:        credentials.NewStaticV4(*accessKey, *secretKey, ""),
 		Secure:       !*noTLS,
+		Region:       reg,
 		BucketLookup: minio.BucketLookupPath,
 	})
 	if err != nil {

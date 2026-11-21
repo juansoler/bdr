@@ -902,10 +902,14 @@ func (s *Server) handleTargetRepoCredentials(w http.ResponseWriter, r *http.Requ
 			"No se pudo descifrar la clave del destino")
 		return
 	}
+	region := target.Region
+	if region == "" {
+		region = contracts.DetectS3Region(target.Endpoint)
+	}
 	writeJSON(w, http.StatusOK, contracts.RepositoryCredentials{
 		RepositoryID: targetID, Kind: contracts.RepoKindS3,
 		Endpoint: target.Endpoint, Bucket: target.Bucket,
-		Prefix: strings.Trim(target.Prefix, "/"), NoTLS: target.NoTLS,
+		Prefix: strings.Trim(target.Prefix, "/"), Region: region, NoTLS: target.NoTLS,
 		AccessKey: target.AccessKey, SecretKey: sk,
 		Password: pw, Version: 1,
 		IssuedAt: now, ExpiresAt: now.Add(time.Hour),

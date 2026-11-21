@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/juansoler/bdr/apps/server/internal/store"
+	"github.com/juansoler/bdr/packages/contracts"
 	pkgimg "github.com/juansoler/bdr/packages/image"
 
 	"github.com/minio/minio-go/v7"
@@ -163,9 +164,14 @@ func (s *Server) deleteObjectsRestorePoint(ctx context.Context, target *store.St
 		if err != nil {
 			return "", fmt.Errorf("no se pudo descifrar el secreto del destino")
 		}
+		region := target.Region
+		if region == "" {
+			region = contracts.DetectS3Region(target.Endpoint)
+		}
 		mc, err := minio.New(target.Endpoint, &minio.Options{
 			Creds:        credentials.NewStaticV4(target.AccessKey, sk, ""),
 			Secure:       !target.NoTLS,
+			Region:       region,
 			BucketLookup: minio.BucketLookupPath,
 		})
 		if err != nil {
@@ -205,9 +211,14 @@ func (s *Server) readTargetObject(ctx context.Context, t *store.StorageTarget, k
 	if err != nil {
 		return nil, fmt.Errorf("no se pudo descifrar el secreto del destino")
 	}
+	region := t.Region
+	if region == "" {
+		region = contracts.DetectS3Region(t.Endpoint)
+	}
 	mc, err := minio.New(t.Endpoint, &minio.Options{
 		Creds:        credentials.NewStaticV4(t.AccessKey, sk, ""),
 		Secure:       !t.NoTLS,
+		Region:       region,
 		BucketLookup: minio.BucketLookupPath,
 	})
 	if err != nil {

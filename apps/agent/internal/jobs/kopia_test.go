@@ -118,6 +118,59 @@ func TestConnectArgsFilesystem(t *testing.T) {
 	}
 }
 
+func TestConnectArgsS3(t *testing.T) {
+	// Región explícita
+	creds := contracts.RepositoryCredentials{
+		Kind:      contracts.RepoKindS3,
+		Endpoint:  "fsn1.your-objectstorage.com",
+		Bucket:    "bdr-backups",
+		Region:    "fsn1",
+		AccessKey: "AKIA-TEST",
+		SecretKey: "SK-TEST",
+		Password:  "repo-secret",
+	}
+	args, err := ConnectArgs(creds, "/tmp/kopia.config", "/tmp/cache")
+	if err != nil {
+		t.Fatalf("args: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	for _, want := range []string{
+		"repository connect s3",
+		"--endpoint=fsn1.your-objectstorage.com",
+		"--bucket=bdr-backups",
+		"--region=fsn1",
+		"--access-key=AKIA-TEST",
+		"--secret-access-key=SK-TEST",
+		"--no-use-keychain",
+		"--no-persist-credentials",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("falta argumento %q en %v", want, args)
+		}
+	}
+	if strings.Contains(joined, "repo-secret") {
+		t.Fatalf("contraseña de repositorio en argv: %v", args)
+	}
+
+	// Región auto-detectada desde el endpoint de Hetzner cuando está vacía
+	credsAuto := contracts.RepositoryCredentials{
+		Kind:      contracts.RepoKindS3,
+		Endpoint:  "hel1.your-objectstorage.com",
+		Bucket:    "bdr-hel1",
+		AccessKey: "AKIA-TEST",
+		SecretKey: "SK-TEST",
+		Password:  "repo-secret",
+	}
+	argsAuto, err := ConnectArgs(credsAuto, "", "")
+	if err != nil {
+		t.Fatalf("args: %v", err)
+	}
+	joinedAuto := strings.Join(argsAuto, " ")
+	if !strings.Contains(joinedAuto, "--region=hel1") {
+		t.Fatalf("se esperaba auto-detección de región hel1 en: %s", joinedAuto)
+	}
+}
+
 func TestValidateRestoreItem(t *testing.T) {
 	valid := []string{"archivo.txt", "sub/dir/a.txt", "con espacio.txt"}
 	for _, item := range valid {

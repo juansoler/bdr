@@ -741,6 +741,7 @@ type RepositoryCredentials struct {
 	Endpoint  string `json:"endpoint,omitempty"`
 	Bucket    string `json:"bucket,omitempty"`
 	Prefix    string `json:"prefix,omitempty"`
+	Region    string `json:"region,omitempty"`
 	AccessKey string `json:"access_key,omitempty"`
 	SecretKey string `json:"secret_key,omitempty"`
 	NoTLS     bool   `json:"no_tls,omitempty"`

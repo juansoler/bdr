@@ -199,7 +199,11 @@ func (k *KopiaControl) RunRepoOp(ctx context.Context, timeout time.Duration, con
 		if msg == "" {
 			msg = err.Error()
 		}
-		return "", fmt.Errorf("kopia %s: %s", args[0], firstLines(msg, 3))
+		// Sin truncar agresivo: el motivo real del fallo (credenciales,
+		// región SigV4, lock del proveedor, cuota…) viene en líneas
+		// posteriores al banner de inicialización. Los callers aplican su
+		// propio límite con firstLines.
+		return "", fmt.Errorf("kopia %s: %s", args[0], msg)
 	}
 	return filterKopiaJSON(out.String()), nil
 }

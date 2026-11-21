@@ -222,3 +222,69 @@ func TestStorageVerifyAndSync(t *testing.T) {
 		t.Fatalf("last_sync_status: %q", list.Items[0].LastSyncStatus)
 	}
 }
+
+func TestStorageTargetHetznerAutoRegionAndPreserve(t *testing.T) {
+	ts, st := newStorageTestAPI(t, t.TempDir(), "/bin/true")
+
+	// Crear target Hetzner sin especificar región → se deduce fsn1
+	req := contracts.StorageTargetRequest{
+		Name:      "hetzner-backup",
+		Endpoint:  "https://fsn1.your-objectstorage.com/",
+		Bucket:    "bdr-fsn1",
+		AccessKey: "hetzner-ak",
+		SecretKey: "hetzner-sk",
+		Enabled:   true,
+	}
+	status, body := doJSON(t, http.MethodPost, ts.URL+"/api/v1/admin/storage/targets", adminToken, req)
+	if status != http.StatusCreated {
+		t.Fatalf("crear target Hetzner: %d %s", status, body)
+	}
+	var created map[string]string
+	_ = json.Unmarshal(body, &created)
+	id := created["id"]
+
+	// GET: StorageTargetView debe exponer la región deducida
+	status, body = doJSON(t, http.MethodGet, ts.URL+"/api/v1/admin/storage/targets", adminToken, nil)
+	if status != http.StatusOK {
+		t.Fatalf("listar: %d", status)
+	}
+	var list contracts.StorageTargetList
+	_ = json.Unmarshal(body, &list)
+	if len(list.Items) == 0 {
+		t.Fatal("sin targets en listado")
+	}
+	item := list.Items[0]
+	if item.Region != "fsn1" {
+		t.Fatalf("esperaba region 'fsn1', obtuvo: %q", item.Region)
+	}
+	if item.Endpoint != "fsn1.your-objectstorage.com" {
+		t.Fatalf("endpoint esperado 'fsn1.your-objectstorage.com', obtuvo: %q", item.Endpoint)
+	}
+	if item.NoTLS {
+		t.Fatalf("no_tls no debe ser true para endpoint https://: %v", item.NoTLS)
+	}
+
+	// PUT update sin especificar región (como envía el panel Next.js cuando region="") → debe conservarse fsn1
+	updateReq := contracts.StorageTargetRequest{
+		Name:      "hetzner-backup-editado",
+		Endpoint:  "fsn1.your-objectstorage.com",
+		Bucket:    "bdr-fsn1",
+		AccessKey: "hetzner-ak",
+		Enabled:   true,
+	}
+	status, _ = doJSON(t, http.MethodPut, ts.URL+"/api/v1/admin/storage/targets/"+id, adminToken, updateReq)
+	if status != http.StatusNoContent {
+		t.Fatalf("update: %d", status)
+	}
+
+	_ = st.View(context.Background(), func(s *store.State) error {
+		tg := s.Storage[id]
+		if tg == nil {
+			t.Fatal("target no encontrado en store")
+		}
+		if tg.Region != "fsn1" {
+			t.Fatalf("la actualización perdió la región: %q", tg.Region)
+		}
+		return nil
+	})
+}

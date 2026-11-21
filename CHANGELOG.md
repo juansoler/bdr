@@ -2,6 +2,30 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.11.4] — 2026-11-21
+
+### Corregido
+
+- Aprovisionamiento de repos: los errores de Kopia ya no se truncan a 3
+  líneas antes de envolverse en el error, lo que ocultaba la causa real del
+  fallo (credenciales, región SigV4, lock del proveedor, cuota, etc.).
+  Ahora se propaga el detalle completo y el llamador aplica su límite (8).
+
+### Añadido
+
+- Detección automática de la región S3 del destino a partir del endpoint
+  (Hetzner Object Storage, DigitalOcean Spaces, AWS S3, Wasabi, B2,
+  Scaleway, Backblaze): se aplica a verify, sync-to, connect/create de
+  repositorios S3 y a las credenciales entregadas al agente cuando el
+  destino no tiene región registrada.
+
+### Cambiado
+
+- El plano de control ejecuta Kopia con `--no-use-keychain` /
+  `--no-persist-credentials` (la contraseña del repo la gestiona el control
+  vía env `KOPIA_PASSWORD`; keychain/persist eran no determinados en
+  servicios con PATH mínimo).
+
 ## [0.9.5] — 2026-11-20
 
 ### Añadido

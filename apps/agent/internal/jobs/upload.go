@@ -227,9 +227,14 @@ func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials
 		return nil, &CodeError{Code: "E_VALIDATION",
 			Message: "las credenciales del destino S3 no incluyen endpoint o bucket"}
 	}
+	region := creds.Region
+	if region == "" {
+		region = contracts.DetectS3Region(creds.Endpoint)
+	}
 	mc, err := minio.New(creds.Endpoint, &minio.Options{
 		Creds:        credentials.NewStaticV4(creds.AccessKey, creds.SecretKey, ""),
 		Secure:       !creds.NoTLS,
+		Region:       region,
 		BucketLookup: minio.BucketLookupPath,
 	})
 	if err != nil {
