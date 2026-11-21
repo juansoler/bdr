@@ -1,11 +1,14 @@
 module github.com/juansoler/bdr
 
-go 1.26.0
+go 1.26.11
 
 require (
 	github.com/cloudsoda/go-smb2 v0.0.0-20261105190815-95be04a983b8
+	github.com/coder/websocket v1.8.15
+	github.com/creack/pty v1.1.24
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/klauspost/compress v1.20.2
+	github.com/microsoft/go-mssqldb v1.12.0
 	github.com/minio/minio-go/v7 v7.4.1
 	golang.org/x/sys v0.48.0
 )
@@ -13,8 +16,6 @@ require (
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudsoda/sddl v0.0.0-20261105185302-1c8f96799263 // indirect
-	github.com/coder/websocket v1.8.15 // indirect
-	github.com/creack/pty v1.1.24 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/geoffgarside/ber v1.1.0 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
@@ -32,7 +33,6 @@ require (
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
-	github.com/microsoft/go-mssqldb v1.12.0 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
