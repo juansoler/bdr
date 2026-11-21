@@ -2,6 +2,27 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.10] — 2026-11-21
+
+### Corregido
+
+- **La CI de `main` fallaba siempre en `go test`**: el test del panel
+  embebido exigía `out/agents.html`, que solo existe tras `make web-build`
+  (en Git únicamente está el placeholder `index.html`). En un checkout
+  limpio —como el runner de CI— el test moría con `export sin agents.html`.
+  Ahora el test se salta honestamente (`t.Skip`) cuando el export no está
+  compilado, y sigue verificando de verdad en los checkouts que sí lo
+  tienen.
+- **`govulncheck` reportaba 33 vulnerabilidades de stdlib**: la toolchain
+  declarada en `go.mod` era `go 1.26.0`, cuya stdlib (`net/http`,
+  `crypto/x509`, …) tiene vulnerabilidades conocidas parcheadas a partir
+  de la 1.26.1. Bump a `go 1.26.11` (mínimo que las cubre todas). El
+  workflow Release también usa `go-version-file: go.mod`, así que los
+  binarios publicados a partir de esta versión se compilan con stdlib
+  parcheada.
+- **`go test` en CI usa `-count=1`**: evita que la caché de tests enmascare
+  fallos de entorno.
+
 ## [0.12.9] — 2026-11-21
 
 ### Corregido

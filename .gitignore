@@ -19,6 +19,8 @@ bin/
 data/
 tmp/
 *.ppm
+/bdr-agent
+/bdr-sql
 
 # Next.js
 node_modules/
