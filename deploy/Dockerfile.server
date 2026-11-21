@@ -21,11 +21,15 @@ RUN npm run build
 FROM kopia/kopia:0.23.1 AS kopia-bin
 
 # 3) Agentes: cross-compile de las 5 plataformas en la del builder (sin QEMU).
+# internal/ contiene el motor SQL Server (RF-40) que el runner SQL del
+# agente importa: sin ese COPY el build del agente falla o —peor— un agente
+# publicado sin motor responde E_JOB_TYPE a los jobs SQL.
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS agents
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY packages ./packages
+COPY internal ./internal
 COPY apps/agent ./apps/agent
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 RUN mkdir -p /agents \

@@ -44,6 +44,18 @@ jobs:
         working-directory: apps/web
         run: npm run build
 
+  docker-agents:
+    name: Docker — etapa agents (regresión de COPY)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # La etapa agents del Dockerfile copia rutas selectivas (packages,
+      # internal, apps/agent): si el agente pasa a importar un árbol nuevo
+      # del módulo y el COPY no se actualiza, el fallo solo aparecía en el
+      # release. Este job lo detecta en cada push a main.
+      - name: Compilar la etapa agents
+        run: docker build --target agents -f deploy/Dockerfile.server .
+
   secrets:
     name: Secretos — gitleaks
     runs-on: ubuntu-latest

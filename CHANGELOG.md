@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.14.2] — 2026-11-21
+
+### Corregido
+
+- **La imagen Docker llevaba agentes sin el motor SQL**: la etapa `agents`
+  de `deploy/Dockerfile.server` copiaba rutas selectivas (`packages`,
+  `apps/agent`) pero no el árbol `internal/`, donde viven los paquetes del
+  motor que el runner SQL del agente importa (`internal/backup`,
+  `internal/restore`, …). Por eso el push de la imagen fallaba en el
+  release (0.14.0 y 0.14.1) y, de haberse publicado, sus agentes habrían
+  respondido `E_JOB_TYPE` a los jobs SQL. Los assets de release **no**
+  estaban afectados (la matriz del workflow compila desde el checkout
+  completo); el problema era exclusivo de la imagen Docker.
+- **CI**: nuevo job `docker-agents` que compila la etapa `agents` del
+  Dockerfile en cada push — si el agente pasa a importar un árbol nuevo
+  del módulo sin actualizar el COPY, ahora se detecta en CI y no en el
+  release.
+
 ## [0.14.1] — 2026-11-21
 
 ### Añadido
