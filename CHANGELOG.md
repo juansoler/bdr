@@ -2,6 +2,36 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.1] — 2026-11-21
+
+Correcciones del acceso remoto publicado en 0.12.0: el canal del agente no
+llegaba a establecerse y el panel no incluía la consola.
+
+### Corregido
+
+- **Canal de terminal del agente**: el runtime de `remoteaccess` nunca se
+  arrancaba desde el bucle del agente, por lo que el servidor nunca veía al
+  agente conectado y toda sesión fallaba con `E_AGENT_OFFLINE`. Ahora el
+  agente mantiene el canal WebSocket hacia `/api/v1/agent/terminal/connect`
+  con reconexión automática (10 s entre intentos, 3 s tras pérdida).
+- **Autenticación del dial WebSocket**: `ConnectTerminal` no enviaba el mTLS
+  (CA del control + cert de cliente) ni la API key; ahora reutiliza el
+  Transport del cliente HTTP del agente y envía `Authorization: Bearer`.
+- **Bomba de salida PTY**: faltaba el bucle que lee el maestro de la
+  pseudoterminal y lo envía al servidor (frames binarios multiplexados); la
+  terminal se quedaba en blanco. Ahora también notifica `exit` con el código
+  del shell y cierra las sesiones locales al perder el canal.
+- **Panel embebido**: el binario 0.12.0 incluía el export del panel anterior
+  al botón «Abrir consola» (el export nuevo no se había copiado a
+  `apps/server/internal/webui/out` antes de compilar).
+
+### Añadido
+
+- **Consola web en la ficha del equipo**: botón «Abrir consola» que abre una
+  terminal xterm.js conectada por WebSocket al stream de la sesión
+  (`/api/v1/admin/terminal/sessions/{id}/stream`), con resize al cambiar de
+  ventana y envío de teclas como frames binarios.
+
 ## [0.12.0] — 2026-11-21 — Acceso remoto
 
 ### Añadido
