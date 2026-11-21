@@ -7,221 +7,195 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 
+type ConsoleStatus = "connecting" | "open" | "error";
+
+// Terminal remota: crea una sesión en el servidor, conecta el WebSocket del
+// stream y renderiza xterm.js. El contenedor se monta SIEMPRE (los estados
+// de espera y error son overlays): si el div no estuviera en el DOM, el
+// efecto no podría inicializar xterm y la sesión nunca se abriría.
 export function TerminalConsole({ agentId }: { agentId: string }) {
   const { token } = useAuth();
-  const terminalRef = useRef<HTMLDivElement>(null);
-  const term = useRef<Terminal | null>(null);
-  const fitAddon = useRef<FitAddon | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const [isConnecting, setIsConnecting] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [status, setStatus] = useState<ConsoleStatus>("connecting");
+  const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
-    if (!terminalRef.current) return;
+    const el = containerRef.current;
+    if (!el) return;
 
-    const termInstance = new Terminal({
-      fontFamily: "'SF Mono', 'Consolas', 'Monaco', 'monospace'",
+    let disposed = false;
+    let ws: WebSocket | null = null;
+
+    const term = new Terminal({
+      fontFamily: "'SF Mono', 'Menlo', 'Consolas', 'monospace'",
       fontSize: 12,
-      lineHeight: 1.4,
+      lineHeight: 1.3,
+      cursorBlink: true,
+      convertEol: false,
+      scrollback: 2000,
       theme: {
         background: "#282a36",
         foreground: "#c5c8c6",
         cursor: "#c5c8c6",
-        cursorAccent: "#282a36",
         selectionBackground: "#44475a",
-        black: "#1b1c1f",
-        red: "#ff5555",
-        green: "#50fa7b",
-        yellow: "#f1fa8c",
-        blue: "#bd93f9",
-        magenta: "#ff79c6",
-        cyan: "#8be9fd",
-        white: "#c5c8c6",
-        brightBlack: "#6272a4",
-        brightRed: "#ff6e6e",
-        brightGreen: "#69ff94",
-        brightYellow: "#ffffa5",
-        brightBlue: "#d6acff",
-        brightMagenta: "#ff92df",
-        brightCyan: "#a4ffff",
-        brightWhite: "#ffffff",
       },
-      cursorBlink: true,
-      convertEol: true,
-      scrollback: 1000,
     });
-
-    term.current = termInstance;
-    termInstance.open(terminalRef.current);
-
     const fit = new FitAddon();
-    fitAddon.current = fit;
-    termInstance.loadAddon(fit);
+    term.loadAddon(fit);
+    term.loadAddon(new WebLinksAddon());
+    term.open(el);
     fit.fit();
 
-    termInstance.loadAddon(new WebLinksAddon());
-
-    // Enviar entrada del terminal al WebSocket
-    const disposable = termInstance.onData((data) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        // Enviar como mensaje binario (bytes crudos)
-        const encoder = new TextEncoder();
-        wsRef.current.send(encoder.encode(data));
+    const dataSub = term.onData((data) => {
+      // Entrada del operador: bytes crudos en frame binario.
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(data));
       }
     });
 
-    // Crear sesión en el servidor
+    const sendResize = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({ type: "resize", payload: { cols: term.cols, rows: term.rows } }),
+        );
+      }
+    };
+    const onWinResize = () => {
+      fit.fit();
+      sendResize();
+    };
+    window.addEventListener("resize", onWinResize);
+
     async function openSession() {
       try {
-        const resp = await fetch(
-          `/api/v1/admin/agents/${agentId}/terminal/sessions`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            credentials: "include",
-          }
-        );
-
+        const resp = await fetch(`/api/v1/admin/agents/${agentId}/terminal/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          credentials: "include",
+        });
         if (!resp.ok) {
           const txt = await resp.text();
-          throw new Error(`HTTP ${resp.status}: ${txt}`);
+          throw new Error(`HTTP ${resp.status} — ${txt.slice(0, 300)}`);
         }
-
         const data = (await resp.json()) as {
           session_id: string;
-          state: string;
-          cols: number;
-          rows: number;
-          stream_url: string;
-          privilege: string;
+          stream_url?: string;
         };
-        setSessionId(data.session_id);
+        if (disposed) return;
 
-        // El servidor puede devolver la URL absoluta (ws://host/...) o
-        // relativa (/api/v1/...): normalízala contra el origen actual.
-        const wsURL = data.stream_url?.startsWith("ws")
-          ? data.stream_url
-          : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}${data.stream_url}`;
+        // El servidor puede devolver la URL absoluta (ws://…) o relativa.
+        const raw =
+          data.stream_url ||
+          `/api/v1/admin/terminal/sessions/${data.session_id}/stream`;
+        const wsURL = raw.startsWith("ws")
+          ? raw
+          : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}${raw}`;
 
-        // Conectar WebSocket (mismo origen: la cookie de sesión viaja sola)
-        const ws = new WebSocket(wsURL);
+        ws = new WebSocket(wsURL);
         ws.binaryType = "arraybuffer";
         wsRef.current = ws;
 
         ws.onopen = () => {
-          console.log("Terminal WebSocket conectado");
-          // Notificar tamaño inicial al servidor (resize)
-          ws.send(
-            JSON.stringify({
-              type: "resize",
-              payload: { cols: termInstance.cols, rows: termInstance.rows },
-            })
-          );
+          // Ajusta el tamaño inicial de la PTY al del panel.
+          sendResize();
         };
 
-        ws.onmessage = (event) => {
-          if (event.data instanceof ArrayBuffer) {
-            // Datos binarios: salida del terminal
-            termInstance.write(new Uint8Array(event.data));
-          } else if (typeof event.data === "string") {
-            try {
-              const msg = JSON.parse(event.data);
-              switch (msg.type) {
-                case "open":
-                  console.log("Sesión de terminal lista");
-                  break;
-                case "exit":
-                  console.log("Shell terminó:", msg.payload);
-                  setError(`Shell terminó (código ${msg.payload?.code ?? "?"})`);
-                  break;
-                case "closed":
-                  console.log("Sesión cerrada:", msg.payload);
-                  setError("Sesión de terminal cerrada");
-                  break;
-                case "error":
-                  console.error("Error de terminal:", msg.payload);
-                  setError(`Error: ${msg.payload?.message ?? "desconocido"}`);
-                  break;
-              }
-            } catch {
-              // No es JSON, ignorar
+        ws.onmessage = (ev) => {
+          if (ev.data instanceof ArrayBuffer) {
+            term.write(new Uint8Array(ev.data));
+            if (status !== "open") setStatus("open");
+            return;
+          }
+          if (typeof ev.data !== "string") return;
+          try {
+            const msg = JSON.parse(ev.data) as {
+              type: string;
+              payload?: { code?: number; reason?: string; message?: string };
+            };
+            switch (msg.type) {
+              case "open": // sesión lista (PTY abierta en el agente)
+                setStatus("open");
+                term.focus();
+                break;
+              case "exit":
+                setStatus("error");
+                setErrorMsg(`El shell terminó (código ${msg.payload?.code ?? "?"}).`);
+                break;
+              case "closed":
+                setStatus("error");
+                setErrorMsg(
+                  `Sesión cerrada${msg.payload?.reason ? `: ${msg.payload.reason}` : "."}`,
+                );
+                break;
+              case "error":
+                setStatus("error");
+                setErrorMsg(`Error: ${msg.payload?.message ?? "desconocido"}`);
+                break;
             }
+          } catch {
+            // Mensaje de control no JSON: ignorar.
           }
         };
 
-        ws.onerror = (err) => {
-          console.error("WebSocket error:", err);
-          setError("Error de conexión WebSocket");
+        ws.onerror = () => {
+          setStatus((prev) => {
+            if (prev === "error") return prev;
+            setErrorMsg("Error de conexión WebSocket con el servidor.");
+            return "error";
+          });
         };
 
         ws.onclose = () => {
-          console.log("WebSocket cerrado");
-          if (!error) {
-            setError("Conexión finalizada");
-          }
+          setStatus((prev) => (prev === "error" ? prev : "open"));
+          term.write("\r\n\u001b[38;5;245m— conexión finalizada —\u001b[0m\r\n");
         };
-      } catch (e: any) {
-        console.error("Error abriendo terminal:", e);
-        setError(e.message || "Error desconocido");
-      } finally {
-        setIsConnecting(false);
+      } catch (e) {
+        if (disposed) return;
+        setStatus("error");
+        setErrorMsg(e instanceof Error ? e.message : "Error desconocido");
       }
     }
 
     openSession();
 
-    // Ajustar tamaño al cambiar ventana
-    const handleResize = () => {
-      fitAddon.current?.fit();
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: "resize",
-            payload: { cols: termInstance.cols, rows: termInstance.rows },
-          })
-        );
-      }
-    };
-
-    window.addEventListener("resize", handleResize);
-
     return () => {
-      window.removeEventListener("resize", handleResize);
-      disposable.dispose();
-      wsRef.current?.close();
-      termInstance.dispose();
-      term.current = null;
+      disposed = true;
+      window.removeEventListener("resize", onWinResize);
+      dataSub.dispose();
+      ws?.close();
+      term.dispose();
+      wsRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, token]);
 
-  if (isConnecting) {
-    return (
-      <div className="h-[600px] w-full flex items-center justify-center">
-        <span className="h-8 w-8 animate-spin border border-signal border-t-transparent" />
-        <span className="ml-4 text-slate-300">Conectando consola remota…</span>
-      </div>
-    );
-  }
-
-  if (error && !sessionId) {
-    return (
-      <div className="h-[600px] w-full border border-ink-700 bg-signal/5 p-4 text-signal">
-        <p className="font-mono text-sm uppercase tracking-widest2">No se pudo abrir la consola</p>
-        <p className="mt-2">{error}</p>
-        <p className="mt-2 text-sm text-slate-500">
-          Asegúrate de que el agente esté online y tenga conexión de terminal activa.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="h-[600px] w-full border border-ink-700">
-      <div ref={terminalRef} className="h-full w-full" />
+    <div className="relative h-[600px] w-full border border-ink-700 bg-[#282a36]">
+      {/* Contenedor SIEMPRE montado: xterm necesita el elemento en el DOM. */}
+      <div ref={containerRef} className="h-full w-full p-1" />
+
+      {status === "connecting" ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#282a36]">
+          <span className="h-8 w-8 animate-spin border border-signal border-t-transparent" />
+          <span className="ml-4 font-mono text-sm text-slate-300">
+            Conectando consola remota…
+          </span>
+        </div>
+      ) : null}
+
+      {status === "error" ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#282a36]/95 px-6 text-center">
+          <p className="font-mono text-xs uppercase tracking-widest2 text-signal">
+            La consola no está disponible
+          </p>
+          <p className="max-w-md break-all text-sm text-slate-300">{errorMsg}</p>
+          <p className="max-w-md text-xs text-slate-500">
+            Comprueba que el equipo esté online y que el agente tenga la versión
+            con canal de terminal (≥ 0.12.2).
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -18,7 +18,7 @@ import (
 // el agente (capacidades y estado del canal de terminal).
 // GET /api/v1/admin/agents/{id}/terminal  (terminal:read)
 func (s *Server) handleAgentTerminalCapabilities(w http.ResponseWriter, r *http.Request) {
-	agentID := pathID("/api/v1/admin/agents/", r.URL.Path)
+	agentID := r.PathValue("id")
 	r, _, ok := s.authorize(w, r, contracts.CapTerminalRead)
 	if !ok {
 		return
@@ -39,7 +39,7 @@ func (s *Server) handleAgentTerminalCapabilities(w http.ResponseWriter, r *http.
 // handleCreateTerminalSession crea una sesión de terminal para un agente.
 // POST /api/v1/admin/agents/{id}/terminal/sessions  (terminal:connect)
 func (s *Server) handleCreateTerminalSession(w http.ResponseWriter, r *http.Request) {
-	agentID := pathID("/api/v1/admin/agents/", r.URL.Path)
+	agentID := r.PathValue("id")
 	r, a, ok := s.authorize(w, r, contracts.CapTerminalConnect)
 	if !ok {
 		return
@@ -102,7 +102,7 @@ func (s *Server) handleListTerminalSessions(w http.ResponseWriter, r *http.Reque
 // handleGetTerminalSession devuelve el estado de una sesión.
 // GET /api/v1/admin/terminal/sessions/{id}  (terminal:read)
 func (s *Server) handleGetTerminalSession(w http.ResponseWriter, r *http.Request) {
-	sessionID := pathID("/api/v1/admin/terminal/sessions/", r.URL.Path)
+	sessionID := r.PathValue("id")
 	r, _, ok := s.authorize(w, r, contracts.CapTerminalRead)
 	if !ok {
 		return
@@ -119,13 +119,11 @@ func (s *Server) handleGetTerminalSession(w http.ResponseWriter, r *http.Request
 // handleCloseTerminalSession cierra una sesión.
 // POST /api/v1/admin/terminal/sessions/{id}/close  (terminal:terminate)
 func (s *Server) handleCloseTerminalSession(w http.ResponseWriter, r *http.Request) {
-	rest := pathID("/api/v1/admin/terminal/sessions/", r.URL.Path)
-	parts := strings.Split(rest, "/")
-	if len(parts) != 2 || parts[1] != "close" || parts[0] == "" {
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
 		s.problem(w, r, http.StatusNotFound, "E_NOT_FOUND", "Ruta no encontrada")
 		return
 	}
-	sessionID := parts[0]
 	r, a, ok := s.authorize(w, r, contracts.CapTerminalTerminate)
 	if !ok {
 		return
@@ -150,7 +148,7 @@ func (s *Server) handleCloseTerminalSession(w http.ResponseWriter, r *http.Reque
 // handleTerminalStream es el WebSocket de datos entre el navegador y la sesión.
 // GET /api/v1/admin/terminal/sessions/{id}/stream  (terminal:connect)
 func (s *Server) handleTerminalStream(w http.ResponseWriter, r *http.Request) {
-	sessionID := pathID("/api/v1/admin/terminal/sessions/", r.URL.Path)
+	sessionID := r.PathValue("id")
 	r, _, ok := s.authorize(w, r, contracts.CapTerminalConnect)
 	if !ok {
 		return

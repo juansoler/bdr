@@ -2,6 +2,22 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.3] — 2026-11-21
+
+### Corregido
+
+- **La consola remota se quedaba en «Conectando…»**:
+  - Panel: el contenedor de xterm.js solo se montaba tras salir del estado
+    «conectando», por lo que el efecto que abre la sesión nunca llegaba a
+    ejecutarse (el `ref` era nulo en el primer render). Ahora el contenedor
+    está siempre montado y los estados de espera/error son overlays.
+  - Servidor: los handlers de terminal parseaban el ID con `pathID(prefijo)`,
+    que devuelve el resto completo de la ruta (`{id}/terminal/sessions`),
+    produciendo 404 en `POST …/agents/{id}/terminal/sessions`, en
+    `GET …/agents/{id}/terminal` y en el WebSocket del stream
+    (`{id}/stream`). Ahora leen el ID con `r.PathValue("id")` de las rutas
+    con wildcard del mux.
+
 ## [0.12.2] — 2026-11-21
 
 ### Corregido

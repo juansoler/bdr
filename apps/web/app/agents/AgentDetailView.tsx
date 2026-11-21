@@ -25,7 +25,6 @@ import {
   api,
   type AgentDetail,
   type BlockDevice,
-  type TerminalSessionView,
 } from "@/lib/api";
 import { formatBytes, formatDateTime, retentionSummary, shortId, timeAgo } from "@/lib/format";
 
@@ -41,7 +40,6 @@ export function AgentDetailView({ id }: { id: string }) {
   const [ctlVersion, setCtlVersion] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
-  const [terminalSession, setTerminalSession] = useState<TerminalSessionView | null>(null);
 
   // Versión del control (para mostrar «Forzar actualización» solo si difiere).
   useEffect(() => {
