@@ -15,6 +15,7 @@ import (
 
 	"github.com/juansoler/bdr/apps/server/internal/auth"
 	"github.com/juansoler/bdr/apps/server/internal/pki"
+	"github.com/juansoler/bdr/apps/server/internal/remoteaccess"
 	"github.com/juansoler/bdr/apps/server/internal/secrets"
 	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/apps/server/internal/webui"
@@ -47,8 +48,10 @@ const (
 // Capabilities por rol.
 var roleCaps = map[string][]string{
 	contracts.RoleViewer:   {"read"},
-	contracts.RoleOperator: {"read", "operate"},
-	contracts.RoleAdmin:    {"read", "operate", "admin"},
+	contracts.RoleOperator: {"read", "operate", contracts.CapTerminalRead, contracts.CapTerminalConnect},
+	contracts.RoleAdmin:    {"read", "operate", "admin",
+		contracts.CapTerminalRead, contracts.CapTerminalConnect,
+		contracts.CapTerminalElevated, contracts.CapTerminalTerminate, contracts.CapTerminalAudit},
 }
 
 // Server contiene las dependencias de la API.
@@ -92,6 +95,10 @@ type Server struct {
 	binarySHA      *shaCache
 	lastTick       time.Time
 	SchedulerEvery time.Duration
+
+	// RemoteAccess es el gestor de sesiones de terminal remota
+	// (subsistema independiente; comparte RBAC, mTLS y auditoría).
+	RemoteAccess *remoteaccess.Manager
 }
 
 // New crea un servidor de control.
@@ -111,6 +118,7 @@ func New(st store.Store, adminToken string, logger *logging.Logger, version stri
 		alertInFlight:    map[string]bool{},
 		binarySHA:        newSHACache(),
 		SchedulerEvery:   time.Minute,
+		RemoteAccess:     remoteaccess.New(st, logger),
 	}
 	s.notify = NewNotifier(s)
 	return s
@@ -160,6 +168,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/enrollment-tokens", s.handleEnrollmentTokens)
 	mux.HandleFunc("/api/v1/admin/enrollment-tokens/", s.handleEnrollmentTokenAction)
 	mux.HandleFunc("/api/v1/admin/agents", s.handleAdminAgents)
+	// Terminal remota (Remote Access).
+	mux.HandleFunc("GET /api/v1/admin/agents/{id}/terminal", s.handleAgentTerminalCapabilities)
+	mux.HandleFunc("POST /api/v1/admin/agents/{id}/terminal/sessions", s.handleCreateTerminalSession)
+	mux.HandleFunc("GET /api/v1/admin/terminal/sessions", s.handleListTerminalSessions)
+	mux.HandleFunc("GET /api/v1/admin/terminal/sessions/{id}", s.handleGetTerminalSession)
+	mux.HandleFunc("POST /api/v1/admin/terminal/sessions/{id}/close", s.handleCloseTerminalSession)
+	mux.HandleFunc("GET /api/v1/admin/terminal/sessions/{id}/stream", s.handleTerminalStream)
+	mux.HandleFunc("GET /api/v1/agent/terminal/connect", s.handleAgentTerminalConnect)
 	mux.HandleFunc("/api/v1/admin/agents/", s.handleAgentAction)
 	mux.HandleFunc("/api/v1/admin/groups", s.handleGroups)
 	mux.HandleFunc("/api/v1/admin/groups/", s.handleGroupAction)

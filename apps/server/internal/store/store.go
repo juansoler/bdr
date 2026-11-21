@@ -288,6 +288,25 @@ type RepoCredential struct {
 	RotatedAt   time.Time `json:"RotatedAt"`
 }
 
+// TerminalSession es la metadata de una sesión de terminal remota.
+type TerminalSession struct {
+	ID          string     `json:"ID"`
+	AgentID     string     `json:"AgentID"`
+	OperatorID  string     `json:"OperatorID"`
+	OperatorName string    `json:"OperatorName,omitempty"`
+	Shell       string     `json:"Shell"`
+	Privilege   string     `json:"Privilege"`
+	Cols        uint16     `json:"Cols"`
+	Rows        uint16     `json:"Rows"`
+	State       string     `json:"State"`
+	CreatedAt   time.Time  `json:"CreatedAt"`
+	OpenedAt    *time.Time `json:"OpenedAt,omitempty"`
+	ClosedAt    *time.Time `json:"ClosedAt,omitempty"`
+	ExpiresAt   time.Time  `json:"ExpiresAt"`
+	Reason      string     `json:"Reason,omitempty"`
+	AgentName   string     `json:"AgentName,omitempty"` // optional display name
+}
+
 // ScheduleEntry es el estado del programador por (plan, agente).
 type ScheduleEntry struct {
 	PlanID     string     `json:"PlanID"`
@@ -481,8 +500,9 @@ type State struct {
 	Inventory     map[string][]InventoryRecord    `json:"inventory_history"`
 	RepoCreds     map[string]*RepoCredential      `json:"repository_credentials"`
 	Schedule      map[string]*ScheduleEntry       `json:"schedule"`
-	PVE           map[string]*PVEInstance         `json:"proxmox_instances"`
-	Storage       map[string]*StorageTarget       `json:"storage_targets"`
+	PVE             map[string]*PVEInstance        `json:"proxmox_instances"`
+	Storage         map[string]*StorageTarget      `json:"storage_targets"`
+	TerminalSessions map[string]*TerminalSession   `json:"terminal_sessions,omitempty"`
 }
 
 // NewState crea un estado vacío.
@@ -549,6 +569,9 @@ func (s *State) ensureMaps() {
 	}
 	if s.Storage == nil {
 		s.Storage = map[string]*StorageTarget{}
+	}
+	if s.TerminalSessions == nil {
+		s.TerminalSessions = map[string]*TerminalSession{}
 	}
 }
 

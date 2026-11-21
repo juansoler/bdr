@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/juansoler/bdr/packages/contracts"
 	"github.com/juansoler/bdr/packages/version"
 )
@@ -195,6 +196,21 @@ func (c *Client) CancelStatus(ctx context.Context, jobID string) (contracts.JobC
 func (c *Client) CompleteJob(ctx context.Context, jobID string, req contracts.JobCompleteRequest) error {
 	return c.do(ctx, http.MethodPost, "/api/v1/agent/jobs/"+url.PathEscape(jobID)+"/complete",
 		req, nil, true)
+}
+
+// ConnectTerminal establece una conexión WebSocket al extremo de terminal del
+// servidor. Devuelve la conexión WebSocket. La conexión se autentica
+// automáticamente mediante el mTLS y la API key existentes.
+func (c *Client) ConnectTerminal(ctx context.Context, path string) (*websocket.Conn, error) {
+	// Construye la URL WebSocket: igual que HTTP pero con esquema ws/wss.
+	scheme := "ws"
+	if c.base.Scheme == "https" {
+		scheme = "wss"
+	}
+	wsURL := fmt.Sprintf("%s://%s%s", scheme, c.base.Host, path)
+
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	return conn, err
 }
 
 // RepositoryCredentials obtiene las credenciales del repositorio asignadas al
