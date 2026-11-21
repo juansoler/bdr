@@ -1,23 +1,22 @@
-// Package remoteaccess implementa la gestión de sesiones en el agente.
+// Package remoteaccess implementa la gestión de sesiones PTY en el agente.
 package remoteaccess
 
 import (
 	"os"
+	"os/exec"
 	"sync"
 )
 
-// SessionManager coordina todas las sesiones activas del agente.
+// SessionManager coordina todas las sesiones de terminal activas del agente.
 type SessionManager struct {
 	mu       sync.Mutex
 	sessions map[string]*PTYSession
-	closed   map[string]bool
 }
 
-// NewSessionManager crea un nuevo manager.
+// NewSessionManager crea un nuevo gestor de sesiones.
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
 		sessions: make(map[string]*PTYSession),
-		closed:   make(map[string]bool),
 	}
 }
 
@@ -29,10 +28,11 @@ type PTYSession struct {
 	Cols      uint16
 	Rows      uint16
 	Privilege string
-	Cmd       *os.Process
+	Cmd       *exec.Cmd
 }
 
-// NewSession crea una nueva sesión PTY y la registra.
+// NewSession abre una nueva pseudoterminal con el shell indicado y la
+// registra bajo el ID de sesión dado por el servidor.
 func (m *SessionManager) NewSession(id, shell string, cols, rows uint16, privilege string) (*PTYSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -49,7 +49,7 @@ func (m *SessionManager) NewSession(id, shell string, cols, rows uint16, privile
 		Cols:      cols,
 		Rows:      rows,
 		Privilege: privilege,
-		Cmd:       cmd.Process,
+		Cmd:       cmd,
 	}
 	m.sessions[id] = s
 	return s, nil
@@ -63,17 +63,37 @@ func (m *SessionManager) GetSession(id string) (*PTYSession, bool) {
 	return s, ok
 }
 
-// CloseSession cierra la sesión y elimina de la lista.
+// CloseSession cierra la sesión y elimina su registro.
 func (m *SessionManager) CloseSession(id string, reason string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if s, ok := m.sessions[id]; ok {
-		s.PTY.Close()
-		if s.Cmd != nil {
-			s.Cmd.Kill()
-		}
+	s, ok := m.sessions[id]
+	if ok {
 		delete(m.sessions, id)
-		m.closed[id] = true
+	}
+	m.mu.Unlock()
+
+	if !ok {
+		return
+	}
+	_ = reason
+	if s.PTY != nil {
+		_ = s.PTY.Close() // desbloquea la bomba de salida (EOF)
+	}
+	if s.Cmd != nil && s.Cmd.Process != nil {
+		_ = s.Cmd.Process.Kill()
+	}
+}
+
+// CloseAll cierra todas las sesiones (pérdida del canal con el servidor).
+func (m *SessionManager) CloseAll(reason string) {
+	m.mu.Lock()
+	ids := make([]string, 0, len(m.sessions))
+	for id := range m.sessions {
+		ids = append(ids, id)
+	}
+	m.mu.Unlock()
+
+	for _, id := range ids {
+		m.CloseSession(id, reason)
 	}
 }

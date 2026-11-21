@@ -81,6 +81,12 @@ install -m 0755 "$TMP/bdr-control" "$BIN_DIR/bdr-control"
 if [[ -f "$TMP/kopia" ]]; then
   install -m 0755 "$TMP/kopia" "$BIN_DIR/kopia"
 fi
+# agents.json junto al binario: alimenta las ofertas de autoactualización
+# de agentes de ESTA versión del control. Sin él, los agentes no reciben
+# ofertas (fue la causa de "los agentes no se autoactualizan").
+if [[ -f "$TMP/agents.json" ]]; then
+  install -m 0644 "$TMP/agents.json" "$BIN_DIR/agents.json"
+fi
 install -m 0644 "$TMP/LICENSE" "$TMP/NOTICE" "$ETC/" 2>/dev/null || true
 if [[ -f "$TMP/THIRD_PARTY_NOTICES.md" ]]; then
   install -m 0644 "$TMP/THIRD_PARTY_NOTICES.md" "$ETC/"

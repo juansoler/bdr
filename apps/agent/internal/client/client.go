@@ -198,18 +198,37 @@ func (c *Client) CompleteJob(ctx context.Context, jobID string, req contracts.Jo
 		req, nil, true)
 }
 
-// ConnectTerminal establece una conexión WebSocket al extremo de terminal del
-// servidor. Devuelve la conexión WebSocket. La conexión se autentica
-// automáticamente mediante el mTLS y la API key existentes.
+// ConnectTerminal establece el canal WebSocket de terminal con el servidor,
+// autenticado con el mismo mTLS y la API key del agente. El agente siempre
+// inicia la conexión (outbound).
 func (c *Client) ConnectTerminal(ctx context.Context, path string) (*websocket.Conn, error) {
-	// Construye la URL WebSocket: igual que HTTP pero con esquema ws/wss.
-	scheme := "ws"
-	if c.base.Scheme == "https" {
-		scheme = "wss"
+	ref, err := url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("ruta de terminal inválida %q: %w", path, err)
 	}
-	wsURL := fmt.Sprintf("%s://%s%s", scheme, c.base.Host, path)
+	u := *c.base
+	u.Path = strings.TrimRight(u.Path, "/") + ref.Path
+	u.RawQuery = ref.RawQuery
+	if u.Scheme == "http" {
+		u.Scheme = "ws"
+	} else {
+		u.Scheme = "wss"
+	}
 
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	// coder/websocket reutiliza el Transport del HTTPClient (mTLS: CA del
+	// control + cert de cliente). El cliente no debe tener Timeout: cortaría
+	// la conexión a mitad de sesión, así que se crea uno sin Timeout con el
+	// mismo Transport.
+	c.mu.RLock()
+	tr := c.http.Transport
+	apiKey := c.apiKey
+	c.mu.RUnlock()
+
+	wsClient := &http.Client{Transport: tr}
+	conn, _, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
+		HTTPClient: wsClient,
+		HTTPHeader: http.Header{"Authorization": []string{"Bearer " + apiKey}},
+	})
 	return conn, err
 }
 

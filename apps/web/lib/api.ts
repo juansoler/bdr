@@ -728,3 +728,52 @@ export interface StorageTargetView {
 export interface StorageTargetList {
   items: StorageTargetView[];
 }
+
+// --- Terminal remota (Remote Access) ---
+
+export interface TerminalCapabilities {
+  agent_id: string;
+  online: boolean;
+  os_family: string;
+  shells: string[];
+  privileges: string[];
+}
+
+export interface TerminalSessionView {
+  session_id: string;
+  agent_id: string;
+  hostname?: string;
+  os_family?: string;
+  shell: string;
+  privilege: string;
+  state: string;
+  cols: number;
+  rows: number;
+  created_at: string;
+  opened_at?: string;
+  closed_at?: string;
+  expires_at: string;
+  reason?: string;
+  operator_id: string;
+  operator_name?: string;
+  stream_url?: string;
+}
+
+export interface TerminalSessionList {
+  items: TerminalSessionView[];
+}
+
+export interface CreateTerminalSessionRequest {
+  shell?: string;
+  cols?: number;
+  rows?: number;
+  privilege?: string;
+}
+
+export interface CreateTerminalSessionResponse {
+  session_id: string;
+  agent_id: string;
+  state: string;
+  expires_at: string;
+  stream_url?: string;
+}

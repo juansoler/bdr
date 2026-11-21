@@ -18,6 +18,7 @@ import (
 	"github.com/juansoler/bdr/apps/agent/internal/identity"
 	"github.com/juansoler/bdr/apps/agent/internal/inventory"
 	"github.com/juansoler/bdr/apps/agent/internal/jobs"
+	"github.com/juansoler/bdr/apps/agent/internal/remoteaccess"
 	"github.com/juansoler/bdr/apps/agent/internal/upgrade"
 	"github.com/juansoler/bdr/packages/contracts"
 	"github.com/juansoler/bdr/packages/logging"
@@ -111,6 +112,18 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 		a.heartbeatLoop(hbCtx)
 	}()
 
+	// Canal de terminal remota (outbound): solo en modo servicio, no en --once.
+	var termCancel context.CancelFunc
+	if !once {
+		termCtx, tCancel := context.WithCancel(ctx)
+		termCancel = tCancel
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.terminalLoop(termCtx)
+		}()
+	}
+
 	a.sendInventory(ctx)
 
 	if once {
@@ -129,6 +142,9 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 		select {
 		case <-ctx.Done():
 			hbCancel()
+			if termCancel != nil {
+				termCancel()
+			}
 			wg.Wait()
 			a.log.Info("agente detenido")
 			return nil
@@ -136,6 +152,44 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 			a.runOneJob(ctx)
 		case <-invTicker.C:
 			a.sendInventory(ctx)
+		}
+	}
+}
+
+// terminalLoop mantiene el canal WebSocket de terminal remota con el
+// servidor: dial, servicio de sesiones y reconexión con espera entre
+// intentos. El agente siempre inicia la conexión (outbound mTLS).
+func (a *Agent) terminalLoop(ctx context.Context) {
+	rt := remoteaccess.NewRuntime(ctx)
+	defer rt.Close()
+
+	const (
+		retryDelay  = 10 * time.Second
+		redoDelay   = 3 * time.Second
+	)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		conn, err := a.client.ConnectTerminal(ctx, "/api/v1/agent/terminal/connect")
+		if err != nil {
+			a.log.Debug("terminal: canal no disponible, reintentando", "error", err.Error())
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(retryDelay):
+			}
+			continue
+		}
+		a.log.Info("canal de terminal conectado")
+		// Bloquea hasta que el canal se cierre; al volver, cierra las
+		// sesiones locales (sin canal = sin shell) y reconecta.
+		_ = rt.Run(conn)
+		a.log.Info("canal de terminal perdido")
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(redoDelay):
 		}
 	}
 }

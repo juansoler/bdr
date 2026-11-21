@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { JobDetailModal } from "@/components/JobDetailModal";
 import { JobTable } from "@/components/JobTable";
 import { RevokeModal } from "@/components/RevokeModal";
+import { TerminalConsole } from "@/components/TerminalConsole";
 import {
   Badge,
   Button,
@@ -24,6 +25,7 @@ import {
   api,
   type AgentDetail,
   type BlockDevice,
+  type TerminalSessionView,
 } from "@/lib/api";
 import { formatBytes, formatDateTime, retentionSummary, shortId, timeAgo } from "@/lib/format";
 
@@ -38,6 +40,8 @@ export function AgentDetailView({ id }: { id: string }) {
   const [detailJob, setDetailJob] = useState<string | null>(null);
   const [ctlVersion, setCtlVersion] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [terminalSession, setTerminalSession] = useState<TerminalSessionView | null>(null);
 
   // Versión del control (para mostrar «Forzar actualización» solo si difiere).
   useEffect(() => {
@@ -171,6 +175,9 @@ export function AgentDetailView({ id }: { id: string }) {
               <>
                 <Button variant="secondary" onClick={backupNow} loading={busy}>
                   Backup ahora
+                </Button>
+                <Button variant="secondary" onClick={() => setShowTerminal(true)}>
+                  Abrir consola
                 </Button>
                 {ctlVersion && agent.agent_version && agent.agent_version !== ctlVersion ? (
                   <Button variant="secondary" onClick={forceUpgrade} loading={upgrading}>
@@ -583,6 +590,22 @@ export function AgentDetailView({ id }: { id: string }) {
       ) : null}
       {detailJob ? (
         <JobDetailModal token={token} jobId={detailJob} onClose={() => setDetailJob(null)} />
+      ) : null}
+      {showTerminal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+          <div className="w-full max-w-4xl h-[85vh] bg-ink-950 border border-ink-700 rounded overflow-hidden">
+            <div className="flex items-center justify-between border-b border-ink-700 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[9px] uppercase tracking-widest2 text-signal/70">Terminal</span>
+                <span className="text-slate-300">Consola remota</span>
+              </div>
+              <Button variant="quiet" size="sm" onClick={() => setShowTerminal(false)}>
+                Cerrar
+              </Button>
+            </div>
+            <TerminalConsole agentId={id} />
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -27,6 +27,7 @@ type OpenPayload struct {
 	Shell     string `json:"shell,omitempty"`
 	Cols      uint16 `json:"cols,omitempty"`
 	Rows      uint16 `json:"rows,omitempty"`
+	Privilege string `json:"privilege,omitempty"`
 }
 
 // Payload de confirmación de sesión abierta.
