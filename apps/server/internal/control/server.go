@@ -2,12 +2,14 @@
 package control
 
 import (
+	"bufio"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -726,6 +728,24 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 	n, err := r.ResponseWriter.Write(b)
 	r.bytes += n
 	return n, err
+}
+
+// Hijack delega el upgrade WebSocket: coder/websocket exige http.Hijacker en
+// el handshake y, sin esta delegación, todo endpoint WS respondía 501
+// (Not Implemented) aunque la ruta y las credenciales fueran correctas.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("http.ResponseWriter no implementa http.Hijacker")
+	}
+	return hj.Hijack()
+}
+
+// Flush delega http.Flusher (streaming y long-poll).
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func (s *Server) requestID(next http.Handler) http.Handler {

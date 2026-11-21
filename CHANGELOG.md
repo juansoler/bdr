@@ -2,6 +2,20 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.6] — 2026-11-21
+
+### Corregido
+
+- **Todo handshake WebSocket respondía 501** («Unexpected response code: 501»):
+  el middleware `logRequests` envuelve cada respuesta en `statusRecorder`,
+  que no delegaba `http.Hijacker`, y `coder/websocket` rechaza el upgrade
+  cuando el `ResponseWriter` no lo implementa. Ahora `statusRecorder` delega
+  `Hijack()` y `Flush()`. Afectaba tanto al stream del navegador como —de
+  forma crítica— al canal del agente (`/api/v1/agent/terminal/connect`),
+  que nunca pudo establecerse por este motivo.
+- Test de regresión del handshake (crear sesión → dial con ticket → 101;
+  ticket inválido → 401).
+
 ## [0.12.5] — 2026-11-21
 
 ### Corregido
