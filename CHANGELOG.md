@@ -2,6 +2,18 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.9] — 2026-11-21
+
+### Corregido
+
+- **Los agentes Raspberry Pi (linux/arm) no se actualizaban**:
+  `scripts/build-agents.sh` —el que alimenta el directorio de descargas del
+  control— no compilaba `linux/arm`, así que `/opt/bdr/agents/
+  bdr-agent-linux-arm` quedaba anclado a la última compilación manual y
+  tanto reinstalaciones como ofertas de autoactualización entregaban esa
+  versión vieja. Ahora el script compila arm con `GOARM=7` (igual que la
+  matriz del release CI).
+
 ## [0.12.8] — 2026-11-21
 
 ### Corregido
