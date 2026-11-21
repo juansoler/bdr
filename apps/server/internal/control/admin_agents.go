@@ -11,6 +11,7 @@ import (
 	"github.com/juansoler/bdr/apps/server/internal/auth"
 	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/packages/contracts"
+	"github.com/juansoler/bdr/packages/version"
 )
 
 // --- Agentes ---
@@ -74,20 +75,21 @@ func (s *Server) agentView(st *store.State, a *store.Agent, now time.Time) contr
 	}
 
 	v := contracts.AgentView{
-		ID:            a.ID,
-		Hostname:      a.Hostname,
-		OSFamily:      a.OSFamily,
-		OSVersion:     a.OSVersion,
-		Arch:          a.Arch,
-		AgentVersion:  a.AgentVersion,
-		Status:        status,
-		ReportedState: a.ReportedState,
-		CurrentJobID:  a.CurrentJobID,
-		LastSeenAt:    a.LastSeenAt,
-		EnrolledAt:    a.EnrolledAt,
-		RevokedAt:     a.RevokedAt,
-		RevokedReason: a.RevokedReason,
-		CertExpiresAt: a.CertNotAfter,
+		ID:                 a.ID,
+		Hostname:           a.Hostname,
+		OSFamily:           a.OSFamily,
+		OSVersion:          a.OSVersion,
+		Arch:               a.Arch,
+		AgentVersion:       a.AgentVersion,
+		Status:             status,
+		ReportedState:      a.ReportedState,
+		CurrentJobID:       a.CurrentJobID,
+		LastSeenAt:         a.LastSeenAt,
+		EnrolledAt:         a.EnrolledAt,
+		RevokedAt:          a.RevokedAt,
+		RevokedReason:      a.RevokedReason,
+		CertExpiresAt:      a.CertNotAfter,
+		UpgradeRequestedAt: a.UpgradeRequestedAt,
 	}
 	if len(a.Inventory) > 0 {
 		v.Inventory = json.RawMessage(a.Inventory)
@@ -151,6 +153,8 @@ func (s *Server) handleAgentAction(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(parts) == 1:
 		s.agentDetail(w, r, agentID)
+	case len(parts) == 2 && parts[1] == "upgrade":
+		s.agentForceUpgrade(w, r, agentID)
 	case len(parts) == 2 && parts[1] == "backup":
 		s.agentBackupNow(w, r, agentID)
 	case len(parts) == 2 && parts[1] == "revoke":
@@ -246,6 +250,61 @@ func (s *Server) agentDetail(w http.ResponseWriter, r *http.Request, agentID str
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+// agentForceUpgrade registra la solicitud del operador de actualizar el
+// agente a la versión del control: el próximo heartbeat recibe la oferta
+// marcada como forzada. El agente la aplica al quedar libre (no interrumpe
+// un job en curso).
+func (s *Server) agentForceUpgrade(w http.ResponseWriter, r *http.Request, agentID string) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	r, a, ok := s.authorize(w, r, "admin")
+	if !ok {
+		return
+	}
+	now := s.Now().UTC()
+	var hostname, reported string
+	err := s.Store.Update(r.Context(), func(st *store.State) error {
+		ag := st.Agents[agentID]
+		if ag == nil {
+			return store.ErrNotFound
+		}
+		if ag.RevokedAt != nil {
+			return errAbort
+		}
+		hostname, reported = ag.Hostname, ag.AgentVersion
+		ag.UpgradeRequestedAt = &now
+		return nil
+	})
+	if err == store.ErrNotFound {
+		s.problem(w, r, http.StatusNotFound, "E_NOT_FOUND", "Agente no encontrado")
+		return
+	}
+	if err != nil { // errAbort = agente revocado
+		s.problem(w, r, http.StatusConflict, "E_AGENT_REVOKED", "El agente está revocado")
+		return
+	}
+	if reported == version.Version {
+		// Ya está al día: se retira la solicitud y se informa.
+		_ = s.Store.Update(r.Context(), func(st *store.State) error {
+			if ag := st.Agents[agentID]; ag != nil {
+				ag.UpgradeRequestedAt = nil
+			}
+			return nil
+		})
+		s.problem(w, r, http.StatusConflict, "E_UPGRADE_NONE",
+			"El agente ya está en la versión del control ("+version.Version+")")
+		return
+	}
+	s.audit(r, a, "agent.upgrade.requested", "agent", agentID, "ok",
+		map[string]string{"from": reported, "to": version.Version})
+	writeJSON(w, http.StatusAccepted, map[string]string{
+		"agent_id": agentID, "hostname": hostname,
+		"from": reported, "to": version.Version,
+		"message": "Solicitud registrada: el agente recibirá la oferta en su próximo heartbeat y la aplicará al quedar libre",
+	})
 }
 
 func (s *Server) agentRevoke(w http.ResponseWriter, r *http.Request, agentID string) {

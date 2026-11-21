@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/juansoler/bdr/apps/server/internal/control"
+	"github.com/juansoler/bdr/apps/server/internal/secrets"
 	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/packages/contracts"
 	"github.com/juansoler/bdr/packages/logging"
@@ -223,8 +225,146 @@ func TestStorageVerifyAndSync(t *testing.T) {
 	}
 }
 
-func TestStorageTargetHetznerAutoRegionAndPreserve(t *testing.T) {
-	ts, st := newStorageTestAPI(t, t.TempDir(), "/bin/true")
+// fakeKopiaConnectFails escribe un kopia falso que falla `connect` con el
+// mensaje de contraseña inválida (repo ajeno) y acepta todo lo demás.
+func fakeKopiaConnectFails(t *testing.T) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls.log")
+	bin := filepath.Join(dir, "fake-kopia")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\ncase \"$*\" in *connect*) echo 'ERROR: invalid repository password' >&2; exit 1;; esac\nexit 0\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin, log
+}
+
+// TestStorageAdoptRepoPassword: un destino creado con repo_password adopta
+// el repositorio existente — si la contraseña no conecta, NUNCA se formatea
+// el destino (sin create), con error claro; con la contraseña correcta
+// conecta, la contraseña se revela por el endpoint break-glass y las
+// credenciales al agente llevan esa contraseña.
+func TestStorageAdoptRepoPassword(t *testing.T) {
+	bin, callsLog := fakeKopiaConnectFails(t)
+	downloads := t.TempDir()
+
+	st := store.NewMemory()
+	api := control.New(st, adminToken, logging.NewWithWriter(io.Discard, "error"), "test")
+	box, err := secrets.New([]byte(strings.Repeat("t", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	api.Box = box
+	api.DownloadsDir = downloads
+	cfg := filepath.Join(t.TempDir(), "kopia.config")
+	if err := os.WriteFile(cfg, []byte(""), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	api.Kopia = control.NewKopiaControl(bin, cfg, "pw", "", "", "", "", "", "")
+	fixed := time.Date(2026, 11, 18, 21, 0, 0, 0, time.UTC)
+	api.Now = func() time.Time { return fixed }
+	ts := httptest.NewServer(api.Handler())
+	t.Cleanup(ts.Close)
+	api.PublicURL = ts.URL
+
+	// Target con contraseña de repo aportada (adopción).
+	status, body := doJSON(t, http.MethodPost, ts.URL+"/api/v1/admin/storage/targets", adminToken,
+		contracts.StorageTargetRequest{Name: "adoptado", Endpoint: "203.0.113.5:9000",
+			Bucket: "bdr-ajeno", AccessKey: "admin", SecretKey: "sk", NoTLS: true,
+			RepoPassword: "clave-adoptada", SyncIntervalMinutes: 0, Enabled: true})
+	if status != http.StatusCreated {
+		t.Fatalf("target: %d %s", status, body)
+	}
+	var target map[string]string
+	_ = json.Unmarshal(body, &target)
+
+	// Agente + plan asignado al target.
+	tok := createToken(t, ts, "casa-adopt")
+	enrolled := enrollAgent(t, ts, tok.Token, "casa-adopt")
+	status, body = doJSON(t, http.MethodPost, ts.URL+"/api/v1/admin/backup-plans", adminToken,
+		contracts.PlanRequest{Name: strPtr("plan-adopt"), Kind: "image",
+			StorageTargetID: strPtr(target["id"])})
+	if status != http.StatusCreated {
+		t.Fatalf("plan: %d %s", status, body)
+	}
+	var plan struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(body, &plan)
+	status, _ = doJSON(t, http.MethodPost, ts.URL+"/api/v1/admin/backup-plans/"+plan.ID+"/assign",
+		adminToken, contracts.AssignmentRequest{AgentID: enrolled.AgentID})
+	if status != http.StatusCreated && status != http.StatusOK {
+		t.Fatalf("assign: %d", status)
+	}
+
+	// Credenciales: connect falla con contraseña inválida y el destino es
+	// adoptado → error claro y SIN create (no se formatea nada ajeno).
+	status, body = doJSON(t, http.MethodGet, ts.URL+"/api/v1/agent/repository-credentials?target="+target["id"],
+		enrolled.APIKey, nil)
+	if status != http.StatusBadGateway {
+		t.Fatalf("creds sobre repo ajeno: %d %s", status, body)
+	}
+	if !strings.Contains(string(body), "no corresponde") {
+		t.Fatalf("mensaje de adopción ausente: %s", body)
+	}
+	calls := readFile(t, callsLog)
+	if strings.Contains(calls, "create") {
+		t.Fatalf("un destino adoptado no debe formatearse nunca: %s", calls)
+	}
+	if !strings.Contains(calls, "connect") {
+		t.Fatalf("esperaba intento de connect: %s", calls)
+	}
+	var adopted, ready bool
+	_ = st.View(context.Background(), func(s *store.State) error {
+		tg := s.Storage[target["id"]]
+		adopted, ready = tg.RepoAdopted, tg.RepoReady
+		return nil
+	})
+	if !adopted || ready {
+		t.Fatalf("marca de adopción: adopted=%v ready=%v", adopted, ready)
+	}
+
+	// Contraseña correcta: el fake acepta todo → connect OK y contraseña
+	// adoptada entregada al agente y revelable por break-glass.
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	status, _ = doJSON(t, http.MethodPut, ts.URL+"/api/v1/admin/storage/targets/"+target["id"], adminToken,
+		contracts.StorageTargetRequest{Name: "adoptado", Endpoint: "203.0.113.5:9000",
+			Bucket: "bdr-ajeno", AccessKey: "admin", SecretKey: "sk", NoTLS: true,
+			RepoPassword: "clave-adoptada", SyncIntervalMinutes: 0, Enabled: true})
+	if status != http.StatusNoContent {
+		t.Fatalf("re-adopt: %d", status)
+	}
+	status, body = doJSON(t, http.MethodGet, ts.URL+"/api/v1/agent/repository-credentials?target="+target["id"],
+		enrolled.APIKey, nil)
+	if status != http.StatusOK {
+		t.Fatalf("creds con contraseña correcta: %d %s", status, body)
+	}
+	var creds contracts.RepositoryCredentials
+	_ = json.Unmarshal(body, &creds)
+	if creds.Password != "clave-adoptada" {
+		t.Fatalf("el agente debe recibir la contraseña adoptada: %q", creds.Password)
+	}
+	if !strings.Contains(readFile(t, callsLog), "connect") {
+		t.Fatal("esperaba connect con la contraseña adoptada")
+	}
+
+	// Revelado break-glass (admin, auditado).
+	status, body = doJSON(t, http.MethodGet, ts.URL+"/api/v1/admin/storage/targets/"+target["id"]+"/repo-password", adminToken, nil)
+	if status != http.StatusOK {
+		t.Fatalf("reveal: %d %s", status, body)
+	}
+	var revealed struct {
+		RepoPassword string `json:"repo_password"`
+	}
+	_ = json.Unmarshal(body, &revealed)
+	if revealed.RepoPassword != "clave-adoptada" {
+		t.Fatalf("contraseña revelada: %q", revealed.RepoPassword)
+	}
+}
+
+func TestStorageTargetHetznerAutoRegionAndPreserve(t *testing.T) {	ts, st := newStorageTestAPI(t, t.TempDir(), "/bin/true")
 
 	// Crear target Hetzner sin especificar región → se deduce fsn1
 	req := contracts.StorageTargetRequest{

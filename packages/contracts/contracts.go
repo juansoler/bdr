@@ -119,7 +119,7 @@ type HeartbeatResponse struct {
 	// de que el operador cambió --agent-url (p. ej. de LAN a NetBird) tras
 	// un enrolamiento — la URL antigua queda obsoleta y el TLS falla con
 	// certificado emitido para la nueva.
-	AgentURL         string     `json:"agent_url,omitempty"`
+	AgentURL string `json:"agent_url,omitempty"`
 	// CertRenewAfter indica cuándo debe renovar el certificado mTLS.
 	CertRenewAfter *time.Time `json:"cert_renew_after,omitempty"`
 	// Upgrade ofrece al agente una versión nueva de sí mismo: los agentes
@@ -133,6 +133,10 @@ type AgentUpgrade struct {
 	Version string `json:"version"`
 	URL     string `json:"url"`
 	SHA256  string `json:"sha256"`
+	// Force indica que el operador lo pidió explícitamente («Forzar
+	// actualización» en el panel). El agente lo registra en su log y lo
+	// aplica al quedar libre; no interrumpe un job en curso.
+	Force bool `json:"force,omitempty"`
 }
 
 // GroupRef es una referencia corta a un grupo.
@@ -163,6 +167,9 @@ type AgentView struct {
 	LastBackupAt    *time.Time      `json:"last_backup_at,omitempty"`
 	LastBackupState string          `json:"last_backup_state,omitempty"`
 	NextBackupAt    *time.Time      `json:"next_backup_at,omitempty"`
+	// UpgradeRequestedAt marca «Forzar actualización» del operador pendiente
+	// de entregar en el próximo heartbeat (oferta con force).
+	UpgradeRequestedAt *time.Time `json:"upgrade_requested_at,omitempty"`
 }
 
 // AgentList es la respuesta de GET /api/v1/admin/agents.

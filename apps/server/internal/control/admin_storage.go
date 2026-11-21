@@ -38,6 +38,8 @@ func (s *Server) handleStorageTargets(w http.ResponseWriter, r *http.Request) {
 		s.storageUpdate(w, r, id)
 	case len(parts) == 1 && r.Method == http.MethodDelete:
 		s.storageDelete(w, r, id)
+	case len(parts) == 2 && parts[1] == "repo-password":
+		s.storageRepoPassword(w, r, id)
 	case len(parts) == 2 && parts[1] == "verify":
 		s.storageVerify(w, r, id)
 	case len(parts) == 2 && parts[1] == "sync":
@@ -55,7 +57,8 @@ func storageView(t *store.StorageTarget) contracts.StorageTargetView {
 		SMB: t.IsSMB(), SMBUser: t.SMBUser, SMBDomain: t.SMBDomain,
 		ObjectLock: t.ObjectLock, RetentionDays: t.RetentionDays,
 		SyncIntervalMinutes: t.SyncIntervalMinutes, Enabled: t.Enabled,
-		CreatedAt: t.CreatedAt, LastSyncAt: t.LastSyncAt,
+		RepoPasswordSet: t.RepoPasswordEnc != "",
+		CreatedAt:       t.CreatedAt, LastSyncAt: t.LastSyncAt,
 		LastSyncStatus: t.LastSyncStatus, LastVerifyAt: t.LastVerifyAt,
 		LastVerifyStatus: t.LastVerifyStatus,
 	}
@@ -228,6 +231,19 @@ func (s *Server) storageUpsert(w http.ResponseWriter, r *http.Request, id string
 			return "", nil, http.StatusBadRequest, ""
 		}
 	}
+	// Contraseña del repo Kopia del destino (ambos tipos): en create vacío =
+	// se genera en el primer aprovisionamiento; con valor = adoptar el repo
+	// existente. Se cifra ya para no manejar secreto dentro de Update.
+	var repoEnc string
+	repoAdopted := false
+	if strings.TrimSpace(req.RepoPassword) != "" {
+		var err error
+		if repoEnc, err = s.Box.Seal(strings.TrimSpace(req.RepoPassword)); err != nil {
+			s.internalError(w, r, err)
+			return "", nil, http.StatusInternalServerError, ""
+		}
+		repoAdopted = true
+	}
 	now := s.Now().UTC()
 	idOut := id
 	if err := s.Store.Update(r.Context(), func(st *store.State) error {
@@ -254,6 +270,13 @@ func (s *Server) storageUpsert(w http.ResponseWriter, r *http.Request, id string
 		t.Prefix = req.Prefix
 		t.SyncIntervalMinutes = req.SyncIntervalMinutes
 		t.Enabled = req.Enabled
+		if repoAdopted {
+			// Contraseña aportada por el operador: adopta/reemplaza la del
+			// repo; el próximo uso reconecta (nunca formatea).
+			t.RepoPasswordEnc = repoEnc
+			t.RepoAdopted = true
+			t.RepoReady = false
+		}
 		if req.Kind == contracts.RepoKindFilesystem {
 			t.Path = req.Path
 			t.Endpoint, t.Bucket, t.Region = "", "", ""
@@ -349,6 +372,44 @@ func (s *Server) storageDelete(w http.ResponseWriter, r *http.Request, id string
 	}
 	s.audit(r, a, "storage_target.deleted", "storage_target", id, "ok", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// storageRepoPassword revela la contraseña del repo Kopia del destino
+// (break-glass, solo admin y auditada): permite custodiarla offline o
+// adoptar el mismo repositorio desde otra instancia del plano de control.
+func (s *Server) storageRepoPassword(w http.ResponseWriter, r *http.Request, id string) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	r, a, ok := s.authorize(w, r, "admin")
+	if !ok {
+		return
+	}
+	if s.Box == nil {
+		s.problem(w, r, http.StatusServiceUnavailable, "E_SECRETS_UNCONFIGURED",
+			"Sin caja de secretos no hay contraseñas de repo")
+		return
+	}
+	var enc string
+	err := s.Store.View(r.Context(), func(st *store.State) error {
+		if x := st.Storage[id]; x != nil {
+			enc = x.RepoPasswordEnc
+		}
+		return nil
+	})
+	if err != nil || enc == "" {
+		s.problem(w, r, http.StatusNotFound, "E_NOT_FOUND",
+			"El destino aún no tiene contraseña de repo (se genera o adopta en el primer aprovisionamiento)")
+		return
+	}
+	pw, err := s.Box.Open(enc)
+	if err != nil {
+		s.problem(w, r, http.StatusInternalServerError, "E_SECRETS",
+			"No se pudo descifrar la contraseña del repo (¿cambió secret.key?)")
+		return
+	}
+	s.audit(r, a, "storage_target.repo_password_revealed", "storage_target", id, "ok", nil)
+	writeJSON(w, http.StatusOK, map[string]string{"id": id, "repo_password": pw})
 }
 
 // storageVerify comprueba credenciales/bucket y la disponibilidad de Object

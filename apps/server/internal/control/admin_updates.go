@@ -37,8 +37,12 @@ var (
 // Estado del último chequeo (en memoria; el bucle corre también al arrancar).
 var updateState struct {
 	available atomic.Pointer[selfupdate.Manifest]
-	checkedAt atomic.Pointer[time.Time]
-	lastError atomic.Pointer[string]
+	// lastManifest guarda el último manifiesto verificado (aunque no sea
+	// más nuevo que la versión en marcha): alimenta las ofertas de agente
+	// cuando falta agents.json junto al binario del control.
+	lastManifest atomic.Pointer[selfupdate.Manifest]
+	checkedAt    atomic.Pointer[time.Time]
+	lastError    atomic.Pointer[string]
 	// installing evita lanzar dos instalaciones a la vez.
 	installing atomic.Bool
 	// checking evita solapar el chequeo manual (POST /check) con el del bucle.
@@ -95,6 +99,7 @@ func (s *Server) checkUpdate(ctx context.Context) {
 		return
 	}
 	updateState.lastError.Store(nil)
+	updateState.lastManifest.Store(m)
 	_, newer := m.Newer(version.Version)
 	if newer {
 		if prev := updateState.available.Load(); prev == nil || prev.Version != m.Version {

@@ -32,6 +32,8 @@ export default function StoragePage() {
   const [objectLock, setObjectLock] = useState(false);
   const [retentionDays, setRetentionDays] = useState(7);
   const [syncInterval, setSyncInterval] = useState(60);
+  const [repoPassword, setRepoPassword] = useState("");
+  const [revealed, setRevealed] = useState<{ name: string; password: string } | null>(null);
 
   const isFS = kind === "filesystem";
   const isSMBPath = (p: string) => p.trim().startsWith("//") || p.trim().toLowerCase().startsWith("smb://");
@@ -77,6 +79,7 @@ export default function StoragePage() {
             smb_user: isSMB ? smbUser || undefined : undefined,
             smb_domain: isSMB && smbDomain ? smbDomain : undefined,
             smb_password: isSMB && smbPassword ? smbPassword : undefined,
+            repo_password: repoPassword || undefined,
             sync_interval_minutes: syncInterval, enabled: true,
           }
         : {
@@ -84,6 +87,7 @@ export default function StoragePage() {
             region: region || undefined,
             access_key: accessKey, secret_key: secretKey, no_tls: noTLS,
             object_lock: objectLock, retention_days: retentionDays,
+            repo_password: repoPassword || undefined,
             sync_interval_minutes: syncInterval, enabled: true,
           },
     );
@@ -128,6 +132,27 @@ export default function StoragePage() {
     setSyncInterval(t.sync_interval_minutes);
   }
 
+  async function revealRepoPassword(t: StorageTargetView) {
+    setBusy(t.id);
+    setError(null);
+    try {
+      const out = await api<{ repo_password: string }>(
+        `/api/v1/admin/storage/targets/${t.id}/repo-password`,
+        token,
+      );
+      setRevealed({ name: t.name, password: out.repo_password });
+      try {
+        await navigator.clipboard.writeText(out.repo_password);
+      } catch {
+        // sin permiso de portapapeles: la contraseña queda visible en el aviso
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo revelar la contraseña del repo.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function verify(id: string) {
     setBusy(id);
     setError(null);
@@ -170,6 +195,7 @@ export default function StoragePage() {
     setKind("s3");
     setName(""); setPath(""); setSmbUser(""); setSmbPassword(""); setSmbDomain("");
     setEndpoint(""); setBucket(""); setPrefix(""); setRegion(""); setAccessKey(""); setSecretKey("");
+    setRepoPassword(""); // vacío = conserva/genera la contraseña del repo
     setNoTLS(false);
     setObjectLock(false);
     setRetentionDays(7);
@@ -276,6 +302,18 @@ export default function StoragePage() {
             <Field label="Prefijo (opcional)" hint={isSMB ? "Subdirectorio dentro del recurso" : isFS ? "Subdirectorio dentro de la ruta" : "Para separar usos del mismo bucket (p. ej. imagen)"}>
               <Input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder={isFS ? "imagen" : "imagen"} />
             </Field>
+            <Field
+              label="Contraseña del repo (opcional)"
+              hint="Vacía = se genera en el primer uso. Con valor = ADOPTA el repositorio ya existente en el destino (creado por otra instancia BDR): no se formatea nada. Consíguela con «Contraseña repo» en la instancia que lo creó."
+            >
+              <Input
+                type="password"
+                value={repoPassword}
+                onChange={(e) => setRepoPassword(e.target.value)}
+                placeholder="solo para adoptar un repositorio existente"
+                autoComplete="off"
+              />
+            </Field>
             {!isFS && !isSMB ? (
               <Field label="Región (opcional)" hint="Código de ubicación (fsn1, hel1, nbg1… en Hetzner; auto-detectada del endpoint si se omite)">
                 <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="fsn1" />
@@ -339,6 +377,20 @@ export default function StoragePage() {
 
       {error && !showAdd ? <div className="mt-4"><ErrorBox message={error} /></div> : null}
 
+      {revealed ? (
+        <div className="mt-4 border border-amber-600/40 bg-amber-500/5 p-4 text-sm text-amber-200">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-widest2">
+                Contraseña del repo · {revealed.name} — custódiala: sirve para adoptar este repositorio desde otra instancia
+              </p>
+              <p className="mt-1 break-all font-mono text-xs text-slate-100">{revealed.password}</p>
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => setRevealed(null)}>Cerrar</Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-8 space-y-6">
         {loading ? (
           <p className="text-sm text-slate-500">Cargando…</p>
@@ -366,6 +418,10 @@ export default function StoragePage() {
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="ghost" onClick={() => startEdit(t)}>Editar</Button>
+                  {t.repo_password_set ? (
+                    <Button size="sm" variant="ghost" loading={busy === t.id}
+                      onClick={() => revealRepoPassword(t)}>Contraseña repo</Button>
+                  ) : null}
                   <Button size="sm" variant="ghost" loading={busy === t.id}
                     onClick={() => verify(t.id)}>Verificar</Button>
                   <Button size="sm" variant="ghost" loading={busy === t.id}

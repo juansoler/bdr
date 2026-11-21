@@ -119,6 +119,7 @@ export interface Agent {
   last_backup_at?: string;
   last_backup_state?: string;
   next_backup_at?: string;
+  upgrade_requested_at?: string;
 }
 
 export interface AgentList {
@@ -716,6 +717,7 @@ export interface StorageTargetView {
   retention_days: number;
   sync_interval_minutes: number;
   enabled: boolean;
+  repo_password_set?: boolean;
   created_at: string;
   last_sync_at?: string;
   last_sync_status?: string;

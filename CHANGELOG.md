@@ -26,6 +26,34 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   vía env `KOPIA_PASSWORD`; keychain/persist eran no determinados en
   servicios con PATH mínimo).
 
+## [0.11.9] — 2026-11-21
+
+### Añadido
+
+- **Adoptar repositorio existente**: al crear/editar un destino se acepta la
+  contraseña del repo Kopia (`repo_password`). Con ella, el control CONECTA
+  al repositorio ya existente (creado por otra instancia) y nunca formatea:
+  si la contraseña no corresponde, el error lo dice claro. Nuevo endpoint
+  break-glass `GET /admin/storage/targets/{id}/repo-password` (admin,
+  auditado) para custodiar la contraseña offline o adoptarla en otra
+  instancia. Con esto, un control X perdido puede ser sucedido por uno Y
+  sobre los mismos datos (bucket+prefijo+contraseña).
+- **Forzar actualización de agente**: nuevo endpoint
+  `POST /admin/agents/{id}/upgrade` y botón «Forzar actualización» en la
+  ficha del equipo. El próximo heartbeat entrega la oferta marcada como
+  forzada; el agente la aplica al quedar libre (no interrumpe un job) y el
+  flag se consume al entregarla. La ficha muestra «solicitada hace…».
+- Instaladores (macOS/Linux/Windows) copian `agents.json` junto al binario
+  del control: sin él no había ofertas de autoactualización (causa raíz de
+  «los agentes no se actualizan solos»).
+
+### Corregido
+
+- Ofertas de autoactualización sin `agents.json`: si el manifiesto local no
+  existe, la oferta se construye desde el canal firmado (último
+  `latest.json` verificado) comprobando el SHA-256 del binario servido —
+  sin riesgo de bucles ni dependencia de `--public-url`.
+
 ## [0.11.8] — 2026-11-21
 
 ### Corregido

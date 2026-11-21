@@ -307,6 +307,20 @@ func (s *Server) storageEnsureRepo(ctx context.Context, t *store.StorageTarget) 
 		// Una conexión fallida puede dejar un archivo a medias; se limpia
 		// antes de intentar el create.
 		_ = os.Remove(cfgFile)
+		msg := strings.ToLower(err.Error())
+		wrongPassword := strings.Contains(msg, "invalid repository password") ||
+			strings.Contains(msg, "invalid password") ||
+			strings.Contains(msg, "damaged repository")
+		// Destino adoptado: la contraseña la dio el operador (repo creado por
+		// otra instancia) — nunca se formatea; si no conecta, la contraseña
+		// no corresponde (o el repo no existe aún).
+		if t.RepoAdopted && wrongPassword {
+			ubic := t.Bucket
+			if t.IsFilesystem() {
+				ubic = t.RepoPath()
+			}
+			return "", fmt.Errorf("la contraseña del repo indicada no corresponde al repositorio de %s: revisa la contraseña o el prefijo del destino", ubic)
+		}
 		// No era un repo: se crea (formatea el destino con el layout).
 		create := append([]string{}, connect...)
 		create[1] = "create"
@@ -314,17 +328,21 @@ func (s *Server) storageEnsureRepo(ctx context.Context, t *store.StorageTarget) 
 			_ = os.Remove(cfgFile)
 			// Detalle completo: el fallo del create en proveedores externos
 			// (quotas, lock, región, multipart…) se pierde con pocas líneas.
-			msg := firstLines(cerr.Error(), 8)
-			if strings.Contains(strings.ToLower(cerr.Error()), "found existing data") {
+			detail := firstLines(cerr.Error(), 8)
+			cerrMsg := strings.ToLower(cerr.Error())
+			if t.RepoAdopted && (strings.Contains(cerrMsg, "already initialized") || strings.Contains(cerrMsg, "found existing data")) {
+				return "", fmt.Errorf("el destino ya contiene un repositorio y la contraseña indicada no corresponde: usa la contraseña del repo original (botón «Ver contraseña del repo» en la instancia que lo creó)")
+			}
+			if strings.Contains(cerrMsg, "found existing data") {
 				if t.IsFilesystem() {
 					return "", fmt.Errorf("la ruta %s ya contiene datos de otro repositorio o réplica: usa una ruta vacía o define un prefijo distinto en el destino", t.RepoPath())
 				}
 				return "", fmt.Errorf("el bucket %s ya contiene datos de otro repositorio o réplica: usa un bucket vacío o define un prefijo distinto en el destino", t.Bucket)
 			}
 			if t.IsFilesystem() {
-				return "", fmt.Errorf("crear repo en %s: %s", t.RepoPath(), msg)
+				return "", fmt.Errorf("crear repo en %s: %s", t.RepoPath(), detail)
 			}
-			return "", fmt.Errorf("crear repo en %s/%s: %s", t.Endpoint, t.Bucket, msg)
+			return "", fmt.Errorf("crear repo en %s/%s: %s", t.Endpoint, t.Bucket, detail)
 		}
 	}
 	t.RepoReady = true

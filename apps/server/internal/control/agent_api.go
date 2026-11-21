@@ -13,6 +13,7 @@ import (
 	"github.com/juansoler/bdr/apps/server/internal/pki"
 	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/packages/contracts"
+	"github.com/juansoler/bdr/packages/version"
 )
 
 // handleAgentEnroll registra un agente con un token de un solo uso.
@@ -242,6 +243,39 @@ func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Oferta de autoactualización si el agente reporta otra versión y hay
 	// binario publicado con su SHA-256.
 	resp.Upgrade = s.agentUpgradeOffer(agent.OSFamily, agent.Arch, req.AgentVersion)
+	// «Forzar actualización» del operador: oferta marcada como forzada y
+	// limpieza del flag. El agente la aplica al quedar libre.
+	if agent.UpgradeRequestedAt != nil {
+		if req.AgentVersion == version.Version {
+			// Ya actualizado: solicitud cumplida.
+			_ = s.Store.Update(r.Context(), func(st *store.State) error {
+				if a := st.Agents[agent.ID]; a != nil {
+					a.UpgradeRequestedAt = nil
+				}
+				return nil
+			})
+			s.auditCtx(r.Context(), s.systemActor(), "agent.upgrade.completed", "agent", agent.ID, "ok",
+				map[string]string{"version": req.AgentVersion})
+		} else if resp.Upgrade != nil {
+			resp.Upgrade.Force = true
+			_ = s.Store.Update(r.Context(), func(st *store.State) error {
+				if a := st.Agents[agent.ID]; a != nil {
+					a.UpgradeRequestedAt = nil
+				}
+				return nil
+			})
+			s.auditCtx(r.Context(), s.systemActor(), "agent.upgrade.offered", "agent", agent.ID, "ok",
+				map[string]string{"target": version.Version, "reported": req.AgentVersion})
+		}
+		// Si no hubo oferta (sin binario servible) el flag sigue: se reintenta
+		// en cada heartbeat.
+	} else if resp.Upgrade == nil && req.AgentVersion != "" && req.AgentVersion != version.Version {
+		// Diagnóstico: por qué este agente no recibe oferta (agents.json
+		// ausente, binario no servible…). Visible con nivel debug.
+		s.Logger.Debug("agente desactualizado sin oferta posible",
+			"agent_id", agent.ID, "hostname", agent.Hostname,
+			"reported", req.AgentVersion, "current", version.Version)
+	}
 	// URL vigente del plano de control para agentes: la adoptan los agentes
 	// con URL obsoleta (p. ej. --agent-url cambiado de LAN a NetBird).
 	if s.AgentPublicURL != "" {

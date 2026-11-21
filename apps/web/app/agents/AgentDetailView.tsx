@@ -36,6 +36,21 @@ export function AgentDetailView({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [showRevoke, setShowRevoke] = useState(false);
   const [detailJob, setDetailJob] = useState<string | null>(null);
+  const [ctlVersion, setCtlVersion] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
+
+  // Versión del control (para mostrar «Forzar actualización» solo si difiere).
+  useEffect(() => {
+    let alive = true;
+    api<{ current: string }>("/api/v1/admin/system/update", token)
+      .then((s) => {
+        if (alive) setCtlVersion(s.current);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [token]);
 
   const load = useCallback(async () => {
     try {
@@ -76,6 +91,30 @@ export function AgentDetailView({ id }: { id: string }) {
       }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function forceUpgrade() {
+    if (!detail) return;
+    setUpgrading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const out = await api<{ message: string }>(
+        `/api/v1/admin/agents/${detail.agent.id}/upgrade`,
+        token,
+        { method: "POST", body: "{}" },
+      );
+      setNotice(out.message || "Actualización solicitada.");
+      await load();
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "E_UPGRADE_NONE") {
+        setNotice(err.message);
+      } else {
+        setError(err instanceof Error ? err.message : "No se pudo solicitar la actualización.");
+      }
+    } finally {
+      setUpgrading(false);
     }
   }
 
@@ -133,6 +172,11 @@ export function AgentDetailView({ id }: { id: string }) {
                 <Button variant="secondary" onClick={backupNow} loading={busy}>
                   Backup ahora
                 </Button>
+                {ctlVersion && agent.agent_version && agent.agent_version !== ctlVersion ? (
+                  <Button variant="secondary" onClick={forceUpgrade} loading={upgrading}>
+                    Forzar actualización{ctlVersion ? ` a v${ctlVersion}` : ""}
+                  </Button>
+                ) : null}
                 <Button variant="danger" onClick={() => setShowRevoke(true)}>
                   Revocar
                 </Button>
@@ -358,6 +402,11 @@ export function AgentDetailView({ id }: { id: string }) {
               <Row label="Certificado">{formatDateTime(agent.cert_expires_at)}</Row>
               <Row label="Usuario repo">{agent.repository_username || "—"}</Row>
               <Row label="Job actual">{shortId(agent.current_job_id)}</Row>
+              {agent.upgrade_requested_at ? (
+                <Row label="Actualización forzada">
+                  solicitada {timeAgo(agent.upgrade_requested_at)}
+                </Row>
+              ) : null}
               <Row label="Grupos">
                 {(agent.groups ?? []).length > 0 ? (
                   <span className="flex flex-wrap justify-end gap-1">

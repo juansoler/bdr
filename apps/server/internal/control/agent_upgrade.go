@@ -147,8 +147,27 @@ func (s *Server) agentUpgradeOffer(osFamily, arch, reported string) *contracts.A
 		}
 	}
 
-	// 2) Sin agents.json (instalaciones previas, Docker): la URL local solo
-	//    si el control conoce su propia dirección pública.
+	// 2) Sin agents.json (instalaciones previas a 0.9.5): oferta desde el
+	//    canal firmado (último manifiesto verificado). El SHA del binario
+	//    servido debe coincidir con el del canal — sin bucles aunque el
+	//    manifiesto local no exista.
+	if m := updateState.lastManifest.Load(); m != nil && m.Version == version.Version {
+		if ag, ok := m.Agents[osarch]; ok && len(ag.SHA256) == 64 {
+			path := s.agentBinaryPath(osarch)
+			if path != "" {
+				if local, ok := s.binarySHA.fileSHA(path); ok && strings.EqualFold(local, ag.SHA256) {
+					return &contracts.AgentUpgrade{
+						Version: version.Version,
+						URL:     "/api/v1/download/agent/" + osarch,
+						SHA256:  ag.SHA256,
+					}
+				}
+			}
+		}
+	}
+
+	// 3) Último recurso: la URL local solo si el control conoce su propia
+	//    dirección pública.
 	if s.PublicURL == "" || s.DownloadsDir == "" {
 		return nil
 	}

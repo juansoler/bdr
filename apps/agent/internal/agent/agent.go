@@ -174,8 +174,20 @@ func (a *Agent) beat(ctx context.Context) {
 	if resp.CertRenewAfter != nil && time.Now().After(*resp.CertRenewAfter) {
 		a.renewCertificate(ctx)
 	}
-	if state == contracts.StateIdle && upgrade.OfferValid(resp.Upgrade, version.Version) {
-		a.applyUpgrade(ctx, *resp.Upgrade)
+	if u := resp.Upgrade; upgrade.OfferValid(u, version.Version) {
+		switch {
+		case state == contracts.StateIdle:
+			// Libre: se aplica ya (forzada o no).
+			if u.Force {
+				a.log.Info("autoactualización forzada por el operador", "version", u.Version)
+			}
+			a.applyUpgrade(ctx, *u)
+		case u.Force:
+			// Forzada con trabajo en curso: no se interrumpe el job; el
+			// próximo heartbeat en idle traerá la oferta de nuevo.
+			a.log.Warn("autoactualización forzada aplazada: hay trabajo en curso",
+				"version", u.Version, "state", state)
+		}
 	}
 	if resp.AgentURL != "" && resp.AgentURL != a.cfg.Endpoint() {
 		a.log.Info("agente: URL del plano de control actualizada por el servidor", "agent_url", resp.AgentURL, "anterior", a.cfg.Endpoint())

@@ -63,6 +63,11 @@ try {
   if (Test-Path "$tmp\kopia.exe") {
     Copy-Item "$tmp\kopia.exe" (Join-Path $installDir "kopia.exe") -Force
   }
+  # agents.json junto al binario: alimenta las ofertas de autoactualización
+  # de agentes de ESTA versión del control.
+  if (Test-Path "$tmp\agents.json") {
+    Copy-Item "$tmp\agents.json" (Join-Path $installDir "agents.json") -Force
+  }
   # Directorio de datos: solo SYSTEM y administradores.
   icacls $dataDir /inheritance:r /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" | Out-Null
 

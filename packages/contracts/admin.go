@@ -310,18 +310,22 @@ type PVEVMList struct {
 // compartida SMB (//servidor/recurso[/subdir] o smb://…), con credenciales
 // opcionales (usuario, contraseña y dominio AD/workgroup).
 type StorageTargetRequest struct {
-	Name                string `json:"name"`
-	Kind                string `json:"kind,omitempty"`     // s3 (por defecto) | filesystem
-	Endpoint            string `json:"endpoint,omitempty"` // host:puerto o https://host (s3)
-	Bucket              string `json:"bucket,omitempty"`   // s3
-	Prefix              string `json:"prefix,omitempty"`
-	Path                string `json:"path,omitempty"` // ruta física (filesystem)
-	SMBUser             string `json:"smb_user,omitempty"`
-	SMBPassword         string `json:"smb_password,omitempty"` // en PUT, vacío = conserva la actual
-	SMBDomain           string `json:"smb_domain,omitempty"`   // dominio AD o workgroup
-	Region              string `json:"region,omitempty"`
-	AccessKey           string `json:"access_key,omitempty"`
-	SecretKey           string `json:"secret_key,omitempty"`  // en PUT, vacío = conserva el actual
+	Name        string `json:"name"`
+	Kind        string `json:"kind,omitempty"`     // s3 (por defecto) | filesystem
+	Endpoint    string `json:"endpoint,omitempty"` // host:puerto o https://host (s3)
+	Bucket      string `json:"bucket,omitempty"`   // s3
+	Prefix      string `json:"prefix,omitempty"`
+	Path        string `json:"path,omitempty"` // ruta física (filesystem)
+	SMBUser     string `json:"smb_user,omitempty"`
+	SMBPassword string `json:"smb_password,omitempty"` // en PUT, vacío = conserva la actual
+	SMBDomain   string `json:"smb_domain,omitempty"`   // dominio AD o workgroup
+	Region      string `json:"region,omitempty"`
+	AccessKey   string `json:"access_key,omitempty"`
+	SecretKey   string `json:"secret_key,omitempty"` // en PUT, vacío = conserva el actual
+	// RepoPassword: contraseña del repo Kopia del destino. Vacío en create =
+	// se genera; en PUT vacío = conserva la actual. Con valor = ADOPTAR el
+	// repositorio existente (creado por otra instancia); nunca se formatea.
+	RepoPassword        string `json:"repo_password,omitempty"`
 	NoTLS               bool   `json:"no_tls"`                // MinIO local sin TLS
 	ObjectLock          bool   `json:"object_lock"`           // el bucket tiene lock (inmutabilidad)
 	RetentionDays       int    `json:"retention_days"`        // retención GOVERNANCE en días
@@ -331,28 +335,31 @@ type StorageTargetRequest struct {
 
 // StorageTargetView es un destino sin secretos.
 type StorageTargetView struct {
-	ID                  string     `json:"id"`
-	Name                string     `json:"name"`
-	Kind                string     `json:"kind"` // s3 (por defecto) | filesystem
-	Endpoint            string     `json:"endpoint,omitempty"`
-	Bucket              string     `json:"bucket,omitempty"`
-	Prefix              string     `json:"prefix,omitempty"`
-	Region              string     `json:"region,omitempty"`
-	Path                string     `json:"path,omitempty"` // ruta física (filesystem)
-	SMB                 bool       `json:"smb,omitempty"`  // la ruta física es compartida SMB
-	SMBUser             string     `json:"smb_user,omitempty"`
-	SMBDomain           string     `json:"smb_domain,omitempty"`
-	AccessKey           string     `json:"access_key"`
-	NoTLS               bool       `json:"no_tls"`
-	ObjectLock          bool       `json:"object_lock"`
-	RetentionDays       int        `json:"retention_days"`
-	SyncIntervalMinutes int        `json:"sync_interval_minutes"`
-	Enabled             bool       `json:"enabled"`
-	CreatedAt           time.Time  `json:"created_at"`
-	LastSyncAt          *time.Time `json:"last_sync_at,omitempty"`
-	LastSyncStatus      string     `json:"last_sync_status,omitempty"`
-	LastVerifyAt        *time.Time `json:"last_verify_at,omitempty"`
-	LastVerifyStatus    string     `json:"last_verify_status,omitempty"`
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	Kind                string `json:"kind"` // s3 (por defecto) | filesystem
+	Endpoint            string `json:"endpoint,omitempty"`
+	Bucket              string `json:"bucket,omitempty"`
+	Prefix              string `json:"prefix,omitempty"`
+	Region              string `json:"region,omitempty"`
+	Path                string `json:"path,omitempty"` // ruta física (filesystem)
+	SMB                 bool   `json:"smb,omitempty"`  // la ruta física es compartida SMB
+	SMBUser             string `json:"smb_user,omitempty"`
+	SMBDomain           string `json:"smb_domain,omitempty"`
+	AccessKey           string `json:"access_key"`
+	NoTLS               bool   `json:"no_tls"`
+	ObjectLock          bool   `json:"object_lock"`
+	RetentionDays       int    `json:"retention_days"`
+	SyncIntervalMinutes int    `json:"sync_interval_minutes"`
+	Enabled             bool   `json:"enabled"`
+	// RepoPasswordSet: hay contraseña de repo configurada (generada o
+	// adoptada); el panel puede ofrecer su revelado break-glass.
+	RepoPasswordSet  bool       `json:"repo_password_set,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	LastSyncAt       *time.Time `json:"last_sync_at,omitempty"`
+	LastSyncStatus   string     `json:"last_sync_status,omitempty"`
+	LastVerifyAt     *time.Time `json:"last_verify_at,omitempty"`
+	LastVerifyStatus string     `json:"last_verify_status,omitempty"`
 }
 
 // StorageTargetList es la respuesta de GET /admin/storage/targets.

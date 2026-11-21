@@ -69,6 +69,10 @@ type Agent struct {
 	InventoryHash string     `json:"InventoryHash"`
 	CertSerial    string     `json:"CertSerial,omitempty"`
 	CertNotAfter  *time.Time `json:"CertNotAfter,omitempty"`
+	// UpgradeRequestedAt marca la solicitud del operador de forzar la
+	// actualización del agente (POST /admin/agents/{id}/upgrade); se limpia
+	// al entregar la oferta por heartbeat.
+	UpgradeRequestedAt *time.Time `json:"UpgradeRequestedAt,omitempty"`
 }
 
 // Plan es un plan de protección.
@@ -358,8 +362,11 @@ type StorageTarget struct {
 	Enabled             bool      `json:"Enabled"`
 	CreatedAt           time.Time `json:"CreatedAt"`
 	// Repositorio Kopia sobre este destino: contraseña cifrada y marca de
-	// repos creado (se aprovisiona en el primer uso).
+	// repos creado (se aprovisiona en el primer uso). RepoAdopted indica que
+	// la contraseña la aportó el operador (repo creado por otra instancia):
+	// en ese caso nunca se formatea el destino, solo se conecta.
 	RepoPasswordEnc  string     `json:"RepoPasswordEnc,omitempty"`
+	RepoAdopted      bool       `json:"RepoAdopted,omitempty"`
 	RepoReady        bool       `json:"RepoReady,omitempty"`
 	LastSyncAt       *time.Time `json:"LastSyncAt,omitempty"`
 	LastSyncStatus   string     `json:"LastSyncStatus,omitempty"`

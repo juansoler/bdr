@@ -187,15 +187,15 @@ func (s *Server) publicURLFor(r *http.Request) string {
 // registra (auto-enrol con el token embebido) e instala el servicio systemd
 // si existe; sin systemd imprime el comando manual.
 func (s *Server) linuxInstallerScript(serverURL, osarch, token string) string {
-	return strings.ReplaceAll("#!/bin/sh\n" +
-		"# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n" +
-		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n" +
-		"set -e\n" +
-		`SERVER="` + serverURL + `"` + "\n" +
-		`TOKEN="` + token + `"` + "\n" +
-		`OSARCH="` + osarch + `"` + "\n" +
-		`BIN_DIR="${BDR_INSTALL_DIR:-/usr/local/bin}"` + "\n" +
-		`DATA_DIR="${BDR_DATA_DIR:-/var/lib/bdr-agent}"` + "\n" +
+	return strings.ReplaceAll("#!/bin/sh\n"+
+		"# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n"+
+		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n"+
+		"set -e\n"+
+		`SERVER="`+serverURL+`"`+"\n"+
+		`TOKEN="`+token+`"`+"\n"+
+		`OSARCH="`+osarch+`"`+"\n"+
+		`BIN_DIR="${BDR_INSTALL_DIR:-/usr/local/bin}"`+"\n"+
+		`DATA_DIR="${BDR_DATA_DIR:-/var/lib/bdr-agent}"`+"\n"+
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
 # Si hay un bdr-agent corriendo desde $BIN_DIR, hay que detenerlo ANTES de
@@ -284,16 +284,16 @@ try {
 // binario, lo registra (auto-enrol con el token embebido) e instala el
 // servicio launchd (/Library/LaunchDaemons) para que arranque en el boot.
 func (s *Server) darwinInstallerScript(serverURL, osarch, token string) string {
-	return strings.ReplaceAll("#!/bin/sh\n" +
-		"# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n" +
-		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n" +
-		"# Requiere sudo (macOS Intel darwin-amd64 o Apple Silicon darwin-arm64).\n" +
-		"set -e\n" +
-		`SERVER="` + serverURL + `"` + "\n" +
-		`TOKEN="` + token + `"` + "\n" +
-		`OSARCH="` + osarch + `"` + "\n" +
-		`BIN_DIR="${BDR_INSTALL_DIR:-/usr/local/bin}"` + "\n" +
-		`DATA_DIR="${BDR_DATA_DIR:-/Library/Application Support/BDR}"` + "\n" +
+	return strings.ReplaceAll("#!/bin/sh\n"+
+		"# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n"+
+		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n"+
+		"# Requiere sudo (macOS Intel darwin-amd64 o Apple Silicon darwin-arm64).\n"+
+		"set -e\n"+
+		`SERVER="`+serverURL+`"`+"\n"+
+		`TOKEN="`+token+`"`+"\n"+
+		`OSARCH="`+osarch+`"`+"\n"+
+		`BIN_DIR="${BDR_INSTALL_DIR:-/usr/local/bin}"`+"\n"+
+		`DATA_DIR="${BDR_DATA_DIR:-/Library/Application Support/BDR}"`+"\n"+
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
 # Si hay un bdr-agent corriendo desde $BIN_DIR, hay que detenerlo ANTES de
