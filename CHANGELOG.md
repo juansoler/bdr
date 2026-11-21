@@ -2,6 +2,20 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.5] — 2026-11-21
+
+### Corregido
+
+- **El WebSocket del stream fallaba con 401** («HTTP Authentication failed;
+  no valid credentials available»): los WebSockets del navegador no pueden
+  enviar la cabecera `Authorization`, y la sesión del panel va por Bearer.
+  Ahora la creación de la sesión devuelve un **ticket de stream** impredecible
+  (`stream_ticket`, 24 bytes aleatorios) y el endpoint `GET …/{id}/stream` lo
+  acepta como credencial alternativa vía `?ticket=…` (comparación en tiempo
+  constante, ligado a la sesión y destruido al cerrarla). La autenticación
+  estándar (cookie/bearer) sigue válida para clientes con cabeceras.
+- El panel adjunta el ticket a la URL del WebSocket.
+
 ## [0.12.4] — 2026-11-21
 
 ### Corregido

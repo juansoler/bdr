@@ -757,6 +757,8 @@ export interface TerminalSessionView {
   operator_id: string;
   operator_name?: string;
   stream_url?: string;
+  /** Solo en la creación: credencial del WebSocket del stream (query param ?ticket=…). */
+  stream_ticket?: string;
 }
 
 export interface TerminalSessionList {

@@ -108,6 +108,10 @@ type TerminalSessionView struct {
 	OperatorID   string     `json:"operator_id"`
 	OperatorName string     `json:"operator_name,omitempty"`
 	StreamURL    string     `json:"stream_url,omitempty"` // WebSocket de datos para el operador
+	// StreamTicket solo se devuelve en la creación de la sesión: los
+	// WebSockets del navegador no pueden enviar cabeceras de autorización,
+	// así que el operador lo presenta como ?ticket=… en la URL del stream.
+	StreamTicket string `json:"stream_ticket,omitempty"`
 }
 
 // TerminalSessionList es la respuesta de GET /api/v1/admin/terminal/sessions.

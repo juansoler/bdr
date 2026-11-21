@@ -82,16 +82,20 @@ export function TerminalConsole({ agentId }: { agentId: string }) {
         const data = (await resp.json()) as {
           session_id: string;
           stream_url?: string;
+          stream_ticket?: string;
         };
         if (disposed) return;
 
         // El servidor puede devolver la URL absoluta (ws://…) o relativa.
+        // Los WebSockets no pueden enviar la cabecera Authorization: la
+        // credencial viaja como ?ticket=… (secreto entregado al crear la sesión).
         const raw =
           data.stream_url ||
           `/api/v1/admin/terminal/sessions/${data.session_id}/stream`;
-        const wsURL = raw.startsWith("ws")
+        const wsURL = (raw.startsWith("ws")
           ? raw
-          : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}${raw}`;
+          : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}${raw}`) +
+          (data.stream_ticket ? `?ticket=${encodeURIComponent(data.stream_ticket)}` : "");
 
         ws = new WebSocket(wsURL);
         ws.binaryType = "arraybuffer";

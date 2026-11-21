@@ -96,6 +96,7 @@ func (s *Server) handleCreateTerminalSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	view.StreamURL = s.streamURL(view.SessionID)
+	view.StreamTicket = s.RemoteAccess.StreamTicket(view.SessionID)
 	s.audit(r, a, "terminal.session.created", "terminal_session", view.SessionID, "ok",
 		map[string]string{"agent_id": agentID, "shell": view.Shell, "privilege": view.Privilege})
 	writeJSON(w, http.StatusCreated, view)
@@ -160,11 +161,23 @@ func (s *Server) handleCloseTerminalSession(w http.ResponseWriter, r *http.Reque
 
 // handleTerminalStream es el WebSocket de datos entre el navegador y la sesión.
 // GET /api/v1/admin/terminal/sessions/{id}/stream  (terminal:connect)
+//
+// Los WebSockets del navegador no pueden enviar cabeceras de autorización:
+// se acepta un ticket impredecible entregado al crear la sesión
+// (?ticket=…) como credencial alternativa a la autenticación estándar.
 func (s *Server) handleTerminalStream(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	r, _, ok := s.authorize(w, r, contracts.CapTerminalConnect)
-	if !ok {
-		return
+	if ticket := r.URL.Query().Get("ticket"); ticket != "" {
+		if !s.RemoteAccess.ValidStreamTicket(sessionID, ticket) {
+			s.problem(w, r, http.StatusUnauthorized, "E_AUTH_TOKEN", "Ticket de stream inválido o sesión inexistente")
+			return
+		}
+	} else {
+		var ok bool
+		r, _, ok = s.authorize(w, r, contracts.CapTerminalConnect)
+		if !ok {
+			return
+		}
 	}
 	if _, err := s.RemoteAccess.GetSession(sessionID); err != nil {
 		s.problem(w, r, http.StatusNotFound, "E_SESSION_NOT_FOUND", "Sesión de terminal no encontrada")

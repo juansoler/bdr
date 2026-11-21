@@ -10,6 +10,7 @@ package remoteaccess
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,6 +65,10 @@ type Manager struct {
 	mu       sync.Mutex
 	agents   map[string]*agentChannel
 	sessions map[string]*session
+	// tickets asocia cada sesión con el ticket de stream del operador: los
+	// WebSockets del navegador no pueden enviar cabeceras de autorización,
+	// así que presentan este secreto como query param (?ticket=…).
+	tickets map[string]string
 }
 
 // agentChannel es el canal saliente mantenido por un agente (WebSocket).
@@ -111,6 +116,7 @@ func New(st store.Store, log *logging.Logger) *Manager {
 		now:      time.Now,
 		agents:   map[string]*agentChannel{},
 		sessions: map[string]*session{},
+		tickets:  map[string]string{},
 	}
 }
 
@@ -421,8 +427,13 @@ func (m *Manager) CreateSession(ctx context.Context, agent store.Agent, op Opera
 	}
 
 	s := &session{id: id, agentID: agent.ID, done: make(chan struct{})}
+	ticket, err := randomHex(24)
+	if err != nil {
+		return contracts.TerminalSessionView{}, err
+	}
 	m.mu.Lock()
 	m.sessions[id] = s
+	m.tickets[id] = ticket
 	m.mu.Unlock()
 
 	// Pide al agente que abra la pseudoterminal.
@@ -690,8 +701,32 @@ func (m *Manager) finish(s *session) {
 		close(s.done)
 		m.mu.Lock()
 		delete(m.sessions, s.id)
+		delete(m.tickets, s.id)
 		m.mu.Unlock()
 	})
+}
+
+// StreamTicket devuelve el ticket de stream de una sesión ("" si no existe).
+// Va dirigido al operador: se presenta en el WebSocket como ?ticket=….
+func (m *Manager) StreamTicket(sessionID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tickets[sessionID]
+}
+
+// ValidStreamTicket indica si el ticket presentado corresponde a la sesión.
+// Comparación en tiempo constante para no filtrar el secreto.
+func (m *Manager) ValidStreamTicket(sessionID, ticket string) bool {
+	if sessionID == "" || ticket == "" {
+		return false
+	}
+	m.mu.Lock()
+	expected, ok := m.tickets[sessionID]
+	m.mu.Unlock()
+	if !ok {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(ticket)) == 1
 }
 
 // sessionState devuelve el estado persistido de una sesión.
