@@ -31,6 +31,14 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   (kopia repository status) en el aviso "sin conexión directa" — antes se
   tragaba y la depuración era a ciegas.
 
+## [0.11.2] — 2026-11-21
+
+### Corregido
+
+- Aprovisionamiento de repos en S3: pasa --region=<región> del destino
+  (la guía oficial de Hetzner la exige) — el verify y el sync-to ya la
+  llevaban, el create/connect del aprovisionamiento no.
+
 ## [0.11.1] — 2026-11-21
 
 ### Corregido

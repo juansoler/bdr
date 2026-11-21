@@ -278,6 +278,11 @@ func (s *Server) storageEnsureRepo(ctx context.Context, t *store.StorageTarget) 
 		if p := strings.Trim(t.Prefix, "/"); p != "" {
 			connect = append(connect, "--prefix="+p+"/")
 		}
+		// Región en el scope SigV4: la guía oficial de Hetzner la pasa
+		// siempre (--region=<ubicación>) y algunos proveedores la exigen.
+		if t.Region != "" {
+			connect = append(connect, "--region="+t.Region)
+		}
 		connect = append(connect, "--access-key="+t.AccessKey, "--secret-access-key="+sk)
 		if t.NoTLS {
 			connect = append(connect, "--disable-tls")
