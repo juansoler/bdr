@@ -175,6 +175,13 @@ func (k *KopiaControl) Kind() string {
 
 func (k *KopiaControl) baseEnv() []string {
 	env := append(os.Environ(), "KOPIA_CHECK_FOR_UPDATES=false", "KOPIA_PASSWORD="+k.Password)
+	// launchd/systemd pueden arrancar el control sin $HOME: kopia necesita
+	// el directorio de caché (~/.cache/kopia) y falla con
+	// "unable to determine cache directory: $HOME is not defined" — lo que
+	// rompía connect/create de repositorios S3. Se fija un fallback.
+	if os.Getenv("HOME") == "" {
+		env = append(env, "HOME=/var/lib/bdr")
+	}
 	return env
 }
 

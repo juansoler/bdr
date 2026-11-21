@@ -26,6 +26,17 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   vía env `KOPIA_PASSWORD`; keychain/persist eran no determinados en
   servicios con PATH mínimo).
 
+## [0.11.6] — 2026-11-21
+
+### Corregido
+
+- Aprovisionamiento de repos S3: el plano de control (launchd/systemd) se
+  ejecuta sin la variable HOME, lo que rompía la inicialización de
+  repositorios Kopia (`unable to set up caching: unable to determine cache
+  directory: $HOME is not defined`). Se fija HOME en el entorno del proceso
+  de kopia; connect/create de repositorios S3 ahora pueden completar la
+  inicialización.
+
 ## [0.11.5] — 2026-11-21
 
 ### Corregido
