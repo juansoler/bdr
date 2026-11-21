@@ -2,6 +2,21 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.0] — 2026-11-21 — Acceso remoto
+
+### Añadido
+
+- **Acceso remoto a terminales (Remote Access, Phase 1)**: subsistema de
+  administración remota vía agente con conexión saliente mTLS. El panel crea
+  sesiones de terminal y el agente abre un PTY con shell (unix; ConPTY queda en
+  fase posterior); el flujo de I/O multiplexa terminal con control vía WebSocket
+  (control JSON en texto, datos binarios con prefijo de longitud).
+- **RBAC extendido**: capacidades `terminal:read`, `terminal:connect`,
+  `terminal:elevated`, `terminal:terminate`, `terminal:audit`; el rol admin
+  admite elevación con TOTP como paso adicional de seguridad.
+- **Documentación**: ADR `docs/adr/0012-remote-access.md` y spec técnica
+  `docs/25-remote-access.md`.
+
 ## [0.11.4] — 2026-11-21
 
 ### Corregido
