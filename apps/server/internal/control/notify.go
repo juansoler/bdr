@@ -238,7 +238,7 @@ func (n *Notifier) sendEmail(ctx context.Context, settings store.Settings, a con
 			return "error: " + err.Error()
 		}
 		defer c.Close()
-		if err := c.Hello("bdr.local"); err != nil {
+		if err := c.Hello("github.com/juansoler/bdr"); err != nil {
 			return "error: " + err.Error()
 		}
 		if ok, _ := c.Extension("STARTTLS"); ok {
