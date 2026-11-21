@@ -178,6 +178,10 @@ func (m *Manager) RegisterAgent(ctx context.Context, agentID string, ws *websock
 	m.agents[agentID] = ch
 	m.mu.Unlock()
 
+	// Si el operador creó sesiones mientras el agente estaba sin canal
+	// (p. ej. reinicio del servicio), reenvía la orden de apertura ahora.
+	m.resumePendingSessions(ch)
+
 	m.agentReadLoop(ctx, ch)
 
 	m.mu.Lock()
@@ -186,6 +190,41 @@ func (m *Manager) RegisterAgent(ctx context.Context, agentID string, ws *websock
 	}
 	m.mu.Unlock()
 	m.handleAgentDisconnect(ch)
+}
+
+// resumePendingSessions reenvía la orden de apertura de las sesiones
+// pendientes de un agente que acaba de conectar su canal. Cubre la carrera
+// «el operador abrió la consola mientras el agente se reiniciaba».
+func (m *Manager) resumePendingSessions(ch *agentChannel) {
+	m.mu.Lock()
+	var ids []string
+	for _, s := range m.sessions {
+		if s.agentID == ch.agentID && !s.isDone() {
+			ids = append(ids, s.id)
+		}
+	}
+	m.mu.Unlock()
+
+	for _, id := range ids {
+		var rec *store.TerminalSession
+		_ = m.store.View(context.Background(), func(st *store.State) error {
+			rec = st.TerminalSessions[id]
+			return nil
+		})
+		if rec == nil || rec.State != contracts.TerminalSessionPending {
+			continue
+		}
+		msg := contracts.TerminalMessage{
+			Type: contracts.TerminalMsgAgentOpen,
+			Payload: mustJSON(contracts.TerminalOpenPayload{
+				SessionID: id, Shell: rec.Shell, Cols: rec.Cols, Rows: rec.Rows,
+				Privilege: rec.Privilege,
+			}),
+		}
+		if err := m.sendJSON(ch, msg); err != nil {
+			m.interruptSession(id, "no se pudo reenviar la orden de apertura al agente")
+		}
+	}
 }
 
 // agentReadLoop procesa los mensajes del agente: control (texto) y datos

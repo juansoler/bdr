@@ -133,6 +133,26 @@ func (s *Server) Start(ctx context.Context) {
 	go s.RunScheduler(ctx)
 	go s.storageSyncLoop(ctx)
 	go s.startUpdateLoop(ctx)
+	go s.terminalReaperLoop(ctx)
+}
+
+// terminalReaperLoop expira sesiones de terminal pendientes sin respuesta
+// del agente y cierra las expiradas; sin esto, una sesión huérfana deja al
+// navegador en «conectando» indefinidamente.
+func (s *Server) terminalReaperLoop(ctx context.Context) {
+	if s.RemoteAccess == nil {
+		return
+	}
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.RemoteAccess.ReapSessions()
+		}
+	}
 }
 
 // Handler devuelve el router completo con middlewares.

@@ -2,6 +2,20 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.8] — 2026-11-21
+
+### Corregido
+
+- **Carrera al abrir la consola mientras el agente se reinicia**: si el
+  operador creaba la sesión cuando el agente aún no tenía canal, el `open`
+  nunca se enviaba y el navegador quedaba en «conectando» indefinidamente.
+  Ahora, al conectar un canal de agente, el servidor reenvía la orden de
+  apertura a sus sesiones pendientes (`resumePendingSessions`).
+- **Las sesiones huérfanas no expiraban**: `ReapSessions` existía pero no
+  estaba cableado a ningún bucle. Ahora el plano de control la ejecuta cada
+  30 s: las pendientes sin respuesta fallan a los 60 s con error explícito
+  y las expiradas se cierran, en vez de dejar el spinner eterno.
+
 ## [0.12.7] — 2026-11-21
 
 ### Corregido
