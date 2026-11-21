@@ -26,8 +26,10 @@ import (
 // UpdateURL es la URL del manifiesto; UpdatePublicKey la clave pública del
 // canal (vacía = chequeo deshabilitado). Se fijan en main tras New.
 var (
-	// checkInterval es el periodo base entre chequeos (6 h menos jitter).
-	checkInterval = 6 * time.Hour
+	// checkInterval es el periodo base entre chequeos (1 h menos jitter):
+	// ágil para que una release recién publicada se notice en el panel sin
+	// esperar horas, sin abusar del canal (fichero estático de GitHub).
+	checkInterval = time.Hour
 	// initialDelay retrasa el primer chequeo para no retrasar el arranque.
 	initialDelay = 5 * time.Second
 )
@@ -39,6 +41,8 @@ var updateState struct {
 	lastError atomic.Pointer[string]
 	// installing evita lanzar dos instalaciones a la vez.
 	installing atomic.Bool
+	// checking evita solapar el chequeo manual (POST /check) con el del bucle.
+	checking atomic.Bool
 }
 
 // auditCtx audita con un contexto propio (chequeos fuera de una petición).
@@ -116,6 +120,11 @@ func (s *Server) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
 	if _, _, ok := s.authorize(w, r, "read"); !ok {
 		return
 	}
+	writeJSON(w, http.StatusOK, s.updateStatusPayload())
+}
+
+// updateStatusPayload construye el estado del canal de actualizaciones.
+func (s *Server) updateStatusPayload() contracts.UpdateStatus {
 	status := contracts.UpdateStatus{
 		CheckEnabled: s.updateCheckEnabled(),
 		Current:      version.Version,
@@ -134,7 +143,28 @@ func (s *Server) handleSystemUpdate(w http.ResponseWriter, r *http.Request) {
 		status.NotesURL = m.NotesURL
 		status.UpdateAvailable = true
 	}
-	writeJSON(w, http.StatusOK, status)
+	return status
+}
+
+// handleSystemUpdateCheck fuerza un chequeo inmediato del canal y devuelve
+// el estado fresco: así el panel no depende de la cadencia del bucle (1 h)
+// para enterarse de una release recién publicada.
+func (s *Server) handleSystemUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	if _, _, ok := s.authorize(w, r, "admin"); !ok {
+		return
+	}
+	if s.updateCheckEnabled() && !updateState.checking.Swap(true) {
+		defer updateState.checking.Store(false)
+		// Contexto propio: el chequeo completa aunque el cliente cancele la
+		// petición a medias.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		s.checkUpdate(ctx)
+	}
+	writeJSON(w, http.StatusOK, s.updateStatusPayload())
 }
 
 // handleSystemUpdateInstall aplica la actualización pendiente bajo

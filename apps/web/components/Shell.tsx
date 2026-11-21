@@ -88,29 +88,45 @@ function AlertCount({ count }: { count: number | null }) {
   );
 }
 
-// useUpdateBanner sondea el canal de actualizaciones (10 min). Solo
-// notifica: la instalación exige confirmación del administrador.
-function useUpdateBanner(): UpdateStatus | null {
+// useUpdateBanner sondea el canal de actualizaciones. Al abrir el panel
+// fuerza un chequeo inmediato (POST /check) para no depender de la cadencia
+// del servidor (1 h); después sondea el estado cada 10 min. Solo notifica:
+// la instalación exige confirmación del administrador.
+function useUpdateBanner(): {
+  status: UpdateStatus | null;
+  refresh: () => Promise<void>;
+  checking: boolean;
+} {
   const { token } = useAuth();
   const [status, setStatus] = useState<UpdateStatus | null>(null);
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        const s = await api<UpdateStatus>("/api/v1/admin/system/update", token);
-        if (alive) setStatus(s);
-      } catch {
-        // sin sesión: el banner no aplica
-      }
-    };
-    load();
-    const id = window.setInterval(load, 600000);
-    return () => {
-      alive = false;
-      window.clearInterval(id);
-    };
+  const [checking, setChecking] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      const s = await api<UpdateStatus>("/api/v1/admin/system/update", token);
+      setStatus(s);
+    } catch {
+      // sin sesión: el banner no aplica
+    }
   }, [token]);
-  return status?.update_available ? status : null;
+  const refresh = useCallback(async () => {
+    setChecking(true);
+    try {
+      const s = await api<UpdateStatus>("/api/v1/admin/system/update/check", token, {
+        method: "POST",
+        body: "{}",
+      });
+      setStatus(s);
+    } catch {
+      // canal no disponible: se mantiene el último estado conocido
+    }
+    setChecking(false);
+  }, [token]);
+  useEffect(() => {
+    refresh();
+    const id = window.setInterval(load, 600000);
+    return () => window.clearInterval(id);
+  }, [refresh, load]);
+  return { status, refresh, checking };
 }
 
 // UpdateBanner es la notificación de versión disponible. «Actualizar ahora»
@@ -168,12 +184,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const { signOut } = useAuth();
   const health = useHealth();
   const openAlerts = useOpenAlerts();
-  const update = useUpdateBanner();
+  const { status: update, refresh: checkUpdates, checking: updateChecking } = useUpdateBanner();
+  const updateNote = update?.last_error
+    ? `canal: ${update.last_error}`
+    : update?.update_available
+      ? `disponible ${update.latest}`
+      : update?.checked_at
+        ? `al día · ${new Date(update.checked_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : "canal sin comprobar";
 
   return (
     <div className="relative z-10 flex min-h-screen">
-      {update?.update_available ? <UpdateBanner update={update} /> : null}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-ink-700 bg-ink-950/80 px-4 py-6 lg:flex">
+      {update?.update_available ? <UpdateBanner update={update} /> : null}      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-ink-700 bg-ink-950/80 px-4 py-6 lg:flex">
         <Brand />
 
         <nav className="mt-12 flex flex-col gap-1">
@@ -215,6 +237,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
               {health ? `API ${health.version}` : "API offline"}
             </span>
             <span className="text-slate-600">v0.4</span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0 truncate font-mono text-[9px] uppercase tracking-widest2 text-slate-600">
+              {updateNote}
+            </span>
+            <Button variant="ghost" size="sm" loading={updateChecking} onClick={() => checkUpdates()}>
+              Comprobar
+            </Button>
           </div>
           <div className="flex items-center justify-between">
             <span className="font-mono text-[9px] uppercase tracking-widest2 text-slate-600">

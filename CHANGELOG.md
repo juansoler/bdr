@@ -26,6 +26,23 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   vía env `KOPIA_PASSWORD`; keychain/persist eran no determinados en
   servicios con PATH mínimo).
 
+## [0.11.8] — 2026-11-21
+
+### Corregido
+
+- Detección de actualizaciones del plano de control: la cadencia del chequeo
+  del canal pasa de 6 h a 1 h — una release publicada minutos después de un
+  chequeo tardaba hasta ~7 h en aparecer en el panel, lo que obligaba a
+  reiniciar el servidor para forzarla.
+
+### Añadido
+
+- Chequeo de actualizaciones bajo demanda: nuevo endpoint
+  `POST /api/v1/admin/system/update/check` (admin) que consulta el canal al
+  instante y devuelve el estado fresco. El panel ahora fuerza un chequeo al
+  abrirse y añade el botón «Comprobar» en el pie del menú (muestra "al día"
+  con la hora o el error del canal).
+
 ## [0.11.7] — 2026-11-21
 
 ### Corregido

@@ -183,6 +183,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/system/health", s.handleSystemHealth)
 	mux.HandleFunc("/api/v1/admin/system/version", s.handleSystemVersion)
 	mux.HandleFunc("/api/v1/admin/system/update", s.handleSystemUpdate)
+	mux.HandleFunc("/api/v1/admin/system/update/check", s.handleSystemUpdateCheck)
 	mux.HandleFunc("/api/v1/admin/system/update/install", s.handleSystemUpdateInstall)
 
 	// Agentes.
