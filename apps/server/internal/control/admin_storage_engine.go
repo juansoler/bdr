@@ -288,7 +288,9 @@ func (s *Server) storageEnsureRepo(ctx context.Context, t *store.StorageTarget) 
 		create := append([]string{}, connect...)
 		create[1] = "create"
 		if _, cerr := s.Kopia.RunRepoOp(ctx, 2*time.Minute, cfgFile, pw, create...); cerr != nil {
-			msg := firstLines(cerr.Error(), 2)
+			// Detalle completo: el fallo del create en proveedores externos
+			// (quotas, lock, región, multipart…) se pierde con pocas líneas.
+			msg := firstLines(cerr.Error(), 8)
 			if strings.Contains(strings.ToLower(cerr.Error()), "found existing data") {
 				if t.IsFilesystem() {
 					return "", fmt.Errorf("la ruta %s ya contiene datos de otro repositorio o réplica: usa una ruta vacía o define un prefijo distinto en el destino", t.RepoPath())

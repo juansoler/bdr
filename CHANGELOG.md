@@ -31,6 +31,14 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   (kopia repository status) en el aviso "sin conexión directa" — antes se
   tragaba y la depuración era a ciegas.
 
+## [0.11.1] — 2026-11-21
+
+### Corregido
+
+- Aprovisionamiento de repos: el error del create muestra el detalle
+  completo de kopia (8 líneas) — antes se truncaba a 2 y la causa real
+  (quotas, lock del proveedor, región…) quedaba invisible.
+
 ## [0.11.0] — 2026-11-21
 
 ### Añadido
