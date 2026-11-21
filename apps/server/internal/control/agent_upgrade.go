@@ -110,8 +110,12 @@ func extFor(osarch string) string {
 // agentUpgradeOffer construye la instrucción de actualización para un agente
 // cuya versión difiere de la del plano de control.
 //
-// La URL es RELATIVA: el agente la resuelve contra el servidor con el que ya
-// hace heartbeat (NetBird, LAN…) — sin depender de --public-url.
+// La URL prefiere la del listener público (--public-url): los agentes ya
+// desplegados descargan con un cliente sin TLS personalizado, y por HTTP
+// claro no necesitan la CA del control. La integridad no depende del
+// transporte: la oferta viaja por el canal mTLS autenticado y trae el
+// SHA-256 del binario. Si no hay --public-url, la URL es RELATIVA y el
+// agente (0.11.10+) la resuelve contra su listener mTLS con la CA embebida.
 //
 // El SHA-256 se toma de agents.json (junto al binario del control): el
 // registro de los binarios de agente de ESTA versión del control, escrito en
@@ -125,6 +129,13 @@ func (s *Server) agentUpgradeOffer(osFamily, arch, reported string) *contracts.A
 	osarch := agentOSArch(osFamily, arch)
 	if osarch == "" {
 		return nil
+	}
+	offerURL := func() string {
+		u := "/api/v1/download/agent/" + osarch
+		if s.PublicURL != "" {
+			u = strings.TrimRight(s.PublicURL, "/") + u
+		}
+		return u
 	}
 
 	// 1) Con agents.json: oferta con SHA del manifiesto (coherente con esta
@@ -142,7 +153,7 @@ func (s *Server) agentUpgradeOffer(osFamily, arch, reported string) *contracts.A
 		}
 		return &contracts.AgentUpgrade{
 			Version: version.Version,
-			URL:     "/api/v1/download/agent/" + osarch,
+			URL:     offerURL(),
 			SHA256:  sum,
 		}
 	}
@@ -158,7 +169,7 @@ func (s *Server) agentUpgradeOffer(osFamily, arch, reported string) *contracts.A
 				if local, ok := s.binarySHA.fileSHA(path); ok && strings.EqualFold(local, ag.SHA256) {
 					return &contracts.AgentUpgrade{
 						Version: version.Version,
-						URL:     "/api/v1/download/agent/" + osarch,
+						URL:     offerURL(),
 						SHA256:  ag.SHA256,
 					}
 				}

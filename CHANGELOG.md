@@ -26,6 +26,23 @@ Formato basado en Keep a Changelog; versionado semántico mientras el producto n
   vía env `KOPIA_PASSWORD`; keychain/persist eran no determinados en
   servicios con PATH mínimo).
 
+## [0.11.10] — 2026-11-21
+
+### Corregido
+
+- **Auto-actualización del agente definitivamente arreglada**: la descarga
+  del binario usaba el cliente HTTP por defecto, sin la CA del control ni el
+  certificado de cliente; contra el listener mTLS de agentes fallaba con
+  `tls: failed to verify certificate` y la oferta nunca se aplicaba (aunque
+  llegara — así se veía en el log del agente). Ahora el agente descarga con
+  su identidad mTLS (CA del control + cert de cliente), igual que en el
+  heartbeat.
+- La oferta apunta al listener público (`--public-url`) cuando existe: los
+  agentes ya desplegados (con el cliente roto) pueden actualizarse solos
+  esta última vez; la integridad queda garantizada por el SHA-256 que viaja
+  en la oferta por el canal mTLS autenticado. Sin `--public-url`, la URL es
+  relativa y la resuelve el agente contra su listener mTLS.
+
 ## [0.11.9] — 2026-11-21
 
 ### Añadido

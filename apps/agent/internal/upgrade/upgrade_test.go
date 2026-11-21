@@ -38,7 +38,7 @@ func TestReplaceOK(t *testing.T) {
 	err := upgrade.ReplaceAt(context.Background(), logging.New("error"),
 		exe,
 		contracts.AgentUpgrade{URL: srv.URL, SHA256: hex.EncodeToString(sum[:]), Version: "9.9.9"},
-		func(exePath string) error { restarted = exePath; return nil })
+		func(exePath string) error { restarted = exePath; return nil }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestReplaceBadSHA(t *testing.T) {
 	err := upgrade.ReplaceAt(context.Background(), logging.New("error"),
 		exe,
 		contracts.AgentUpgrade{URL: srv.URL, SHA256: "0000000000000000000000000000000000000000000000000000000000000000"},
-		func(exePath string) error { called = true; return nil })
+		func(exePath string) error { called = true; return nil }, nil)
 	if !errors.Is(err, upgrade.ErrBadSHA) {
 		t.Fatalf("esperaba ErrBadSHA, got %v", err)
 	}

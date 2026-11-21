@@ -39,16 +39,22 @@ var (
 // no retorna (re-ejecución o salida para que el gestor de servicios
 // reinicie). La sustitución es atómica por renombrado: si algo falla antes
 // del restart, el binario actual sigue intacto.
-func Replace(ctx context.Context, log *logging.Logger, u contracts.AgentUpgrade, restart func(exe string) error) error {
+//
+// hc es el cliente HTTP de la descarga; nil usa http.DefaultClient. La URL
+// de la oferta suele ser relativa al listener mTLS del control: para esas
+// descargas el agente debe pasar un cliente con la CA del control y su
+// certificado de cliente (el mismo par que usa en el heartbeat) — un
+// http.DefaultClient falla la verificación TLS del listener de agentes.
+func Replace(ctx context.Context, log *logging.Logger, u contracts.AgentUpgrade, restart func(exe string) error, hc *http.Client) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("ruta del ejecutable: %w", err)
 	}
-	return ReplaceAt(ctx, log, exe, u, restart)
+	return ReplaceAt(ctx, log, exe, u, restart, hc)
 }
 
 // replaceAt hace el trabajo sobre una ruta concreta (exportada para tests).
-func ReplaceAt(ctx context.Context, log *logging.Logger, exe string, u contracts.AgentUpgrade, restart func(exe string) error) error {
+func ReplaceAt(ctx context.Context, log *logging.Logger, exe string, u contracts.AgentUpgrade, restart func(exe string) error, hc *http.Client) error {
 	if err := os.MkdirAll(filepath.Dir(exe), 0o755); err != nil {
 		return err
 	}
@@ -61,7 +67,7 @@ func ReplaceAt(ctx context.Context, log *logging.Logger, exe string, u contracts
 	}
 	tmpName := tmp.Name()
 	cleanup := func() { _ = os.Remove(tmpName) }
-	if _, err := downloadVerified(ctx, u.URL, u.SHA256, tmp); err != nil {
+	if _, err := downloadVerified(ctx, hc, u.URL, u.SHA256, tmp); err != nil {
 		_ = tmp.Close()
 		cleanup()
 		return err
@@ -94,12 +100,15 @@ func ReplaceAt(ctx context.Context, log *logging.Logger, exe string, u contracts
 
 // downloadVerified vuelca la respuesta HTTP en w comprobando límite de
 // tamaño y SHA-256 en streaming.
-func downloadVerified(ctx context.Context, url, wantSHA string, w io.Writer) (string, error) {
+func downloadVerified(ctx context.Context, hc *http.Client, url, wantSHA string, w io.Writer) (string, error) {
+	if hc == nil {
+		hc = http.DefaultClient
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return "", err
 	}

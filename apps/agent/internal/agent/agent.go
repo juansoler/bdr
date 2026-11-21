@@ -3,7 +3,11 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -238,9 +242,52 @@ func (a *Agent) applyUpgrade(ctx context.Context, u contracts.AgentUpgrade) {
 		u.URL = strings.TrimRight(a.cfg.Endpoint(), "/") + u.URL
 	}
 	a.log.Info("autoactualización disponible", "version", u.Version)
-	if err := upgrade.Replace(ctx, a.log, u, a.restartSelf); err != nil {
+	// La URL de la oferta suele ser relativa al listener mTLS del control
+	// (https://host:8443): la descarga necesita confiar en la CA del control
+	// y presentar el certificado de cliente del agente — el mismo par que
+	// usa el heartbeat. Un http.DefaultClient falla la verificación TLS
+	// ("tls: failed to verify certificate") y bloqueaba el auto-update.
+	hc, err := a.upgradeHTTPClient()
+	if err != nil {
+		a.log.Warn("autoactualización fallida", "error", err.Error())
+		return
+	}
+	dlCtx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	defer cancel()
+	if err := upgrade.Replace(dlCtx, a.log, u, a.restartSelf, hc); err != nil {
 		a.log.Warn("autoactualización fallida", "error", err.Error())
 	}
+}
+
+// upgradeHTTPClient construye el cliente de descargas con la CA del control
+// y el certificado de cliente del agente. Sin identidad (endpoint en HTTP
+// claro) devuelve nil: sirve el cliente por defecto.
+func (a *Agent) upgradeHTTPClient() (*http.Client, error) {
+	keyPEM, certPEM, caPEM, err := identity.Load(a.dataDir)
+	if err != nil || len(caPEM) == 0 {
+		if err != nil && len(certPEM) > 0 {
+			return nil, fmt.Errorf("identidad del agente: %w", err)
+		}
+		return nil, nil
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("la CA del control no es un PEM válido")
+	}
+	tlsCfg := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    pool,
+	}
+	if len(certPEM) > 0 && len(keyPEM) > 0 {
+		pair, err := tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("par de certificados del agente: %w", err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{pair}
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = tlsCfg
+	return &http.Client{Transport: tr}, nil
 }
 
 func (a *Agent) renewCertificate(ctx context.Context) {
