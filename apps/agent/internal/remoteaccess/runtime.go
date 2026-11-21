@@ -116,17 +116,18 @@ func (r *Runtime) handleControl(msg TerminalRequest) {
 		s, err := r.manager.NewSession(p.SessionID, p.Shell, p.Cols, p.Rows, p.Privilege)
 		if err != nil {
 			_ = r.sendJSON(TerminalResponse{
-				Type:    MsgError,
-				Session: p.SessionID,
-				Payload: mustJSON(ErrorPayload{Code: "E_AGENT_PTY", Message: err.Error()}),
+				Type:      MsgError,
+				SessionID: p.SessionID,
+				Payload:   mustJSON(ErrorPayload{Code: "E_AGENT_PTY", Message: err.Error()}),
 			})
 			return
 		}
 		// Bomba de salida: PTY → servidor; al terminar el shell, notifica exit.
 		go r.pumpOutput(s)
 		_ = r.sendJSON(TerminalResponse{
-			Type:    MsgOpened,
-			Session: p.SessionID,
+			Type:      MsgOpened,
+			SessionID: p.SessionID,
+			Payload:   mustJSON(OpenedPayload{SessionID: p.SessionID}),
 		})
 
 	case MsgResize:
@@ -134,7 +135,7 @@ func (r *Runtime) handleControl(msg TerminalRequest) {
 		if err := json.Unmarshal(msg.Payload, &p); err != nil {
 			return
 		}
-		if s, ok := r.manager.GetSession(msg.Session); ok {
+		if s, ok := r.manager.GetSession(msg.SessionID); ok {
 			_ = ResizeTerminal(s.PTY, p.Cols, p.Rows)
 		}
 
@@ -143,7 +144,7 @@ func (r *Runtime) handleControl(msg TerminalRequest) {
 		if err := json.Unmarshal(msg.Payload, &p); err != nil {
 			return
 		}
-		if s, ok := r.manager.GetSession(msg.Session); ok && s.Cmd != nil && s.Cmd.Process != nil {
+		if s, ok := r.manager.GetSession(msg.SessionID); ok && s.Cmd != nil && s.Cmd.Process != nil {
 			if sig := signalFromName(p.Signal); sig != nil {
 				_ = s.Cmd.Process.Signal(sig) //nolint:errcheck // best-effort
 			}
@@ -156,8 +157,8 @@ func (r *Runtime) handleControl(msg TerminalRequest) {
 		}
 		r.manager.CloseSession(p.SessionID, p.Reason)
 		_ = r.sendJSON(TerminalResponse{
-			Type:    MsgAckClose,
-			Session: p.SessionID,
+			Type:      MsgAckClose,
+			SessionID: p.SessionID,
 		})
 
 	case MsgPing:
@@ -209,9 +210,9 @@ func (r *Runtime) pumpOutput(s *PTYSession) {
 	// close, ya conoce el final y el ack_close basta).
 	if _, ok := r.manager.GetSession(s.ID); ok {
 		_ = r.sendJSON(TerminalResponse{
-			Type:    MsgExit,
-			Session: s.ID,
-			Payload: mustJSON(ExitPayload{Code: code}),
+			Type:      MsgExit,
+			SessionID: s.ID,
+			Payload:   mustJSON(ExitPayload{Code: code}),
 		})
 		r.manager.CloseSession(s.ID, "shell finalizado")
 	}

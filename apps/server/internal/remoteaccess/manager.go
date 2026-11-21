@@ -218,10 +218,18 @@ func (m *Manager) handleAgentControl(ch *agentChannel, msg contracts.TerminalMes
 	switch msg.Type {
 	case contracts.TerminalMsgAgentOpened:
 		var p contracts.TerminalOpenedPayload
-		if err := json.Unmarshal(msg.Payload, &p); err != nil || p.SessionID == "" {
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			p.SessionID = ""
+		}
+		// El ID puede venir en el payload o en el propio sobre.
+		sessionID := p.SessionID
+		if sessionID == "" {
+			sessionID = msg.SessionID
+		}
+		if sessionID == "" {
 			return
 		}
-		m.onAgentOpened(p.SessionID)
+		m.onAgentOpened(sessionID)
 	case contracts.TerminalMsgAgentError:
 		var p contracts.TerminalErrorPayload
 		_ = json.Unmarshal(msg.Payload, &p)

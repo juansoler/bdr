@@ -2,6 +2,18 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.12.7] — 2026-11-21
+
+### Corregido
+
+- **La consola seguía en «Conectando…» con el canal del agente ya conectado**:
+  el agente enviaba los mensajes de control con la clave `session`, pero el
+  contrato canónico (`packages/contracts.TerminalMessage`) usa `session_id`,
+  así que el servidor descartaba el `opened` del agente y el navegador nunca
+  recibía la señal de sesión lista. Ahora el sobre del agente usa
+  `session_id`, el `opened` incluye su payload, y el servidor acepta el ID
+  desde el payload o el sobre.
+
 ## [0.12.6] — 2026-11-21
 
 ### Corregido

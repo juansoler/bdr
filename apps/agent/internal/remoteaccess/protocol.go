@@ -8,17 +8,18 @@ import (
 )
 
 // TerminalRequest es un mensaje de control recibido desde el servidor.
+// El sobre usa "session_id" (contrato canónico de packages/contracts).
 type TerminalRequest struct {
-	Type    string          `json:"type"`
-	Session string          `json:"session,omitempty"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Type      string          `json:"type"`
+	SessionID string          `json:"session_id,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
 // TerminalResponse es un mensaje de respuesta del agente al servidor.
 type TerminalResponse struct {
-	Type    string          `json:"type"`
-	Session string          `json:"session,omitempty"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Type      string          `json:"type"`
+	SessionID string          `json:"session_id,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
 }
 
 // Payload de apertura de sesión.
