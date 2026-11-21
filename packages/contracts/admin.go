@@ -193,6 +193,22 @@ type RestorePointView struct {
 	VerifyDetail string     `json:"verify_detail,omitempty"`
 	ExpiredAt    *time.Time `json:"expired_at,omitempty"`
 	Browsable    bool       `json:"browsable"`
+	// SQL: metadatos del motor SQL Server (Kind "sql"); nil en el resto.
+	SQL *RestorePointSQLView `json:"sql,omitempty"`
+}
+
+// RestorePointSQLView son los metadatos SQL Server de un punto de
+// restauración (instancia/base, tipo, LSNs como texto e integridad).
+type RestorePointSQLView struct {
+	Instance    string `json:"instance"`
+	Database    string `json:"database"`
+	BackupType  string `json:"backup_type"`
+	DatabaseLSN string `json:"database_lsn,omitempty"`
+	FirstLSN    string `json:"first_lsn,omitempty"`
+	LastLSN     string `json:"last_lsn,omitempty"`
+	Checksum    bool   `json:"checksum"`
+	Compression bool   `json:"compression"`
+	Verified    bool   `json:"verified"`
 }
 
 // RestorePointList es la respuesta de GET /api/v1/admin/restore-points.

@@ -497,6 +497,19 @@ func (s *Server) restorePointView(st *store.State, rp *store.RestorePoint) contr
 	if p := st.Plans[rp.PlanID]; p != nil {
 		v.PlanName = p.Name
 	}
+	if rp.SQL != nil {
+		v.SQL = &contracts.RestorePointSQLView{
+			Instance:    rp.SQL.Instance,
+			Database:    rp.SQL.Database,
+			BackupType:  rp.SQL.BackupType,
+			DatabaseLSN: rp.SQL.DatabaseLSN,
+			FirstLSN:    rp.SQL.FirstLSN,
+			LastLSN:     rp.SQL.LastLSN,
+			Checksum:    rp.SQL.Checksum,
+			Compression: rp.SQL.Compression,
+			Verified:    rp.SQL.Verified,
+		}
+	}
 	if a := st.Agents[rp.AgentID]; a != nil {
 		v.Hostname = a.Hostname
 	}

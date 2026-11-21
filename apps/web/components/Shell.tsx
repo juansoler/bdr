@@ -16,6 +16,7 @@ const NAV = [
   { href: "/alerts", index: "06", label: "Alertas", hint: "Incidencias abiertas", alertBadge: true },
   { href: "/proxmox", index: "07", label: "Proxmox", hint: "Instancias e inventario" },
   { href: "/storage", index: "08", label: "Almacenamiento", hint: "S3 y rutas físicas" },
+  { href: "/sql", index: "09", label: "SQL Server", hint: "Backups, planes y PITR" },
 ] as const;
 
 function Brand({ compact = false }: { compact?: boolean }) {
