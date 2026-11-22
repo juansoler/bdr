@@ -2,6 +2,25 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.23] — 2026-11-22
+
+### Añadido
+
+- **Detección automática de instancias al elegir el agente** (SQL Server y
+  PostgreSQL): un job de discovery con polling corto rellena el formulario
+  del panel sin que el operador escriba nada.
+  - **SQL Server**: job `SQL_DISCOVER` que explota el discovery por
+    registro de Windows (`connector.Discover`, existente desde el primer
+    día) — rellena servidor/instancia con la instancia por defecto y
+    muestra las detectadas. Solo Windows (SQL Server en Linux queda
+    manual).
+  - **PostgreSQL**: job `PG_DISCOVER` con heurística por SO — claves de
+    servicio `postgresql-*` del registro de Windows (versión deducida del
+    `ImagePath`), `pg_lsclusters` en Debian/Ubuntu y `systemctl` como
+    fallback; rellena el puerto sugerido.
+  - API: `POST /api/v1/admin/{sql,pg}/discover`. Best-effort: si no hay
+    instancias o el SO no las detecta, la operativa manual sigue intacta.
+
 ## [0.16.22] — 2026-11-22
 
 ### Corregido
