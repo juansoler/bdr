@@ -2,6 +2,18 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.11] — 2026-11-22
+
+### Corregido
+
+- **SQL Server: el backup fallaba con error 102 de T-SQL** (hallazgo del
+  lab P-28, primer backup real contra SQL Server 2022): el motor generaba
+  `BACKUP DATABASE N'nombre'`, pero el nombre de base en
+  `BACKUP/RESTORE DATABASE|LOG` es un **identificador**, no un literal de
+  cadena. Ahora se genera `[nombre]` con escape de corchetes (`]` doblado);
+  los apóstrofos son legales dentro de los corchetes. `MOVE`, `STOPAT` y
+  `DISK` siguen siendo literales (posición correcta en la sintaxis).
+
 ## [0.16.10] — 2026-11-22
 
 ### Corregido
