@@ -2,6 +2,20 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.12] — 2026-11-22
+
+### Corregido
+
+- **SQL Server: staging escribible por la cuenta del servicio SQL**
+  (hallazgo del lab P-24): el staging por defecto caía en el temp del
+  agente (`C:\WINDOWS\SystemTemp`), que la cuenta del servicio de SQL
+  Server no puede escribir — el BACKUP moría con error 3201/OS 5
+  «Acceso denegado». Ahora el default en Windows es el `BackupDirectory`
+  de la instancia, leído del registro (`MSSQL<n>.<instancia>`), donde SQL
+  escribe por definición y el agente (SYSTEM) lee sin problema.
+  `BDR_SQL_STAGING` conserva la prioridad; fuera de Windows sigue el temp
+  de lab. El progreso del job muestra el staging elegido.
+
 ## [0.16.11] — 2026-11-22
 
 ### Corregido
