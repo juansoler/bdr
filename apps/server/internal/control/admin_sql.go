@@ -451,6 +451,40 @@ func generateSQLCertPassword() (string, error) {
 	return string(out), nil
 }
 
+// handleSQLDatabases devuelve el inventario cacheado de bases por
+// agente+servidor(+instancia). La caché la rellena un job SQL_INVENTORY
+// (manual o disparado por el panel al elegir el nodo).
+// GET /api/v1/admin/sql/databases?agent_id=&server=&instance=
+func (s *Server) handleSQLDatabases(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodGet) {
+		return
+	}
+	r, _, ok := s.authorize(w, r, "read")
+	if !ok {
+		return
+	}
+	agentID := r.URL.Query().Get("agent_id")
+	server := r.URL.Query().Get("server")
+	instance := r.URL.Query().Get("instance")
+
+	items := []contracts.SQLDatabaseView{}
+	var updatedAt *time.Time
+	if agentID != "" && server != "" {
+		_ = s.Store.View(r.Context(), func(st *store.State) error {
+			if snap := st.SQLInventories[sqlInventoryKey(agentID, server, instance)]; snap != nil {
+				items = snap.Items
+				if items == nil {
+					items = []contracts.SQLDatabaseView{}
+				}
+				u := snap.UpdatedAt
+				updatedAt = &u
+			}
+			return nil
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "updated_at": updatedAt})
+}
+
 // handleSQLRestorePoints lista los puntos de restauración SQL (Kind "sql"),
 // más recientes primero, filtrando por agente y/o base.
 // GET /api/v1/admin/sql/restore-points?agent_id=&database=

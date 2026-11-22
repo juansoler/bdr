@@ -194,8 +194,19 @@ type RestorePoint struct {
 	SQL *SQLBackupMeta `json:"SQL,omitempty"`
 }
 
-// SQLCertificate es la custodia de un certificado de SQL Server usado para
-// cifrar backups (RF-45): sin el .cer/.pvk custodiados y su contraseña,
+// SQLInventorySnapshot es la caché del inventario de bases de una
+// instancia SQL (agente+servidor+instancia), actualizada cuando un job
+// SQL_INVENTORY termina bien. La usa el panel para poblar el selector de
+// bases al elegir el nodo.
+type SQLInventorySnapshot struct {
+	AgentID   string                      `json:"AgentID"`
+	Server    string                      `json:"Server"`
+	Instance  string                      `json:"Instance,omitempty"`
+	Items     []contracts.SQLDatabaseView `json:"Items"`
+	UpdatedAt time.Time                   `json:"UpdatedAt"`
+}
+
+// SQLCertificate es la custodia de un certificado de SQL Server usado para// cifrar backups (RF-45): sin el .cer/.pvk custodiados y su contraseña,
 // los medios cifrados son irrecuperables. La contraseña del .pvk queda
 // sellada (PasswordSealed, via secrets.Box).
 type SQLCertificate struct {
@@ -557,30 +568,31 @@ const MaxInventoryHistory = 30
 
 // State es el documento completo del plano de control.
 type State struct {
-	Meta             Meta                            `json:"meta"`
-	Settings         Settings                        `json:"settings"`
-	Tokens           map[string]*EnrollmentToken     `json:"tokens"`
-	Agents           map[string]*Agent               `json:"agents"`
-	Plans            map[string]*Plan                `json:"plans"`
-	Assignments      map[string]*Assignment          `json:"assignments"`
-	Groups           map[string]*Group               `json:"groups"`
-	Jobs             map[string]*Job                 `json:"jobs"`
-	JobEvents        map[string][]contracts.JobEvent `json:"job_events"`
-	RestorePoints    map[string]*RestorePoint        `json:"restore_points"`
-	Alerts           map[string]*Alert               `json:"alerts"`
-	Users            map[string]*User                `json:"users"`
-	Sessions         map[string]*Session             `json:"sessions"`
-	APITokens        map[string]*APIToken            `json:"api_tokens"`
-	Idempotency      map[string]*IdempotencyRecord   `json:"idempotency"`
-	Inventory        map[string][]InventoryRecord    `json:"inventory_history"`
-	RepoCreds        map[string]*RepoCredential      `json:"repository_credentials"`
-	Schedule         map[string]*ScheduleEntry       `json:"schedule"`
-	PVE              map[string]*PVEInstance         `json:"proxmox_instances"`
-	Storage          map[string]*StorageTarget       `json:"storage_targets"`
-	TerminalSessions map[string]*TerminalSession     `json:"terminal_sessions,omitempty"`
-	ScreenSessions   map[string]*ScreenSession       `json:"screen_sessions,omitempty"`
-	SQLPlans         map[string]*SQLPlan             `json:"sql_plans,omitempty"`
-	SQLCerts         map[string]*SQLCertificate      `json:"sql_certificates,omitempty"`
+	Meta             Meta                             `json:"meta"`
+	Settings         Settings                         `json:"settings"`
+	Tokens           map[string]*EnrollmentToken      `json:"tokens"`
+	Agents           map[string]*Agent                `json:"agents"`
+	Plans            map[string]*Plan                 `json:"plans"`
+	Assignments      map[string]*Assignment           `json:"assignments"`
+	Groups           map[string]*Group                `json:"groups"`
+	Jobs             map[string]*Job                  `json:"jobs"`
+	JobEvents        map[string][]contracts.JobEvent  `json:"job_events"`
+	RestorePoints    map[string]*RestorePoint         `json:"restore_points"`
+	Alerts           map[string]*Alert                `json:"alerts"`
+	Users            map[string]*User                 `json:"users"`
+	Sessions         map[string]*Session              `json:"sessions"`
+	APITokens        map[string]*APIToken             `json:"api_tokens"`
+	Idempotency      map[string]*IdempotencyRecord    `json:"idempotency"`
+	Inventory        map[string][]InventoryRecord     `json:"inventory_history"`
+	RepoCreds        map[string]*RepoCredential       `json:"repository_credentials"`
+	Schedule         map[string]*ScheduleEntry        `json:"schedule"`
+	PVE              map[string]*PVEInstance          `json:"proxmox_instances"`
+	Storage          map[string]*StorageTarget        `json:"storage_targets"`
+	TerminalSessions map[string]*TerminalSession      `json:"terminal_sessions,omitempty"`
+	ScreenSessions   map[string]*ScreenSession        `json:"screen_sessions,omitempty"`
+	SQLPlans         map[string]*SQLPlan              `json:"sql_plans,omitempty"`
+	SQLCerts         map[string]*SQLCertificate       `json:"sql_certificates,omitempty"`
+	SQLInventories   map[string]*SQLInventorySnapshot `json:"sql_inventories,omitempty"`
 }
 
 // NewState crea un estado vacío.
@@ -659,6 +671,9 @@ func (s *State) ensureMaps() {
 	}
 	if s.SQLCerts == nil {
 		s.SQLCerts = map[string]*SQLCertificate{}
+	}
+	if s.SQLInventories == nil {
+		s.SQLInventories = map[string]*SQLInventorySnapshot{}
 	}
 }
 

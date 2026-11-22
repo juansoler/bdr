@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, ErrorBox, Field, Input, cx } from "@/components/ui";
 import { ApiError, api, type AgentList, type RestorePointViewList, type StorageTargetList, type StorageTargetView } from "@/lib/api";
@@ -51,6 +51,23 @@ interface SQLRPView {
   };
 }
 
+// Base de datos del inventario (contracts.SQLDatabaseView).
+interface SQLDBView {
+  name: string;
+  recovery_model: string;
+  state: string;
+  read_only?: boolean;
+  is_system: boolean;
+  protectable: boolean;
+}
+
+interface SQLDatabasesResp {
+  items: SQLDBView[];
+  updated_at?: string | null;
+}
+
+const JOB_TERMINAL = ["succeeded", "failed", "canceled", "expired"];
+
 const fmtGiB = (b?: number) => (b ? `${Math.round(b / (1 << 30))} GiB` : "—");
 
 export default function SQLPage() {
@@ -76,6 +93,13 @@ export default function SQLPage() {
   const [schedule, setSchedule] = useState("");
   const [verifyCron, setVerifyCron] = useState("");
   const [timezone, setTimezone] = useState("UTC");
+
+  // Inventario automático: al elegir agente+servidor, carga la caché y si
+  // está vacía dispara un job SQL_INVENTORY y espera su resultado.
+  const [dbList, setDbList] = useState<SQLDBView[]>([]);
+  const [dbUpdatedAt, setDbUpdatedAt] = useState<string | null>(null);
+  const [dbBusy, setDbBusy] = useState(false);
+  const dbReqId = useRef(0);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -116,8 +140,60 @@ export default function SQLPage() {
     }
   };
 
-  const requireSel = () => {
-    if (!agentId || !server || !database || !targetId) {
+  // Carga y auto-inventario de bases para el nodo elegido. Cada cambio de
+  // selección invalida la petición anterior (dbReqId).
+  useEffect(() => {
+    if (!token) return;
+    const reqId = ++dbReqId.current;
+    if (!agentId || !server) {
+      setDbList([]);
+      setDbUpdatedAt(null);
+      setDbBusy(false);
+      return;
+    }
+    setDbBusy(true);
+    (async () => {
+      try {
+        const qs = new URLSearchParams({ agent_id: agentId, server });
+        if (instance) qs.set("instance", instance);
+        let r = await api<SQLDatabasesResp>(`/api/v1/admin/sql/databases?${qs}`, token);
+        if (dbReqId.current !== reqId) return;
+        if ((r.items ?? []).length === 0) {
+          // Sin caché: disparar inventario y esperar el job.
+          const res = await api<{ job_id: string }>("/api/v1/admin/sql/inventory", token, {
+            method: "POST",
+            body: JSON.stringify({ agent_id: agentId, server, instance }),
+          });
+          const jobURL = `/api/v1/admin/jobs/${res.job_id}`;
+          for (;;) {
+            await new Promise((r2) => setTimeout(r2, 2500));
+            if (dbReqId.current !== reqId) return;
+            const job = await api<{ state: string; error_message?: string }>(jobURL, token);
+            if (JOB_TERMINAL.includes(job.state)) {
+              if (job.state !== "succeeded") {
+                setError(`El inventario falló en el nodo: ${job.error_message ?? job.state}`);
+              }
+              break;
+            }
+          }
+          if (dbReqId.current !== reqId) return;
+          r = await api<SQLDatabasesResp>(`/api/v1/admin/sql/databases?${qs}`, token);
+        }
+        if (dbReqId.current !== reqId) return;
+        setDbList(r.items ?? []);
+        setDbUpdatedAt(r.updated_at ?? null);
+      } catch (err) {
+        if (dbReqId.current === reqId) {
+          setError(err instanceof ApiError ? err.message : "No se pudo obtener el inventario de bases.");
+          setDbList([]);
+        }
+      } finally {
+        if (dbReqId.current === reqId) setDbBusy(false);
+      }
+    })();
+  }, [agentId, server, instance, token]);
+
+  const requireSel = () => {    if (!agentId || !server || !database || !targetId) {
       setError("Elige agente, destino y escribe servidor y base de datos.");
       return false;
     }
@@ -265,8 +341,33 @@ export default function SQLPage() {
           <Field label="Instancia (opcional)">
             <Input value={instance} onChange={(e) => setInstance(e.target.value)} placeholder="SQLEXPRESS" />
           </Field>
-          <Field label="Base de datos">
-            <Input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="app" />
+          <Field
+            label="Base de datos"
+            hint={
+              dbBusy
+                ? "obteniendo inventario del nodo…"
+                : dbList.length
+                  ? `${dbList.length} bases · inventario ${dbUpdatedAt?.slice(0, 16).replace("T", " ")}`
+                  : "elige agente y servidor para listar las bases"
+            }
+          >
+            {dbList.length > 0 ? (
+              <select
+                value={database}
+                onChange={(e) => setDatabase(e.target.value)}
+                className="w-full border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slate-200 focus:border-signal focus:outline-none"
+              >
+                <option value="">— elige base —</option>
+                {dbList.map((d) => (
+                  <option key={d.name} value={d.name}>
+                    {d.name} · {d.recovery_model} · {d.state}
+                    {d.is_system ? " · sistema" : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="app" />
+            )}
           </Field>
           <Field label="Tipo">
             <select

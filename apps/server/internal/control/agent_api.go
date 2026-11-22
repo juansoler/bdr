@@ -604,6 +604,9 @@ func (s *Server) handleAgentJobAction(w http.ResponseWriter, r *http.Request) {
 			if req.State == store.JobSucceeded && j.Type == contracts.JobTypeSQLCertBackup {
 				s.recordSQLCertCustody(st, j, now)
 			}
+			if req.State == store.JobSucceeded && j.Type == contracts.JobTypeSQLInventory {
+				s.recordSQLInventory(st, j, now)
+			}
 			cj := *j
 			finished = &cj
 			return nil
@@ -828,6 +831,37 @@ func (s *Server) recordSQLRestorePoint(st *store.State, j *store.Job, now time.T
 		}
 	}
 	return nil
+}
+
+// sqlInventoryKey es la clave de caché del inventario SQL por
+// agente+servidor+instancia.
+func sqlInventoryKey(agentID, server, instance string) string {
+	return agentID + "|" + server + "|" + instance
+}
+
+// recordSQLInventory cachea el inventario de bases de un job
+// SQL_INVENTORY exitoso. La consulta el panel al elegir el nodo
+// (GET /api/v1/admin/sql/databases).
+func (s *Server) recordSQLInventory(st *store.State, j *store.Job, now time.Time) {
+	var payload contracts.SQLInventoryJobPayload
+	if err := json.Unmarshal(j.Payload, &payload); err != nil {
+		s.Logger.Warn("payload de SQL_INVENTORY no interpretable", "job_id", j.ID, "error", err.Error())
+		return
+	}
+	var result contracts.SQLInventoryJobResult
+	if err := json.Unmarshal(j.Result, &result); err != nil {
+		s.Logger.Warn("resultado de SQL_INVENTORY no interpretable", "job_id", j.ID, "error", err.Error())
+		return
+	}
+	st.SQLInventories[sqlInventoryKey(j.AgentID, payload.Server, payload.Instance)] = &store.SQLInventorySnapshot{
+		AgentID:   j.AgentID,
+		Server:    payload.Server,
+		Instance:  payload.Instance,
+		Items:     result.Items,
+		UpdatedAt: now,
+	}
+	s.Logger.Info("inventario SQL cacheado", "job_id", j.ID,
+		"agent_id", j.AgentID, "server", payload.Server, "bases", len(result.Items))
 }
 
 // recordSQLCertCustody actualiza el registro de custodia de un certificado
