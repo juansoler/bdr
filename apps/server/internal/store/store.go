@@ -192,6 +192,8 @@ type RestorePoint struct {
 
 	// SQL: metadatos del motor SQL Server (Kind "sql"); nil en el resto.
 	SQL *SQLBackupMeta `json:"SQL,omitempty"`
+	// PG: metadatos del motor PostgreSQL (Kind "pg"); nil en el resto.
+	PG *PGBackupMeta `json:"PG,omitempty"`
 }
 
 // SQLInventorySnapshot es la caché del inventario de bases de una
@@ -204,6 +206,17 @@ type SQLInventorySnapshot struct {
 	Instance  string                      `json:"Instance,omitempty"`
 	Items     []contracts.SQLDatabaseView `json:"Items"`
 	UpdatedAt time.Time                   `json:"UpdatedAt"`
+}
+
+// PGBackupMeta guarda lo propio de un punto de restauración PostgreSQL
+// (Kind "pg"): conexión de origen y flags de integridad del dump.
+type PGBackupMeta struct {
+	Host      string `json:"Host"`
+	Port      string `json:"Port,omitempty"`
+	Database  string `json:"Database"`
+	RepoURI   string `json:"RepoURI,omitempty"`
+	Verified  bool   `json:"Verified"`
+	SizeBytes int64  `json:"SizeBytes,omitempty"`
 }
 
 // SQLCertificate es la custodia de un certificado de SQL Server usado para// cifrar backups (RF-45): sin el .cer/.pvk custodiados y su contraseña,

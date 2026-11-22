@@ -42,6 +42,10 @@ const (
 	JobTypeSQLInventory  = "SQL_INVENTORY"
 	JobTypeSQLCheckDB    = "SQL_CHECKDB"
 	JobTypeSQLCertBackup = "SQL_CERTBACKUP"
+	JobTypePGDump        = "PG_DUMP"
+	JobTypePGRestore     = "PG_RESTORE"
+	JobTypePGVerify      = "PG_VERIFY"
+	JobTypePGInventory   = "PG_INVENTORY"
 )
 
 // Estados de job (docs/06-api.md §5).
@@ -816,6 +820,92 @@ type SQLDatabaseView struct {
 	CompatLevel   int    `json:"compatibility_level"`
 	System        bool   `json:"is_system"`
 	Protectable   bool   `json:"protectable"`
+}
+
+// --- PostgreSQL (motor pg_dump/pg_restore, RF-41 extendido) ---
+//
+// Las contraseñas NO viajan en los payloads: el agente usa la variable
+// BDR_PG_PASSWORD de su propio entorno (o .pgpass del host), igual que el
+// motor SQL usa SSPI.
+
+// PGDumpJobPayload es el payload de un job PG_DUMP: pg_dump -Fc de una
+// base (formato custom, comprimido) en el host del agente, transferencia
+// al destino de almacenamiento y registro en el catálogo.
+type PGDumpJobPayload struct {
+	Host     string `json:"host"`           // host o vacío = socket local
+	Port     string `json:"port,omitempty"` // vacío = 5432
+	User     string `json:"user,omitempty"` // vacío = usuario del proceso
+	Database string `json:"database"`
+	// StorageTargetID: destino de los ficheros (filesystem/S3).
+	StorageTargetID string `json:"storage_target_id"`
+	RetentionDays   int    `json:"retention_days,omitempty"` // Object Lock (S3)
+}
+
+// PGDumpJobResult es el resultado de un job PG_DUMP.
+type PGDumpJobResult struct {
+	Database    string  `json:"database"`
+	RepoURI     string  `json:"repo_uri"`
+	SizeBytes   int64   `json:"size_bytes"`
+	DurationSec float64 `json:"duration_sec"`
+	Verified    bool    `json:"verified"` // pg_restore --list OK
+}
+
+// PGVerifyJobPayload es el payload de un job PG_VERIFY: descarga el dump
+// del destino y ejecuta pg_restore --list (integridad del archivo).
+type PGVerifyJobPayload struct {
+	RepoURI         string `json:"repo_uri"`
+	StorageTargetID string `json:"storage_target_id"`
+}
+
+// PGVerifyJobResult es el resultado de un job PG_VERIFY.
+type PGVerifyJobResult struct {
+	RepoURI     string  `json:"repo_uri"`
+	OK          bool    `json:"ok"`
+	Objects     int     `json:"objects,omitempty"` // entradas del índice del dump
+	DurationSec float64 `json:"duration_sec"`
+}
+
+// PGRestoreJobPayload es el payload de un job PG_RESTORE: descarga el dump
+// y lo restaura con pg_restore. CreateDB ejecuta createdb antes (motor
+// limpio); DropExisting pasa --clean --if-exists (reemplazo destructivo).
+type PGRestoreJobPayload struct {
+	Host            string `json:"host"`
+	Port            string `json:"port,omitempty"`
+	User            string `json:"user,omitempty"`
+	Database        string `json:"database"` // base destino
+	CreateDB        bool   `json:"create_db,omitempty"`
+	DropExisting    bool   `json:"drop_existing,omitempty"`
+	RepoURI         string `json:"repo_uri"`
+	StorageTargetID string `json:"storage_target_id"`
+}
+
+// PGRestoreJobResult es el resultado de un job PG_RESTORE.
+type PGRestoreJobResult struct {
+	Database    string  `json:"database"`
+	RepoURI     string  `json:"repo_uri"`
+	DurationSec float64 `json:"duration_sec"`
+}
+
+// PGInventoryJobPayload es el payload de un job PG_INVENTORY: lista de
+// bases de la instancia (rápido, sin backup).
+type PGInventoryJobPayload struct {
+	Host string `json:"host"`
+	Port string `json:"port,omitempty"`
+	User string `json:"user,omitempty"`
+}
+
+// PGInventoryJobResult es el resultado de un job PG_INVENTORY.
+type PGInventoryJobResult struct {
+	Items []PGDatabaseView `json:"items"`
+}
+
+// PGDatabaseView describe una base de datos PostgreSQL (panel).
+type PGDatabaseView struct {
+	Name     string `json:"name"`
+	Owner    string `json:"owner,omitempty"`
+	System   bool   `json:"is_system"` // template0/template1/postgres
+	Connect  bool   `json:"connect"`   // datallowconn (template0 no acepta)
+	Dumpable bool   `json:"dumpable"`  // candidata a pg_dump
 }
 
 // SQLRestoreChainStep es un eslabón de la cadena de restauración

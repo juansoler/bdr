@@ -607,6 +607,9 @@ func (s *Server) handleAgentJobAction(w http.ResponseWriter, r *http.Request) {
 			if req.State == store.JobSucceeded && j.Type == contracts.JobTypeSQLInventory {
 				s.recordSQLInventory(st, j, now)
 			}
+			if req.State == store.JobSucceeded && j.Type == contracts.JobTypePGDump {
+				s.recordPGRestorePoint(st, j, now)
+			}
 			cj := *j
 			finished = &cj
 			return nil
@@ -833,6 +836,49 @@ func (s *Server) recordSQLRestorePoint(st *store.State, j *store.Job, now time.T
 	return nil
 }
 
+// recordPGRestorePoint registra el punto de restauración de un dump
+// PostgreSQL (Kind "pg"): SnapshotID = URI del objeto en el destino.
+func (s *Server) recordPGRestorePoint(st *store.State, j *store.Job, now time.Time) {
+	var payload contracts.PGDumpJobPayload
+	if err := json.Unmarshal(j.Payload, &payload); err != nil {
+		s.Logger.Warn("payload de PG_DUMP no interpretable", "job_id", j.ID, "error", err.Error())
+		return
+	}
+	var result contracts.PGDumpJobResult
+	if err := json.Unmarshal(j.Result, &result); err != nil {
+		s.Logger.Warn("resultado de PG_DUMP no interpretable", "job_id", j.ID, "error", err.Error())
+		return
+	}
+	if result.RepoURI == "" {
+		s.Logger.Warn("resultado de PG_DUMP sin repo_uri", "job_id", j.ID)
+		return
+	}
+	id, _ := newID()
+	rp := &store.RestorePoint{
+		ID: id, AgentID: j.AgentID, PlanID: j.PlanID, JobID: j.ID,
+		Kind:       "pg",
+		SnapshotID: result.RepoURI, TargetID: payload.StorageTargetID,
+		SourcePath: "pg/" + payload.Host + "/" + payload.Database,
+		CreatedAt:  now,
+		StartTime:  now.Add(-time.Duration(result.DurationSec * float64(time.Second))),
+		EndTime:    now,
+		SizeBytes:  result.SizeBytes,
+		VerifyState: func() string {
+			if result.Verified {
+				return contracts.VerifyOK
+			}
+			return contracts.VerifyNone
+		}(),
+		PG: &store.PGBackupMeta{
+			Host: payload.Host, Port: payload.Port, Database: payload.Database,
+			RepoURI: result.RepoURI, Verified: result.Verified, SizeBytes: result.SizeBytes,
+		},
+	}
+	st.RestorePoints[id] = rp
+	s.Logger.Info("punto de restauración PG registrado", "job_id", j.ID,
+		"database", payload.Database, "repo", result.RepoURI)
+}
+
 // sqlInventoryKey es la clave de caché del inventario SQL por
 // agente+servidor+instancia.
 func sqlInventoryKey(agentID, server, instance string) string {
@@ -1038,7 +1084,9 @@ func (s *Server) handleTargetRepoCredentials(w http.ResponseWriter, r *http.Requ
 				if j.Type != contracts.JobTypeBackupVM && j.Type != contracts.JobTypeRestoreVM &&
 					j.Type != contracts.JobTypeBackupLXC && j.Type != contracts.JobTypeRestoreLXC &&
 					j.Type != contracts.JobTypeSQLBackup && j.Type != contracts.JobTypeSQLRestore &&
-					j.Type != contracts.JobTypeSQLVerify && j.Type != contracts.JobTypeSQLCertBackup {
+					j.Type != contracts.JobTypeSQLVerify && j.Type != contracts.JobTypeSQLCertBackup &&
+					j.Type != contracts.JobTypePGDump && j.Type != contracts.JobTypePGRestore &&
+					j.Type != contracts.JobTypePGVerify {
 					continue
 				}
 				if j.State != store.JobPending && j.State != store.JobLeased && j.State != store.JobRunning {

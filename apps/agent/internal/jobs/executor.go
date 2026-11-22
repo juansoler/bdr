@@ -97,6 +97,7 @@ type Executor struct {
 	vmRunner    VMOperator
 	lxcRunner   LXOperator
 	sqlRunner   SQLRunner
+	pgRunner    PGRunner
 }
 
 // NewExecutor crea un ejecutor.
@@ -136,6 +137,14 @@ func (e *Executor) Execute(ctx context.Context, job contracts.JobView, opts RunO
 		return e.executeSQLCheckDB(ctx, job, opts)
 	case contracts.JobTypeSQLCertBackup:
 		return e.executeSQLCertBackup(ctx, job, opts)
+	case contracts.JobTypePGDump:
+		return e.executePGDump(ctx, job, opts)
+	case contracts.JobTypePGRestore:
+		return e.executePGRestore(ctx, job, opts)
+	case contracts.JobTypePGVerify:
+		return e.executePGVerify(ctx, job, opts)
+	case contracts.JobTypePGInventory:
+		return e.executePGInventory(ctx, job, opts)
 	default:
 		return nil, &CodeError{Code: "E_JOB_TYPE", Message: "tipo de job no soportado: " + job.Type}
 	}
@@ -193,6 +202,21 @@ type SQLRunner interface {
 
 // SetSQLRunner inyecta el runner del motor SQL Server.
 func (e *Executor) SetSQLRunner(r SQLRunner) { e.sqlRunner = r }
+
+// PGRunner ejecuta los jobs del motor PostgreSQL (pg_dump/pg_restore).
+// Opcional: agentes sin soporte responden E_JOB_TYPE.
+type PGRunner interface {
+	Dump(ctx context.Context, creds *contracts.RepositoryCredentials,
+		payload contracts.PGDumpJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
+	Restore(ctx context.Context, creds *contracts.RepositoryCredentials,
+		payload contracts.PGRestoreJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
+	Verify(ctx context.Context, creds *contracts.RepositoryCredentials,
+		payload contracts.PGVerifyJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
+	Inventory(ctx context.Context, payload contracts.PGInventoryJobPayload) (json.RawMessage, error)
+}
+
+// SetPGRunner inyecta el runner PostgreSQL.
+func (e *Executor) SetPGRunner(r PGRunner) { e.pgRunner = r }
 
 func (e *Executor) executeBackupLXC(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
 	if e.lxcRunner == nil {
@@ -309,6 +333,63 @@ func (e *Executor) executeSQLCertBackup(ctx context.Context, job contracts.JobVi
 		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
 		e.log(opts, "info", msg)
 	})
+}
+
+func (e *Executor) executePGDump(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.pgRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor PostgreSQL (actualiza el agente, versión >= 0.16.20)"}
+	}
+	var payload contracts.PGDumpJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.pgRunner.Dump(ctx, opts.Credentials, payload, func(percent int, msg string, bytesDone int64) {
+		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
+		e.log(opts, "info", msg)
+	})
+}
+
+func (e *Executor) executePGRestore(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.pgRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor PostgreSQL (actualiza el agente, versión >= 0.16.20)"}
+	}
+	var payload contracts.PGRestoreJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.pgRunner.Restore(ctx, opts.Credentials, payload, func(percent int, msg string, bytesDone int64) {
+		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
+		e.log(opts, "info", msg)
+	})
+}
+
+func (e *Executor) executePGVerify(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.pgRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor PostgreSQL (actualiza el agente, versión >= 0.16.20)"}
+	}
+	var payload contracts.PGVerifyJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.pgRunner.Verify(ctx, opts.Credentials, payload, func(percent int, msg string, bytesDone int64) {
+		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
+		e.log(opts, "info", msg)
+	})
+}
+
+func (e *Executor) executePGInventory(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.pgRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor PostgreSQL (actualiza el agente, versión >= 0.16.20)"}
+	}
+	var payload contracts.PGInventoryJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.pgRunner.Inventory(ctx, payload)
 }
 
 func (e *Executor) executeBackupVM(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {

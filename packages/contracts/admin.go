@@ -195,6 +195,19 @@ type RestorePointView struct {
 	Browsable    bool       `json:"browsable"`
 	// SQL: metadatos del motor SQL Server (Kind "sql"); nil en el resto.
 	SQL *RestorePointSQLView `json:"sql,omitempty"`
+	// PG: metadatos del motor PostgreSQL (Kind "pg"); nil en el resto.
+	PG *RestorePointPGView `json:"pg,omitempty"`
+}
+
+// RestorePointPGView son los metadatos PostgreSQL de un punto de
+// restauración (host/puerto/base e integridad del dump).
+type RestorePointPGView struct {
+	Host      string `json:"host"`
+	Port      string `json:"port,omitempty"`
+	Database  string `json:"database"`
+	RepoURI   string `json:"repo_uri,omitempty"`
+	Verified  bool   `json:"verified"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
 }
 
 // RestorePointSQLView son los metadatos SQL Server de un punto de

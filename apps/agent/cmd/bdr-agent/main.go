@@ -240,6 +240,7 @@ func cmdRun(args []string) {
 	executor.SetVMRunner(jobs.NewVMRunner(*dataDir, log))
 	executor.SetLXCRunner(jobs.NewVMRunner(*dataDir, log))
 	executor.SetSQLRunner(jobs.NewSQLMotor())
+	executor.SetPGRunner(jobs.NewPGMotor())
 
 	hbInterval := *interval
 	leaseWait := 20

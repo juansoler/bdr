@@ -510,6 +510,16 @@ func (s *Server) restorePointView(st *store.State, rp *store.RestorePoint) contr
 			Verified:    rp.SQL.Verified,
 		}
 	}
+	if rp.PG != nil {
+		v.PG = &contracts.RestorePointPGView{
+			Host:      rp.PG.Host,
+			Port:      rp.PG.Port,
+			Database:  rp.PG.Database,
+			RepoURI:   rp.PG.RepoURI,
+			Verified:  rp.PG.Verified,
+			SizeBytes: rp.PG.SizeBytes,
+		}
+	}
 	if a := st.Agents[rp.AgentID]; a != nil {
 		v.Hostname = a.Hostname
 	}
