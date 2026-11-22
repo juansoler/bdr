@@ -2,6 +2,20 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.13] — 2026-11-22
+
+### Corregido
+
+- **SQL Server: el staging se pregunta a la propia instancia** — el acceso
+  directo al registro de Windows (0.16.12) falló en el host de laboratorio
+  (las claves `MSSQL<n>.<instancia>` no estaban donde se esperaban). Vía
+  canónica e independiente de versión/instancia: `xp_instance_regread`
+  sobre `BackupDirectory` ejecutado contra la instancia, con fallback a la
+  ruta de datos por defecto (`SERVERPROPERTY('InstanceDefaultDataPath')`).
+  Resolución final: `BDR_SQL_STAGING` → directorio reportado por la
+  instancia → temp del proceso. Restore, verify y custodia usan la misma
+  resolución.
+
 ## [0.16.12] — 2026-11-22
 
 ### Corregido
