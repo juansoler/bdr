@@ -156,12 +156,25 @@ func (s *Server) handleSQLRestore(w http.ResponseWriter, r *http.Request) {
 		if agent == nil {
 			return store.ErrNotFound
 		}
+		// Destino de almacenamiento de la cadena: el que pide la petición;
+		// si no viene, se deriva del catálogo (el punto cuyo URI coincide
+		// con el primer fichero de la cadena). Sin él, el agente no puede
+		// descargar los ficheros (hallazgo del lab).
+		targetID := req.StorageTargetID
+		if targetID == "" && len(req.Files) > 0 {
+			for _, rp := range st.RestorePoints {
+				if rp.SQL != nil && rp.SnapshotID != "" && rp.SnapshotID == req.Files[0] {
+					targetID = rp.TargetID
+					break
+				}
+			}
+		}
 		now := s.Now().UTC()
 		payload, _ := json.Marshal(contracts.SQLRestoreJobPayload{
 			Server: req.Server, Instance: req.Instance, Database: req.Database,
 			Files: req.Files, Mode: strings.ToUpper(strings.TrimSpace(req.Mode)),
 			StopAt: req.StopAt, MoveData: req.MoveData, MoveLog: req.MoveLog,
-			StorageTargetID: req.StorageTargetID,
+			StorageTargetID: targetID,
 		})
 		id, _ := newID()
 		st.Jobs[id] = &store.Job{

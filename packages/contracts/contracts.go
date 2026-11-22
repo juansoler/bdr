@@ -819,7 +819,8 @@ type SQLDatabaseView struct {
 }
 
 // SQLRestoreChainStep es un eslabón de la cadena de restauración
-// calculada desde el catálogo (RF-42).
+// calculada desde el catálogo (RF-42). TargetID: destino de almacenamiento
+// donde vive el objeto (el restore lo necesita para descargar).
 type SQLRestoreChainStep struct {
 	RestorePointID string    `json:"restore_point_id"`
 	JobID          string    `json:"job_id,omitempty"`
@@ -829,6 +830,7 @@ type SQLRestoreChainStep struct {
 	LastLSN        string    `json:"last_lsn,omitempty"`
 	RepoURI        string    `json:"repo_uri"`
 	SizeBytes      int64     `json:"size_bytes,omitempty"`
+	TargetID       string    `json:"target_id,omitempty"`
 }
 
 // SQLRestoreChainView es la cadena calculada para restaurar una base

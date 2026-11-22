@@ -76,6 +76,7 @@ interface SQLChainStep {
   last_lsn?: string;
   repo_uri: string;
   size_bytes?: number;
+  target_id?: string;
 }
 
 interface SQLChainView {
@@ -300,6 +301,9 @@ export default function SQLPage() {
         setError("Confirma la restauración: es destructiva sobre la base destino.");
         return;
       }
+      // El destino de almacenamiento de la cadena: el agente lo necesita
+      // para descargar los ficheros del repo.
+      const targetID = (chain.steps ?? []).map((st) => st.target_id).find(Boolean) ?? "";
       const res = await api<{ job_id: string }>("/api/v1/admin/sql/restore", token, {
         method: "POST",
         body: JSON.stringify({
@@ -309,6 +313,7 @@ export default function SQLPage() {
           database: destName,
           files: chain.files,
           confirm: true, // el checkbox del asistente YA ha recogido la confirmación
+          storage_target_id: targetID,
           ...(stopAt ? { stop_at: new Date(stopAt).toISOString() } : {}),
         }),
       });

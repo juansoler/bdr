@@ -189,6 +189,7 @@ func sqlRestoreChainView(chain []*store.RestorePoint, database string, stopAt *t
 			LastLSN:        rp.SQL.LastLSN,
 			RepoURI:        rp.SnapshotID,
 			SizeBytes:      rp.SizeBytes,
+			TargetID:       rp.TargetID,
 		})
 	}
 	return v
