@@ -2,6 +2,23 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.2] — 2026-11-22
+
+### Añadido
+
+- **Log de diagnóstico del helper de sesión Windows**: `%ProgramData%\bdr\screenhelper.log`
+  registra inicio (pid/versión), resultado de la inicialización GDI, primer
+  frame capturado (dimensiones), fin del canal y panics con stack — el
+  stderr del helper va a NUL para no contaminar el stream de tiles, así que
+  sin este fichero los fallos internos eran invisibles.
+
+### Documentado
+
+- El acceso por pantalla comparte el **escritorio gráfico** del equipo
+  gestionado: un host sin sesión gráfica (p. ej. Proxmox headless, servidores
+  solo-TTY) no puede compartir pantalla — por diseño. La prueba debe hacerse
+  en equipos con escritorio (Windows con usuario logado, Linux con X11).
+
 ## [0.16.1] — 2026-11-22
 
 ### Corregido

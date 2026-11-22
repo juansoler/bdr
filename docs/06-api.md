@@ -386,6 +386,9 @@ visor cierra la sesión. Backends por plataforma (sin instalar nada): Windows �
 helper de sesión nativo del agente (captura GDI + SendInput); Linux — captura
 X11 nativa (fallback automático a x11vnc solo-loopback si X11 no es accesible);
 macOS — bridge contra el «Compartir pantalla» integrado del sistema.
+Requisito en todas: **sesión gráfica activa** — un equipo headless (Proxmox,
+servidor solo-TTY) no tiene escritorio que compartir y falla con error claro.
+Diagnóstico Windows: `%ProgramData%\bdr\screenhelper.log`.
 
 ---
 
