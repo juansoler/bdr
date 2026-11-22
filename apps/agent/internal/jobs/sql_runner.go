@@ -32,16 +32,8 @@ func NewSQLMotor() *SQLMotor { return &SQLMotor{} }
 
 var _ SQLRunner = (*SQLMotor)(nil)
 
-// sqlStagingRoot devuelve la carpeta de staging donde SQL Server escribirá
-// los backups y donde se descargan los ficheros para restaurar. Debe ser
-// accesible por la cuenta de servicio de SQL Server, no solo por el agente
-// (BDR_SQL_STAGING para sobreescribir).
-func sqlStagingRoot() string {
-	if p := os.Getenv("BDR_SQL_STAGING"); p != "" {
-		return p
-	}
-	return filepath.Join(os.TempDir(), "bdr-sql-staging")
-}
+// sqlStagingRoot vive en sql_staging.go (con default por plataforma:
+// en Windows, el BackupDirectory de SQL Server según registro).
 
 func sqlOpen(ctx context.Context, server, instance string) (*connector.DB, error) {
 	db, err := connector.Open(ctx, connector.ConnectionParams{Server: server, Instance: instance})
@@ -99,7 +91,7 @@ func (m *SQLMotor) Backup(ctx context.Context, creds *contracts.RepositoryCreden
 	}
 	defer db.Close()
 
-	progress(10, "preparando staging y destino", 0)
+	progress(10, "preparando staging y destino (staging: "+sqlStagingRoot()+")", 0)
 	sm, err := backup.NewStagingManager(sqlStagingRoot())
 	if err != nil {
 		return nil, &CodeError{Code: "E_INTERNAL", Message: err.Error()}
