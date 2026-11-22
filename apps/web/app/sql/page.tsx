@@ -89,7 +89,13 @@ interface SQLChainView {
 
 const JOB_TERMINAL = ["succeeded", "failed", "canceled", "expired"];
 
-const fmtGiB = (b?: number) => (b ? `${Math.round(b / (1 << 30))} GiB` : "—");
+// Tamaño legible: MB por debajo de 1 GiB (los backups de lab son pequeños
+// y "0 GiB" confundía, hallazgo del lab).
+const fmtGiB = (b?: number) => {
+  if (!b) return "—";
+  if (b < 1 << 30) return `${(b / (1 << 20)).toFixed(1)} MB`;
+  return `${Math.round(b / (1 << 30))} GiB`;
+};
 
 export default function SQLPage() {
   const { token } = useAuth();
@@ -302,6 +308,7 @@ export default function SQLPage() {
           instance: dstInstance,
           database: destName,
           files: chain.files,
+          confirm: true, // el checkbox del asistente YA ha recogido la confirmación
           ...(stopAt ? { stop_at: new Date(stopAt).toISOString() } : {}),
         }),
       });
