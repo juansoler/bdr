@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	_ "github.com/microsoft/go-mssqldb"
@@ -16,9 +17,34 @@ type DB struct {
 	params ConnectionParams
 }
 
+// normalized corrige las trampas habituales de los parámetros de conexión
+// (hallazgo del lab P-24, Win11 + SQL Server 2022):
+//
+//   - "MSSQLSERVER" es la instancia por defecto y NO se nombra: conectar a
+//     "host\MSSQLSERVER" falla con error 87 ("cadena de conexión no es
+//     válida"). Se elimina del DSN.
+//   - "host\instancia" en Server (el panel lo permite): se separa si la
+//     instancia no vino en su campo.
+func (p ConnectionParams) normalized() ConnectionParams {
+	q := p
+	if i := strings.LastIndex(q.Server, `\`); i >= 0 {
+		inst := strings.TrimSpace(q.Server[i+1:])
+		if q.Instance == "" {
+			q.Instance = inst
+		}
+		q.Server = strings.TrimSpace(q.Server[:i])
+	}
+	if strings.EqualFold(strings.TrimSpace(q.Instance), "MSSQLSERVER") {
+		q.Instance = ""
+	}
+	q.Instance = strings.TrimSpace(q.Instance)
+	return q
+}
+
 // Open abre una conexión a SQL Server usando los parámetros dados.
 // Usa Windows Auth (SSPI) si User está vacío, o SQL Auth en caso contrario.
 func Open(ctx context.Context, params ConnectionParams) (*DB, error) {
+	params = params.normalized()
 	dsn := buildDSN(params)
 	db, err := sql.Open("sqlserver", dsn)
 	if err != nil {
@@ -37,8 +63,11 @@ func Open(ctx context.Context, params ConnectionParams) (*DB, error) {
 }
 
 // buildDSN construye la cadena de conexión para go-mssqldb.
+// Normaliza los parámetros (MSSQLSERVER = instancia por defecto,
+// host\instancia en server) antes de componer la URL.
 // Ver: https://github.com/microsoft/go-mssqldb#connection-string-parameters
 func buildDSN(p ConnectionParams) string {
+	p = p.normalized()
 	if p.User != "" {
 		// SQL Auth: usuario y contraseña van en la URL, hay que escaparlos
 		// (contraseñas con @, / o : romperían el parseo del DSN).

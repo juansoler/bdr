@@ -42,6 +42,38 @@ func TestParseLSN(t *testing.T) {
 	}
 }
 
+// Lab P-24 (hallazgo real): MSSQLSERVER es la instancia por defecto y no
+// se nombra; "host\instancia" en server también debe funcionar.
+func TestNormalizeParamsTrampasDeInstancia(t *testing.T) {
+	cases := []struct {
+		nombre       string
+		server, inst string
+		wantHost     string
+		wantInstance string
+	}{
+		{"MSSQLSERVER en instance es default", "localhost", "MSSQLSERVER", "localhost", ""},
+		{"MSSQLSERVER lowercase", "localhost", "mssqlserver", "localhost", ""},
+		{"host\\MSSQLSERVER en server", `localhost\MSSQLSERVER`, "", "localhost", ""},
+		{"host\\SQLEXPRESS en server", `localhost\SQLEXPRESS`, "", "localhost", "SQLEXPRESS"},
+		{"instancia normal intacta", "10.0.0.5", "SQLEXPRESS", "10.0.0.5", "SQLEXPRESS"},
+		{"por defecto ya limpio", "sqlhost", "", "sqlhost", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.nombre, func(t *testing.T) {
+			got := ConnectionParams{Server: c.server, Instance: c.inst}.normalized()
+			if got.Server != c.wantHost || got.Instance != c.wantInstance {
+				t.Fatalf("got host=%q inst=%q; want %q/%q", got.Server, got.Instance, c.wantHost, c.wantInstance)
+			}
+		})
+	}
+
+	// El DSN de la instancia por defecto no lleva nombre de instancia.
+	dsn := buildDSN(ConnectionParams{Server: "localhost", Instance: "MSSQLSERVER"})
+	if strings.Contains(dsn, "MSSQLSERVER") {
+		t.Errorf("el DSN no debe llevar MSSQLSERVER: %s", dsn)
+	}
+}
+
 func TestBuildDSNEscapaCredenciales(t *testing.T) {
 	dsn := buildDSN(ConnectionParams{
 		Server:   "10.0.0.5",
