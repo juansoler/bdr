@@ -349,6 +349,42 @@ Reglas:
 - Ambas rutas exigen permiso de lectura y quedan auditadas; un archivo no se materializa completo en memoria.
 - La ruta se normaliza y se valida contra el prefijo del snapshot para evitar traversal.
 
+### 4.5 Acceso por pantalla (VNC)
+
+Acceso al escritorio del equipo gestionado desde el panel (visor noVNC).
+Mismo modelo que el canal de terminal remota: el agente mantiene una
+conexión WebSocket **saliente** con el servidor (`GET /api/v1/agent/screen/connect`,
+mTLS + API key) y el servidor solo autoriza y retransmite; nunca hay puertos
+entrantes en el equipo. El servidor VNC local solo escucha en `127.0.0.1`.
+
+Endpoints (caps `screen:*`):
+
+```http
+GET  /api/v1/admin/agents/{id}/screen                    (screen:read)
+POST /api/v1/admin/agents/{id}/screen/sessions           (screen:connect)
+GET  /api/v1/admin/screen/sessions                       (screen:read)
+GET  /api/v1/admin/screen/sessions/{id}                  (screen:read)
+POST /api/v1/admin/screen/sessions/{id}/close            (screen:terminate)
+GET  /api/v1/admin/screen/sessions/{id}/stream           (screen:connect o ?ticket=…)
+```
+
+`POST …/screen/sessions` acepta `{ "quality": "low|medium|high",
+"allow_clipboard": bool }` (ambos opcionales) y responde `201` con
+`session_id`, `stream_url` y `stream_ticket` (solo en la creación: los
+WebSockets del navegador no pueden enviar `Authorization`, así que presentan
+el ticket como query param). `GET …/stream` es el WebSocket de datos:
+transporta **solo bytes del protocolo RFB** en ambas direcciones — sin
+mensajes de control JSON (noVNC los interpretaría como datos corruptos); el
+motivo de fin de sesión viaja en el frame de cierre de WebSocket.
+
+Límites y auditoría: máximo de 2 sesiones de pantalla simultáneas por
+agente, TTL de sesión de 30 minutos, reaper de sesiones pendientes/expiradas
+y auditoría `screen.session.created` / `screen.session.closed`. El cierre del
+visor cierra la sesión. Proveedor VNC local por plataforma: macOS «Compartir
+pantalla» nativo; Linux `x11vnc` lanzado bajo demanda (solo loopback, sin
+contraseña VNC); Windows requiere un servidor VNC ya instalado en
+`127.0.0.1:5900` (p. ej. TigerVNC/UltraVNC).
+
 ---
 
 ## 5. Ciclo de vida de jobs

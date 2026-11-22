@@ -6,6 +6,7 @@ import { JobDetailModal } from "@/components/JobDetailModal";
 import { JobTable } from "@/components/JobTable";
 import { RevokeModal } from "@/components/RevokeModal";
 import { TerminalConsole } from "@/components/TerminalConsole";
+import { ScreenViewer } from "@/components/ScreenViewer";
 import {
   Badge,
   Button,
@@ -40,6 +41,7 @@ export function AgentDetailView({ id }: { id: string }) {
   const [ctlVersion, setCtlVersion] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [showScreen, setShowScreen] = useState(false);
 
   // Versión del control (para mostrar «Forzar actualización» solo si difiere).
   useEffect(() => {
@@ -176,6 +178,9 @@ export function AgentDetailView({ id }: { id: string }) {
                 </Button>
                 <Button variant="secondary" onClick={() => setShowTerminal(true)}>
                   Abrir consola
+                </Button>
+                <Button variant="secondary" onClick={() => setShowScreen(true)}>
+                  Ver pantalla
                 </Button>
                 {ctlVersion && agent.agent_version && agent.agent_version !== ctlVersion ? (
                   <Button variant="secondary" onClick={forceUpgrade} loading={upgrading}>
@@ -602,6 +607,24 @@ export function AgentDetailView({ id }: { id: string }) {
               </Button>
             </div>
             <TerminalConsole agentId={id} />
+          </div>
+        </div>
+      ) : null}
+      {showScreen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+          <div className="w-full max-w-5xl h-[85vh] bg-ink-950 border border-ink-700 rounded overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between border-b border-ink-700 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[9px] uppercase tracking-widest2 text-signal/70">Pantalla</span>
+                <span className="text-slate-300">Escritorio remoto</span>
+              </div>
+              <Button variant="quiet" size="sm" onClick={() => setShowScreen(false)}>
+                Cerrar
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <ScreenViewer agentId={id} />
+            </div>
           </div>
         </div>
       ) : null}

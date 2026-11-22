@@ -42,6 +42,7 @@
 | EP-30 | Motor SQL Server: backups nativos | 3 | Must |
 | EP-31 | Motor SQL Server: recuperación avanzada | 3/4 | Should |
 | EP-32 | Motor SQL Server: entornos avanzados | 4 | Could |
+| EP-33 | Acceso por pantalla (VNC) — Windows sin dependencia externa | 3 | Should |
 
 ---
 
@@ -334,6 +335,18 @@
 | US-300 | Always On Availability Groups (réplica preferida) | Backup en la réplica preferida; `COPY_ONLY` en secundarios | 4 |
 | US-301 | Políticas por instancia y base de datos | Configuración granular aplicada | 4 |
 | US-302 | Alertas de RPO e informes de protección SQL | RPO atrasado alerta; informe generado | 4 |
+
+### EP-33 — Acceso por pantalla (VNC): Windows sin dependencia externa
+
+El acceso por pantalla v0.15.0 funciona ya en macOS (Compartir pantalla
+nativo) y Linux (x11vnc bajo demanda). En Windows requiere un servidor VNC
+ya instalado en el equipo (escucha solo en localhost). Esta épica elimina
+esa dependencia externa.
+
+| ID | Historia | Aceptación | Fase |
+|---|---|---|---|
+| US-310 | Servidor RFB propio en el agente Windows | Escritorio visible en el panel sin VNC de terceros; captura por GDI/DXGI vía syscalls (CGO_ENABLED=0); solo loopback | 3 |
+| US-311 | Decisión documentada sobre helper externo | Si se evalúa bundlar un VNC (GPL): análisis de licencia en NOTICE y del impacto en bundles/SHA256SUMS del release | 3 |
 
 ---
 

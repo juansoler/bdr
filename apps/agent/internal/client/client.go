@@ -192,6 +192,12 @@ func (c *Client) CancelStatus(ctx context.Context, jobID string) (contracts.JobC
 	return out, err
 }
 
+// ConnectScreen establece el canal WebSocket de acceso por pantalla (VNC)
+// con el servidor, autenticado igual que el de terminal (mTLS + API key).
+func (c *Client) ConnectScreen(ctx context.Context, path string) (*websocket.Conn, error) {
+	return c.ConnectTerminal(ctx, path)
+}
+
 // CompleteJob cierra un job.
 func (c *Client) CompleteJob(ctx context.Context, jobID string, req contracts.JobCompleteRequest) error {
 	return c.do(ctx, http.MethodPost, "/api/v1/agent/jobs/"+url.PathEscape(jobID)+"/complete",

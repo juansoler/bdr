@@ -366,6 +366,22 @@ type TerminalSession struct {
 	AgentName    string     `json:"AgentName,omitempty"` // optional display name
 }
 
+// ScreenSession es la metadata de una sesión de acceso por pantalla (VNC).
+type ScreenSession struct {
+	ID             string     `json:"ID"`
+	AgentID        string     `json:"AgentID"`
+	OperatorID     string     `json:"OperatorID"`
+	OperatorName   string     `json:"OperatorName,omitempty"`
+	Quality        string     `json:"Quality"`
+	AllowClipboard bool       `json:"AllowClipboard"`
+	State          string     `json:"State"`
+	CreatedAt      time.Time  `json:"CreatedAt"`
+	OpenedAt       *time.Time `json:"OpenedAt,omitempty"`
+	ClosedAt       *time.Time `json:"ClosedAt,omitempty"`
+	ExpiresAt      time.Time  `json:"ExpiresAt"`
+	Reason         string     `json:"Reason,omitempty"`
+}
+
 // ScheduleEntry es el estado del programador por (plan, agente).
 type ScheduleEntry struct {
 	PlanID     string     `json:"PlanID"`
@@ -562,6 +578,7 @@ type State struct {
 	PVE              map[string]*PVEInstance         `json:"proxmox_instances"`
 	Storage          map[string]*StorageTarget       `json:"storage_targets"`
 	TerminalSessions map[string]*TerminalSession     `json:"terminal_sessions,omitempty"`
+	ScreenSessions   map[string]*ScreenSession       `json:"screen_sessions,omitempty"`
 	SQLPlans         map[string]*SQLPlan             `json:"sql_plans,omitempty"`
 	SQLCerts         map[string]*SQLCertificate      `json:"sql_certificates,omitempty"`
 }
@@ -633,6 +650,9 @@ func (s *State) ensureMaps() {
 	}
 	if s.TerminalSessions == nil {
 		s.TerminalSessions = map[string]*TerminalSession{}
+	}
+	if s.ScreenSessions == nil {
+		s.ScreenSessions = map[string]*ScreenSession{}
 	}
 	if s.SQLPlans == nil {
 		s.SQLPlans = map[string]*SQLPlan{}

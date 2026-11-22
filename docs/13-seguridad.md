@@ -140,6 +140,27 @@
   - cambio de credenciales;
   - restauración a VM en producción.
 
+### 6.1 Acceso remoto interactivo (terminal y pantalla)
+
+El acceso por consola (terminal PTY) y por pantalla (VNC) comparten el mismo
+modelo de amenazas y mitigaciones:
+
+- **Cero puertos entrantes en el equipo gestionado**: el agente mantiene el
+  canal WebSocket saliente; el servidor nunca inicia conexiones hacia él. El
+  VNC local solo escucha en `127.0.0.1` — jamás en la interfaz de red.
+- **Sin contraseña VNC**: el puerto local no necesita autenticación propia
+  porque la única vía de acceso es el canal agente-servidor (mTLS + API key);
+  abrir el VNC hacia la red anularía este diseño.
+- **Autorización granular**: caps `terminal:*` y `screen:*` independientes
+  por rol (ver escritorio requiere operador o admin).
+- **Sesiones acotadas**: TTL con reaper, límite de sesiones simultáneas por
+  agente, cierre automático al perder el canal o al cerrar el visor.
+- **Auditoría**: `terminal.session.*` y `screen.session.created/closed` con
+  operador, agente y motivo.
+- **El stream de pantalla solo transporta bytes RFB**; el motivo de fin de
+  sesión viaja en el frame de cierre de WebSocket (no hay canal de control
+  JSON que un atacante pueda usar para inyectar texto en el protocolo).
+
 ---
 
 ## 7. Mínimo privilegio en Proxmox/PBS

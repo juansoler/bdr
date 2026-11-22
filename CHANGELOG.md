@@ -2,6 +2,41 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.15.0] — 2026-11-22
+
+### Añadido
+
+- **Acceso por pantalla (VNC) en el navegador** — gemelo del canal de terminal
+  remota: mismo modelo de relay (agente conecta saliente, servidor solo
+  autoriza y retransmite, cero puertos entrantes), visor **noVNC** embebido
+  en el panel junto a xterm.js.
+  - **API** (`screen:read/connect/terminate/audit`, aditiva): 
+    `GET /api/v1/admin/agents/{id}/screen`,
+    `POST /api/v1/admin/agents/{id}/screen/sessions`,
+    `GET /api/v1/admin/screen/sessions[/{id}]`,
+    `POST /api/v1/admin/screen/sessions/{id}/close`,
+    `GET /api/v1/admin/screen/sessions/{id}/stream?ticket=…` (WebSocket RFB),
+    `GET /api/v1/agent/screen/connect` (canal saliente del agente).
+  - **Panel**: botón «Ver pantalla» en la vista de equipo, visor con escala
+    automática, Ctrl+Alt+Supr y pantalla completa. La sesión se cierra al
+    cerrar el visor (privacidad y ancho de banda).
+  - **Agente**: atiende el escritorio local según plataforma:
+    - **macOS**: «Compartir pantalla» nativo (VNC integrado del sistema).
+    - **Linux**: lanza `x11vnc` bajo demanda (solo loopback, sin contraseña
+      VNC — el canal agente-servidor ya autentica con mTLS + API key) o
+      reutiliza un VNC existente en `127.0.0.1:5900`.
+    - **Windows**: se conecta a un servidor VNC ya instalado y configurado
+      para escuchar solo en localhost (TigerVNC/UltraVNC…). La integración
+      de un helper propio (binario TNC embebido o servidor RFB en Go) queda
+      en el backlog — ver docs/19-roadmap.md.
+  - **Detalle de diseño**: el stream de pantalla transporta solo bytes RFB —
+    noVNC interpreta cualquier frame de texto como datos corruptos, así que
+    los estados de «sesión terminada» viajan en el frame de cierre de
+    WebSocket (motivo legible para el operador), a diferencia de la terminal,
+    que multiplexa mensajes de control JSON en el mismo canal.
+  - Máximo de **2 sesiones de pantalla simultáneas por agente**; sesiones con
+    TTL de 30 minutos y reaper propio; auditoría `screen.session.created/closed`.
+
 ## [0.14.3] — 2026-11-21
 
 ### Añadido

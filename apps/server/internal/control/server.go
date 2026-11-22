@@ -47,13 +47,17 @@ const (
 	actorKey     ctxKey = "actor"
 )
 
-// Capabilities por rol.
+// Capabilities por rol. El acceso por pantalla requiere rol operador o
+// superior: ver el escritorio de un equipo es tan sensible como una shell.
 var roleCaps = map[string][]string{
-	contracts.RoleViewer:   {"read"},
-	contracts.RoleOperator: {"read", "operate", contracts.CapTerminalRead, contracts.CapTerminalConnect},
+	contracts.RoleViewer: {"read"},
+	contracts.RoleOperator: {"read", "operate", contracts.CapTerminalRead, contracts.CapTerminalConnect,
+		contracts.CapScreenRead, contracts.CapScreenConnect},
 	contracts.RoleAdmin: {"read", "operate", "admin",
 		contracts.CapTerminalRead, contracts.CapTerminalConnect,
-		contracts.CapTerminalElevated, contracts.CapTerminalTerminate, contracts.CapTerminalAudit},
+		contracts.CapTerminalElevated, contracts.CapTerminalTerminate, contracts.CapTerminalAudit,
+		contracts.CapScreenRead, contracts.CapScreenConnect,
+		contracts.CapScreenTerminate, contracts.CapScreenAudit},
 }
 
 // Server contiene las dependencias de la API.
@@ -101,6 +105,9 @@ type Server struct {
 	// RemoteAccess es el gestor de sesiones de terminal remota
 	// (subsistema independiente; comparte RBAC, mTLS y auditoría).
 	RemoteAccess *remoteaccess.Manager
+	// ScreenAccess es el gestor de sesiones de acceso por pantalla
+	// (VNC/noVNC; subsistema independiente; comparte RBAC, mTLS y auditoría).
+	ScreenAccess *remoteaccess.ScreenManager
 }
 
 // New crea un servidor de control.
@@ -121,6 +128,7 @@ func New(st store.Store, adminToken string, logger *logging.Logger, version stri
 		binarySHA:        newSHACache(),
 		SchedulerEvery:   time.Minute,
 		RemoteAccess:     remoteaccess.New(st, logger),
+		ScreenAccess:     remoteaccess.NewScreenManager(st, logger),
 	}
 	s.notify = NewNotifier(s)
 	return s
@@ -134,6 +142,25 @@ func (s *Server) Start(ctx context.Context) {
 	go s.storageSyncLoop(ctx)
 	go s.startUpdateLoop(ctx)
 	go s.terminalReaperLoop(ctx)
+	go s.screenReaperLoop(ctx)
+}
+
+// screenReaperLoop expira sesiones de pantalla pendientes sin respuesta del
+// agente y cierra las expiradas.
+func (s *Server) screenReaperLoop(ctx context.Context) {
+	if s.ScreenAccess == nil {
+		return
+	}
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.ScreenAccess.ReapScreenSessions()
+		}
+	}
 }
 
 // terminalReaperLoop expira sesiones de terminal pendientes sin respuesta
@@ -209,6 +236,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/admin/terminal/sessions/{id}/close", s.handleCloseTerminalSession)
 	mux.HandleFunc("GET /api/v1/admin/terminal/sessions/{id}/stream", s.handleTerminalStream)
 	mux.HandleFunc("GET /api/v1/agent/terminal/connect", s.handleAgentTerminalConnect)
+
+	// Acceso por pantalla (VNC/noVNC).
+	mux.HandleFunc("GET /api/v1/admin/agents/{id}/screen", s.handleAgentScreenCapabilities)
+	mux.HandleFunc("POST /api/v1/admin/agents/{id}/screen/sessions", s.handleCreateScreenSession)
+	mux.HandleFunc("GET /api/v1/admin/screen/sessions", s.handleListScreenSessions)
+	mux.HandleFunc("GET /api/v1/admin/screen/sessions/{id}", s.handleGetScreenSession)
+	mux.HandleFunc("POST /api/v1/admin/screen/sessions/{id}/close", s.handleCloseScreenSession)
+	mux.HandleFunc("GET /api/v1/admin/screen/sessions/{id}/stream", s.handleScreenStream)
+	mux.HandleFunc("GET /api/v1/agent/screen/connect", s.handleAgentScreenConnect)
 	mux.HandleFunc("/api/v1/admin/agents/", s.handleAgentAction)
 	mux.HandleFunc("/api/v1/admin/groups", s.handleGroups)
 	mux.HandleFunc("/api/v1/admin/groups/", s.handleGroupAction)

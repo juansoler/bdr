@@ -122,4 +122,10 @@
 - **Must:** imagen, archivos, incremental/dedup, cifrado, planes, retención, multi-destino, validación, bare-metal, P2V, PBS, granular, inmutabilidad, verificación.
 - **Should:** informes, búsqueda, aplicación-aware.
 - **Could:** instant restore, CDP, V2P, run VM from backup.
-- **Won't:** ciberseguridad, parches, escritorio remoto, M365, multi-tenant, facturación, cintas.
+- **Won't:** ciberseguridad, parches, M365, multi-tenant, facturación, cintas.
+  - *Actualización 0.15.0:* el «escritorio remoto» como **suite de gestión
+    remota** sigue siendo Won't, pero el **acceso puntual de operador al
+    escritorio** (VNC en el navegador vía el túnel del agente, misma
+    infraestructura que la terminal remota) entró en alcance con ese límite
+    deliberado: sin inventario de sesiones recurrentes, sin grabación, sin
+    gestión de VNC de terceros. Ver docs/06-api.md §4.5.

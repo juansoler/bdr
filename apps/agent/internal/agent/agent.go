@@ -112,15 +112,21 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 		a.heartbeatLoop(hbCtx)
 	}()
 
-	// Canal de terminal remota (outbound): solo en modo servicio, no en --once.
-	var termCancel context.CancelFunc
+	// Canales de terminal y pantalla (outbound): solo en modo servicio, no en --once.
+	var chanCancel context.CancelFunc
 	if !once {
 		termCtx, tCancel := context.WithCancel(ctx)
-		termCancel = tCancel
+		scrCtx, sCancel := context.WithCancel(ctx)
+		chanCancel = func() { tCancel(); sCancel() }
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			a.terminalLoop(termCtx)
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			a.screenLoop(scrCtx)
 		}()
 	}
 
@@ -142,8 +148,8 @@ func (a *Agent) Run(ctx context.Context, once bool) error {
 		select {
 		case <-ctx.Done():
 			hbCancel()
-			if termCancel != nil {
-				termCancel()
+			if chanCancel != nil {
+				chanCancel()
 			}
 			wg.Wait()
 			a.log.Info("agente detenido")
@@ -186,6 +192,44 @@ func (a *Agent) terminalLoop(ctx context.Context) {
 		// sesiones locales (sin canal = sin shell) y reconecta.
 		_ = rt.Run(conn)
 		a.log.Info("canal de terminal perdido")
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(redoDelay):
+		}
+	}
+}
+
+// screenLoop mantiene el canal WebSocket de acceso por pantalla (VNC) con el
+// servidor: dial, servicio de sesiones y reconexión con espera entre
+// intentos. El agente siempre inicia la conexión (outbound mTLS).
+func (a *Agent) screenLoop(ctx context.Context) {
+	rt := remoteaccess.NewScreenRuntime(ctx)
+	defer rt.Close()
+
+	const (
+		retryDelay = 10 * time.Second
+		redoDelay  = 3 * time.Second
+	)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		conn, err := a.client.ConnectScreen(ctx, "/api/v1/agent/screen/connect")
+		if err != nil {
+			a.log.Debug("pantalla: canal no disponible, reintentando", "error", err.Error())
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(retryDelay):
+			}
+			continue
+		}
+		a.log.Info("canal de pantalla conectado")
+		// Bloquea hasta que el canal se cierre; al volver, cierra las
+		// sesiones locales (sin canal = sin escritorio) y reconecta.
+		_ = rt.Run(conn)
+		a.log.Info("canal de pantalla perdido")
 		select {
 		case <-ctx.Done():
 			return
