@@ -30,7 +30,9 @@ type Result struct {
 	SizeBytes   int64     `json:"size_bytes"`
 	Checksum    bool      `json:"checksum"`
 	Compression bool      `json:"compression"`
-	Verified    bool      `json:"verified"` // RESTORE VERIFYONLY ejecutado y OK
+	Verified    bool      `json:"verified"`  // RESTORE VERIFYONLY ejecutado y OK
+	Encrypted   bool      `json:"encrypted"` // WITH ENCRYPTION aplicado (RF-45)
+	CertName    string    `json:"cert_name,omitempty"`
 	StartedAt   time.Time `json:"started_at"`
 	FinishedAt  time.Time `json:"finished_at"`
 	Error       string    `json:"error,omitempty"`
@@ -101,11 +103,12 @@ func (s *StagingManager) Cleanup(path string) error {
 
 // BackupOperations define la interfaz de operaciones de backup.
 // backupPath es siempre la ruta FINAL del fichero; verifyAfter controla
-// si se verifica el medio (RESTORE VERIFYONLY) justo tras el backup.
+// si se verifica el medio (RESTORE VERIFYONLY) justo tras el backup y enc
+// activa el cifrado nativo (nil = sin cifrar).
 type BackupOperations interface {
-	Full(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error)
-	Differential(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error)
-	Log(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error)
-	CopyOnly(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool) (*Result, error)
+	Full(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool, enc *Encryption) (*Result, error)
+	Differential(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool, enc *Encryption) (*Result, error)
+	Log(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool, enc *Encryption) (*Result, error)
+	CopyOnly(ctx context.Context, db *connector.DB, database, backupPath string, verifyAfter bool, enc *Encryption) (*Result, error)
 	Verify(ctx context.Context, db *connector.DB, path string) error
 }

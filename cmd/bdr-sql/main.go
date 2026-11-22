@@ -27,6 +27,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  chain               - muestra y valida la cadena de backups (msdb)")
 		fmt.Fprintln(os.Stderr, "  restore                 - restaura una base de datos")
 		fmt.Fprintln(os.Stderr, "  health                - verifica la conexión")
+		fmt.Fprintln(os.Stderr, "  runbook-master        - genera el runbook de restauración de master (RF-46)")
 		os.Exit(1)
 	}
 
@@ -44,6 +45,8 @@ func main() {
 		err = runBackup(ctx, args)
 	case "chain":
 		err = runChain(ctx, args)
+	case "runbook-master":
+		err = runRunbookMaster(args)
 	case "restore":
 		err = runRestore(ctx, args)
 	case "health":
@@ -104,6 +107,8 @@ func runBackup(ctx context.Context, args []string) error {
 	database := fs.String("db", "", "base de datos")
 	bt := fs.String("type", "full", "tipo: full|diff|log|copy-only")
 	verify := fs.Bool("verify", true, "verificar el medio tras el backup (RESTORE VERIFYONLY)")
+	cert := fs.String("cert", "", "certificado en master para cifrar el backup (RF-45; debe estar custodiado)")
+	algorithm := fs.String("algorithm", "AES_256", "algoritmo de cifrado: AES_128|AES_192|AES_256")
 	stagingRoot := fs.String("staging", "/tmp/bdr-staging", "carpeta staging (accesible por SQL Server)")
 	repoPath := fs.String("repo", "/tmp/bdr-repo", "carpeta destino repositorio local (NAS local)")
 	target := fs.String("target", "", "destino alternativo: s3://endpoint/bucket[/prefijo] o //host/recurso[/ruta]; credenciales por entorno (BDR_S3_*, BDR_SMB_*)")
@@ -145,7 +150,18 @@ func runBackup(ctx context.Context, args []string) error {
 	t := backup.Type(strings.ReplaceAll(strings.ToUpper(*bt), "-", "_"))
 	copyOnly := t == backup.TypeCopyOnly
 
-	res, repoFile, err := orch.RunBackup(ctx, t, copyOnly, *verify)
+	// Cifrado nativo (RF-45): el certificado DEBE estar custodiado antes
+	// (bdr-sql certbackup) o el medio sería irrecuperable.
+	var enc *backup.Encryption
+	if *cert != "" {
+		alg, aerr := backup.NormalizeAlgorithm(*algorithm)
+		if aerr != nil {
+			return aerr
+		}
+		enc = &backup.Encryption{Algorithm: alg, CertName: *cert}
+	}
+
+	res, repoFile, err := orch.RunBackup(ctx, t, copyOnly, *verify, enc)
 	if err != nil {
 		return err
 	}
@@ -280,6 +296,66 @@ func runChain(ctx context.Context, args []string) error {
 			e.Type, e.BackupStart, e.BackupFinish,
 			e.DatabaseLSN, e.FirstLSN, e.LastLSN, e.CopyOnly, e.CompressedBytes)
 	}
+	return nil
+}
+
+// sqlMasterRunbook genera el runbook de restauración de master (RF-46).
+// La restauración de master exige arrancar la instancia en single-user y no
+// se automatiza: este texto es el procedimiento exacto para el operador,
+// con el servidor y la ruta del medio ya interpolados. Función pura para
+// poder testearla.
+func sqlMasterRunbook(server, instance, backupFile string) string {
+	svc := "MSSQLSERVER"
+	exe := "sqlservr.exe"
+	if instance != "" {
+		svc = "MSSQL$" + strings.ToUpper(instance)
+		exe = "sqlservr.exe -s " + strings.ToUpper(instance)
+	}
+	backupQ := strings.ReplaceAll(backupFile, "'", "''")
+	return `# RUNBOOK — Restauración de master (RF-46)
+# Servidor: ` + server + (map[bool]string{true: `\` + instance, false: ""}[instance != ""]) + `
+# Medio:    ` + backupFile + `
+#
+# ADVERTENCIA: detener el servicio deja la instancia fuera de línea.
+# Ejecutar desde una consola de administrador en el propio host SQL.
+
+# 1) Detener el servicio de SQL Server.
+NET STOP ` + svc + `
+
+# 2) Arrancar la instancia en modo single-user (solo conexiones del admin).
+#    La consola queda ocupada por el proceso; NO cerrarla.
+` + exe + ` -m
+
+# 3) Desde OTRO cmd (sqlcmd o SSMS) restaurar master:
+sqlcmd -S "` + server + (map[bool]string{true: `\` + instance, false: ""}[instance != ""]) + `" -E -Q "RESTORE DATABASE master FROM DISK = N'` + backupQ + `' WITH REPLACE"
+
+# 4) Detener el proceso single-user (Ctrl+C en la consola del paso 2).
+
+# 5) Arrancar el servicio en modo normal y verificar.
+NET START ` + svc + `
+sqlcmd -S "` + server + (map[bool]string{true: `\` + instance, false: ""}[instance != ""]) + `" -E -Q "SELECT name, state_desc FROM sys.databases ORDER BY name"
+
+# ORDEN DE RESTAURACIÓN DE LA INSTANCIA COMPLETA (RF-46):
+#   1. master (este runbook, single-user manual)
+#   2. model y msdb (FULL normal; pueden restaurarse con el motor estándar)
+#   3. bases de usuario por cadena: FULL -> DIFFERENTIAL -> LOG con STOPAT
+#   4. si los backups estaban CIFRADOS: restaurar primero el certificado
+#      (CREATE CERTIFICATE ... FROM FILE + WITH PRIVATE KEY) con el .cer/.pvk
+#      custodiados y su contraseña; sin él, los medios son irrecuperables.
+`
+}
+
+// runRunbookMaster imprime el runbook de restauración de master.
+func runRunbookMaster(args []string) error {
+	fs := flag.NewFlagSet("runbook-master", flag.ExitOnError)
+	server := fs.String("server", "localhost", "host o host\\instancia")
+	instance := fs.String("instance", "", "instancia con nombre (opcional)")
+	file := fs.String("file", "", "ruta del backup de master (.bak)")
+	fs.Parse(args)
+	if *file == "" {
+		return fmt.Errorf("falta -file (ruta del backup de master)")
+	}
+	fmt.Print(sqlMasterRunbook(*server, *instance, *file))
 	return nil
 }
 

@@ -8,6 +8,7 @@
 package control
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -340,6 +341,116 @@ func (s *Server) handleSQLCheckDB(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, contracts.BackupResponse{JobID: jobID, State: store.JobPending})
 }
 
+// handleSQLCertBackup crea un job SQL_CERTBACKUP: custodia de un
+// certificado de master (RF-45). La contraseña del .pvk se genera si no se
+// aporta y queda sellada en el store (SQLCertificate.PasswordSealed).
+// POST /api/v1/admin/sql/certbackup
+func (s *Server) handleSQLCertBackup(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	r, a, ok := s.authorize(w, r, "operate")
+	if !ok {
+		return
+	}
+	var req struct {
+		sqlJobRequest
+		CertName               string `json:"cert_name"`
+		Password               string `json:"password,omitempty"` // vacío = generar
+		CertDecryptionPassword string `json:"cert_decryption_password,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "cuerpo inválido")
+		return
+	}
+	if req.AgentID == "" || req.Server == "" || req.CertName == "" || req.StorageTargetID == "" {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION",
+			"agent_id, server, cert_name y storage_target_id son obligatorios")
+		return
+	}
+	// Contraseña del .pvk: generar si no viene (sin comillas para el T-SQL
+	// y con longitud suficiente).
+	password := req.Password
+	if password == "" {
+		p, err := generateSQLCertPassword()
+		if err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+		password = p
+	}
+	if strings.ContainsAny(password, "'\x00") {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "la contraseña no puede contener comillas simples")
+		return
+	}
+
+	var jobID string
+	err := s.Store.Update(r.Context(), func(st *store.State) error {
+		agent := st.Agents[req.AgentID]
+		if agent == nil {
+			return store.ErrNotFound
+		}
+		tg := st.Storage[req.StorageTargetID]
+		if tg == nil || !tg.Enabled {
+			return fmt.Errorf("el destino de almacenamiento no existe o está deshabilitado")
+		}
+		sealed, serr := s.Box.Seal(password)
+		if serr != nil {
+			return fmt.Errorf("sellar la contraseña de custodia: %w", serr)
+		}
+		now := s.Now().UTC()
+		cert := st.SQLCerts[req.CertName]
+		if cert == nil {
+			cert = &store.SQLCertificate{
+				Name: req.CertName, Server: req.Server, Instance: req.Instance,
+				TargetID: tg.ID, CreatedAt: now,
+			}
+			st.SQLCerts[req.CertName] = cert
+		}
+		cert.PasswordSealed = sealed
+		cert.TargetID = tg.ID
+		payload, _ := json.Marshal(contracts.SQLCertBackupJobPayload{
+			Server: req.Server, Instance: req.Instance, CertName: req.CertName,
+			CertPassword:           password,
+			CertDecryptionPassword: req.CertDecryptionPassword,
+			StorageTargetID:        tg.ID,
+		})
+		id, _ := newID()
+		st.Jobs[id] = &store.Job{
+			ID: id, Type: contracts.JobTypeSQLCertBackup, State: store.JobPending,
+			AgentID: agent.ID, Trigger: "manual",
+			Payload: payload, MaxAttempts: 3, CreatedBy: a.auditName(),
+			CreatedAt: now, UpdatedAt: now,
+		}
+		st.AppendJobEvent(contracts.JobEvent{JobID: id, Kind: "state", State: store.JobPending, At: now})
+		jobID = id
+		return nil
+	})
+	if err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", err.Error())
+		return
+	}
+	s.audit(r, a, "sql.certbackup", "agent", req.AgentID, "ok",
+		map[string]string{"cert": req.CertName, "job": jobID})
+	writeJSON(w, http.StatusAccepted, contracts.BackupResponse{JobID: jobID, State: store.JobPending})
+}
+
+// generateSQLCertPassword genera una contraseña robusta para el .pvk,
+// evitando caracteres hostiles para T-SQL (comillas) y para la línea de
+// comandos.
+func generateSQLCertPassword() (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!#$%*+,-.:?@[]_{}"
+	var b [48]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generar contraseña de custodia: %w", err)
+	}
+	out := make([]byte, len(b))
+	for i, v := range b {
+		out[i] = alphabet[int(v)%len(alphabet)]
+	}
+	return string(out), nil
+}
+
 // handleSQLRestorePoints lista los puntos de restauración SQL (Kind "sql"),
 // más recientes primero, filtrando por agente y/o base.
 // GET /api/v1/admin/sql/restore-points?agent_id=&database=
@@ -393,6 +504,7 @@ func sqlPlanView(p *store.SQLPlan) contracts.SQLPlanView {
 		v.NextRunAt = &nr
 	}
 	v.VerifyCron = p.VerifyCron
+	v.EncryptCert = p.EncryptCert
 	if !p.NextVerifyAt.IsZero() {
 		nv := p.NextVerifyAt
 		v.NextVerifyAt = &nv
@@ -450,6 +562,7 @@ func (s *Server) sqlPlanFromRequest(r *http.Request, req contracts.SQLPlanReques
 	} else if existing == nil {
 		p.Enabled = true
 	}
+	p.EncryptCert = strings.TrimSpace(req.EncryptCert)
 	p.UpdatedAt = now
 	// La próxima ejecución se recalcula al crear o al cambiar horario/zona.
 	if existing == nil || existing.Schedule != p.Schedule || existing.Timezone != p.Timezone {
@@ -500,6 +613,12 @@ func (s *Server) handleSQLPlanCreate(w http.ResponseWriter, r *http.Request) {
 		p, err := s.sqlPlanFromRequest(r, req, nil)
 		if err != nil {
 			return err
+		}
+		// RF-45: cifrar sin custodia del certificado sería irrecuperable.
+		if p.EncryptCert != "" {
+			if c := st.SQLCerts[p.EncryptCert]; c == nil || c.CertURI == "" || c.PvkURI == "" {
+				return fmt.Errorf("el certificado %s no tiene custodia (.cer/.pvk); lanza SQL_CERTBACKUP antes de cifrar", p.EncryptCert)
+			}
 		}
 		st.SQLPlans[p.ID] = p
 		view = sqlPlanView(p)
@@ -564,6 +683,7 @@ func (s *Server) handleSQLPlanUpdate(w http.ResponseWriter, r *http.Request) {
 		req.Server = cmpOr(req.Server, p.Server)
 		req.Database = cmpOr(req.Database, p.Database)
 		req.StorageTargetID = cmpOr(req.StorageTargetID, p.StorageTargetID)
+		req.EncryptCert = cmpOr(req.EncryptCert, p.EncryptCert)
 		if req.Instance == "" {
 			req.Instance = p.Instance
 		}
@@ -579,6 +699,11 @@ func (s *Server) handleSQLPlanUpdate(w http.ResponseWriter, r *http.Request) {
 		np, err := s.sqlPlanFromRequest(r, req, p)
 		if err != nil {
 			return err
+		}
+		if np.EncryptCert != "" {
+			if c := st.SQLCerts[np.EncryptCert]; c == nil || c.CertURI == "" || c.PvkURI == "" {
+				return fmt.Errorf("el certificado %s no tiene custodia (.cer/.pvk); lanza SQL_CERTBACKUP antes de cifrar", np.EncryptCert)
+			}
 		}
 		st.SQLPlans[id] = np
 		view = sqlPlanView(np)

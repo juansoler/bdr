@@ -33,14 +33,15 @@ func New(db *connector.DB, sm *backup.StagingManager, t storage.Transferer, c me
 
 // RunBackup ejecuta un backup del tipo indicado y lo transfiere al repositorio.
 // verifyAfter controla si se verifica el medio tras el backup (RESTORE
-// VERIFYONLY; por diseño true en los planes, RF-44).
+// VERIFYONLY; por diseño true en los planes, RF-44). enc != nil cifra el
+// medio (RF-45) — el certificado debe estar custodiado.
 // Devuelve el resultado del backup y la ruta en el repositorio.
-func (o *Orquestador) RunBackup(ctx context.Context, t backup.Type, copyOnly, verifyAfter bool) (*backup.Result, string, error) {
+func (o *Orquestador) RunBackup(ctx context.Context, t backup.Type, copyOnly, verifyAfter bool, enc *backup.Encryption) (*backup.Result, string, error) {
 	// Contrato de rutas: FullPath devuelve el FICHERO final; backup escribe
 	// ahí, storage transfiere ese fichero y Cleanup lo elimina.
 	stagingPath := o.staging.FullPath(o.database, t)
 
-	res, err := runSingle(ctx, o.db, o.database, t, copyOnly, stagingPath, verifyAfter)
+	res, err := runSingle(ctx, o.db, o.database, t, copyOnly, stagingPath, verifyAfter, enc)
 	if err != nil {
 		return nil, "", err
 	}
@@ -70,16 +71,16 @@ func (o *Orquestador) RunBackup(ctx context.Context, t backup.Type, copyOnly, ve
 	return res, repoPath, nil
 }
 
-func runSingle(ctx context.Context, db *connector.DB, database string, t backup.Type, copyOnly bool, backupPath string, verifyAfter bool) (*backup.Result, error) {
+func runSingle(ctx context.Context, db *connector.DB, database string, t backup.Type, copyOnly bool, backupPath string, verifyAfter bool, enc *backup.Encryption) (*backup.Result, error) {
 	switch t {
 	case backup.TypeFull:
-		return backup.Full(ctx, db, database, backupPath, verifyAfter)
+		return backup.Full(ctx, db, database, backupPath, verifyAfter, enc)
 	case backup.TypeDifferential:
-		return backup.Differential(ctx, db, database, backupPath, verifyAfter)
+		return backup.Differential(ctx, db, database, backupPath, verifyAfter, enc)
 	case backup.TypeLog:
-		return backup.Log(ctx, db, database, backupPath, verifyAfter)
+		return backup.Log(ctx, db, database, backupPath, verifyAfter, enc)
 	case backup.TypeCopyOnly:
-		return backup.CopyOnly(ctx, db, database, backupPath, verifyAfter)
+		return backup.CopyOnly(ctx, db, database, backupPath, verifyAfter, enc)
 	default:
 		return nil, fmt.Errorf("tipo no soportado: %s", t)
 	}

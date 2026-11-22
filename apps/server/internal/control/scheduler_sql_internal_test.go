@@ -21,6 +21,64 @@ func newSQLSchedulerTest(t *testing.T) (*Server, *store.Memory) {
 	return s, st
 }
 
+// recordSQLRestorePoint: medio cifrado SIN custodia -> alerta; CON
+// custodia -> nil. Es la garantía RF-45 de "cifrado irrecuperable se
+// detecta".
+func TestRecordSQLRestorePointAlertaCustodia(t *testing.T) {
+	s, st := newSQLSchedulerTest(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	mkJob := func(id string, encrypted bool, certName string) *store.Job {
+		payload, _ := json.Marshal(contracts.SQLBackupJobPayload{
+			Server: "sqlhost", Database: "app", Type: "FULL",
+			Encryption: func() *contracts.SQLEncryption {
+				if encrypted {
+					return &contracts.SQLEncryption{Algorithm: "AES_256", CertName: certName}
+				}
+				return nil
+			}(),
+		})
+		result, _ := json.Marshal(contracts.SQLBackupJobResult{
+			Database: "app", Type: "FULL", RepoURI: "s3://bdr/sql/app.bak",
+			Encrypted: encrypted, CertName: certName,
+		})
+		return &store.Job{ID: id, AgentID: "a1", Type: contracts.JobTypeSQLBackup,
+			State: store.JobSucceeded, Payload: payload, Result: result,
+			CreatedAt: now, UpdatedAt: now}
+	}
+
+	_ = st.Update(ctx, func(st *store.State) error {
+		st.Agents["a1"] = &store.Agent{ID: "a1", Hostname: "sqlhost", EnrolledAt: now}
+		// 1. Cifrado con certificado SIN custodia -> alerta.
+		st.Jobs["j1"] = mkJob("j1", true, "BDR_Cert")
+		// 2. Cifrado CON custodia registrada -> sin alerta.
+		st.SQLCerts["BDR_Custodiado"] = &store.SQLCertificate{
+			Name: "BDR_Custodiado", CertURI: "s3://bdr/certs/c.cer", PvkURI: "s3://bdr/certs/c.pvk",
+			CreatedAt: now, LastBackupAt: now,
+		}
+		st.Jobs["j2"] = mkJob("j2", true, "BDR_Custodiado")
+		// 3. Sin cifrar -> sin alerta.
+		st.Jobs["j3"] = mkJob("j3", false, "")
+		return nil
+	})
+
+	_ = st.View(ctx, func(st *store.State) error {
+		if al := s.recordSQLRestorePoint(st, st.Jobs["j1"], now); al == nil {
+			t.Error("cifrado sin custodia debe generar alerta")
+		} else if al.Kind != "sql_cert_missing" {
+			t.Errorf("alerta inesperada: %+v", al)
+		}
+		if al := s.recordSQLRestorePoint(st, st.Jobs["j2"], now); al != nil {
+			t.Errorf("cifrado con custodia no debe alertar: %+v", al)
+		}
+		if al := s.recordSQLRestorePoint(st, st.Jobs["j3"], now); al != nil {
+			t.Errorf("backup sin cifrar no debe alertar: %+v", al)
+		}
+		return nil
+	})
+}
+
 func TestSchedulerLanzaPlanSQLVencido(t *testing.T) {
 	s, st := newSQLSchedulerTest(t)
 	ctx := context.Background()

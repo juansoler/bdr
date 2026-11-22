@@ -561,6 +561,7 @@ func (s *Server) handleAgentJobAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var finished *store.Job
+		var sqlCertAlert *notifPayload
 		err := s.Store.Update(r.Context(), func(st *store.State) error {
 			j := st.Jobs[jobID]
 			if j == nil || j.AgentID != agent.ID {
@@ -598,7 +599,10 @@ func (s *Server) handleAgentJobAction(w http.ResponseWriter, r *http.Request) {
 				s.recordLXCRestorePoint(st, j, now)
 			}
 			if req.State == store.JobSucceeded && j.Type == contracts.JobTypeSQLBackup {
-				s.recordSQLRestorePoint(st, j, now)
+				sqlCertAlert = s.recordSQLRestorePoint(st, j, now)
+			}
+			if req.State == store.JobSucceeded && j.Type == contracts.JobTypeSQLCertBackup {
+				s.recordSQLCertCustody(st, j, now)
 			}
 			cj := *j
 			finished = &cj
@@ -607,6 +611,9 @@ func (s *Server) handleAgentJobAction(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.jobAgentErr(w, r, err)
 			return
+		}
+		if sqlCertAlert != nil {
+			s.raiseAlert(*sqlCertAlert)
 		}
 		if finished != nil && finished.Type == contracts.JobTypeRestoreFile && req.State == store.JobSucceeded {
 			s.Logger.Info("restauración completada", "job_id", jobID, "agent_id", agent.ID)
@@ -738,20 +745,22 @@ func (s *Server) recordLXCRestorePoint(st *store.State, j *store.Job, now time.T
 // recordSQLRestorePoint registra el punto de restauración de un backup SQL
 // Server (Kind "sql"): SnapshotID = URI del objeto en el destino. Los LSN
 // del resultado (texto) permiten reconstruir la cadena para PITR (RF-42).
-func (s *Server) recordSQLRestorePoint(st *store.State, j *store.Job, now time.Time) {
+// Devuelve una alerta si el backup iba cifrado y el certificado no tiene
+// custodia registrada (RF-45): el caller la levanta FUERA del Update.
+func (s *Server) recordSQLRestorePoint(st *store.State, j *store.Job, now time.Time) *notifPayload {
 	var payload contracts.SQLBackupJobPayload
 	if err := json.Unmarshal(j.Payload, &payload); err != nil {
 		s.Logger.Warn("payload de SQL_BACKUP no interpretable", "job_id", j.ID, "error", err.Error())
-		return
+		return nil
 	}
 	var result contracts.SQLBackupJobResult
 	if err := json.Unmarshal(j.Result, &result); err != nil {
 		s.Logger.Warn("resultado de SQL_BACKUP no interpretable", "job_id", j.ID, "error", err.Error())
-		return
+		return nil
 	}
 	if result.RepoURI == "" {
 		s.Logger.Warn("resultado de SQL_BACKUP sin repo_uri", "job_id", j.ID)
-		return
+		return nil
 	}
 	id, _ := newID()
 	start, end := now, now
@@ -792,6 +801,71 @@ func (s *Server) recordSQLRestorePoint(st *store.State, j *store.Job, now time.T
 	st.RestorePoints[id] = rp
 	s.Logger.Info("punto de restauración SQL registrado", "job_id", j.ID,
 		"database", payload.Database, "type", result.Type, "repo", result.RepoURI)
+
+	// RF-45: medio cifrado sin custodia del certificado = irrecuperable.
+	if result.Encrypted {
+		custodied := false
+		if result.CertName != "" {
+			if c := st.SQLCerts[result.CertName]; c != nil && c.CertURI != "" && c.PvkURI != "" {
+				custodied = true
+			}
+		}
+		if !custodied {
+			name := result.CertName
+			if name == "" {
+				name = "desconocido"
+			}
+			return &notifPayload{
+				Key:      "sql-cert-custody:" + name,
+				Kind:     "sql_cert_missing",
+				Severity: contracts.SeverityCritical,
+				Title:    "Backup cifrado sin certificado custodiado",
+				Detail: "El backup de " + payload.Database + " se cifró con el certificado " + name +
+					" pero no hay custodia (.cer/.pvk) registrada: sin ella el medio es irrecuperable. " +
+					"Lanza una custodia (SQL_CERTBACKUP) para ese certificado.",
+				AgentID: j.AgentID, JobID: j.ID,
+			}
+		}
+	}
+	return nil
+}
+
+// recordSQLCertCustody actualiza el registro de custodia de un certificado
+// (RF-45) con las URIs del .cer/.pvk transferidos al destino, y resuelve
+// las alertas de custodia pendientes de ese certificado.
+func (s *Server) recordSQLCertCustody(st *store.State, j *store.Job, now time.Time) {
+	var payload contracts.SQLCertBackupJobPayload
+	if err := json.Unmarshal(j.Payload, &payload); err != nil {
+		s.Logger.Warn("payload de SQL_CERTBACKUP no interpretable", "job_id", j.ID, "error", err.Error())
+		return
+	}
+	var result contracts.SQLCertBackupJobResult
+	if err := json.Unmarshal(j.Result, &result); err != nil {
+		s.Logger.Warn("resultado de SQL_CERTBACKUP no interpretable", "job_id", j.ID, "error", err.Error())
+		return
+	}
+
+	cert := st.SQLCerts[result.CertName]
+	if cert == nil {
+		cert = &store.SQLCertificate{
+			Name: result.CertName, Server: payload.Server, Instance: payload.Instance,
+			TargetID: payload.StorageTargetID, CreatedAt: now,
+		}
+		st.SQLCerts[result.CertName] = cert
+	}
+	cert.CertURI = result.CertURI
+	cert.PvkURI = result.PvkURI
+	cert.LastBackupAt = now
+
+	// Resuelve la alerta de custodia pendiente de este certificado, si hay.
+	key := "sql-cert-custody:" + result.CertName
+	if al := st.AlertByKey(key); al != nil && al.State != contracts.AlertResolved {
+		al.State = contracts.AlertResolved
+		al.ResolvedBy = "system"
+		al.ResolvedAt = &now
+	}
+	s.Logger.Info("custodia de certificado registrada", "job_id", j.ID,
+		"cert", result.CertName, "cert_uri", result.CertURI)
 }
 
 func truncate(s string, n int) string {
@@ -930,7 +1004,7 @@ func (s *Server) handleTargetRepoCredentials(w http.ResponseWriter, r *http.Requ
 				if j.Type != contracts.JobTypeBackupVM && j.Type != contracts.JobTypeRestoreVM &&
 					j.Type != contracts.JobTypeBackupLXC && j.Type != contracts.JobTypeRestoreLXC &&
 					j.Type != contracts.JobTypeSQLBackup && j.Type != contracts.JobTypeSQLRestore &&
-					j.Type != contracts.JobTypeSQLVerify {
+					j.Type != contracts.JobTypeSQLVerify && j.Type != contracts.JobTypeSQLCertBackup {
 					continue
 				}
 				if j.State != store.JobPending && j.State != store.JobLeased && j.State != store.JobRunning {

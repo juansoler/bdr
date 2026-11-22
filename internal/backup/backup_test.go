@@ -70,7 +70,10 @@ func TestBuildBackupTSQL(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.nombre, func(t *testing.T) {
-			got := buildBackupTSQL(c.database, c.t, c.copyOnly, c.path)
+			got, err := buildBackupTSQL(c.database, c.t, c.copyOnly, c.path, nil)
+			if err != nil {
+				t.Fatalf("buildBackupTSQL: %v", err)
+			}
 			for _, want := range c.quiere {
 				if !strings.Contains(got, want) {
 					t.Errorf("T-SQL sin %q:\n%s", want, got)
@@ -82,6 +85,47 @@ func TestBuildBackupTSQL(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildBackupTSQLCifrado(t *testing.T) {
+	enc := &Encryption{Algorithm: "AES_128", CertName: "BDR_Cert"}
+	got, err := buildBackupTSQL("app", TypeFull, false, `D:\bk\app.bak`, enc)
+	if err != nil {
+		t.Fatalf("buildBackupTSQL cifrado: %v", err)
+	}
+	for _, want := range []string{
+		"BACKUP DATABASE N'app'",
+		"COMPRESSION, CHECKSUM",
+		"ENCRYPTION (ALGORITHM = AES_128, SERVER CERTIFICATE = N'BDR_Cert')",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("T-SQL cifrado sin %q:\n%s", want, got)
+		}
+	}
+
+	// Algoritmo por defecto AES_256 y nombre con apóstrofo escapado.
+	got2, err := buildBackupTSQL("app", TypeLog, false, `D:\bk\app.trn`, &Encryption{CertName: "O'Brien"})
+	if err != nil {
+		t.Fatalf("buildBackupTSQL default: %v", err)
+	}
+	for _, want := range []string{"ALGORITHM = AES_256", "SERVER CERTIFICATE = N'O''Brien'", "BACKUP LOG"} {
+		if !strings.Contains(got2, want) {
+			t.Errorf("T-SQL cifrado sin %q:\n%s", want, got2)
+		}
+	}
+
+	// Sin certificado: error. Algoritmo desconocido: error.
+	if _, err := buildBackupTSQL("app", TypeFull, false, "x", &Encryption{}); err == nil {
+		t.Error("cifrado sin certificado debe fallar")
+	}
+	if _, err := buildBackupTSQL("app", TypeFull, false, "x", &Encryption{Algorithm: "3DES", CertName: "c"}); err == nil {
+		t.Error("algoritmo no soportado debe fallar")
+	}
+	// Sin cifrado: ninguna cláusula ENCRYPTION.
+	plain, _ := buildBackupTSQL("app", TypeFull, false, "x", nil)
+	if strings.Contains(plain, "ENCRYPTION") {
+		t.Errorf("backup sin cifrar no debe llevar ENCRYPTION:\n%s", plain)
 	}
 }
 

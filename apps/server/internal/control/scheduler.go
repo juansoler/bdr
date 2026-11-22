@@ -313,10 +313,16 @@ func (s *Server) launchSQLScheduled(ctx context.Context, planID string, now time
 		if retentionDays == 0 {
 			retentionDays = tg.RetentionDays
 		}
+		// RF-45: cifrado del plan por certificado custodiado.
+		var enc *contracts.SQLEncryption
+		if p.EncryptCert != "" {
+			enc = &contracts.SQLEncryption{Algorithm: "AES_256", CertName: p.EncryptCert}
+		}
 		payload, _ := json.Marshal(contracts.SQLBackupJobPayload{
 			Server: p.Server, Instance: p.Instance, Database: p.Database,
 			Type: p.Type, StorageTargetID: tg.ID,
 			RetentionDays: retentionDays, Verify: p.Verify,
+			Encryption: enc,
 		})
 		id, _ := newID()
 		j := &store.Job{

@@ -116,11 +116,21 @@ func (m *SQLMotor) Backup(ctx context.Context, creds *contracts.RepositoryCreden
 	}
 	verify := payload.Verify == nil || *payload.Verify
 
+	// Cifrado nativo (RF-45): payload.Encryption → motor.
+	var enc *backup.Encryption
+	if payload.Encryption != nil && payload.Encryption.CertName != "" {
+		alg, aerr := backup.NormalizeAlgorithm(payload.Encryption.Algorithm)
+		if aerr != nil {
+			return nil, &CodeError{Code: "E_VALIDATION", Message: aerr.Error()}
+		}
+		enc = &backup.Encryption{Algorithm: alg, CertName: payload.Encryption.CertName}
+	}
+
 	progress(15, "BACKUP "+string(t)+" de "+payload.Database, 0)
 	// Catálogo en memoria del proceso: el registro duradero lo hace el
 	// control plane al ingestar el resultado del job (RestorePoint SQL).
 	orch := orchestrator.New(db, sm, tr, metadata.NewInMemoryCatalog(), payload.Database)
-	res, repoURI, err := orch.RunBackup(ctx, t, copyOnly, verify)
+	res, repoURI, err := orch.RunBackup(ctx, t, copyOnly, verify, enc)
 	if err != nil {
 		return nil, &CodeError{Code: "E_JOB_FAILED", Message: err.Error()}
 	}
@@ -144,6 +154,8 @@ func (m *SQLMotor) Backup(ctx context.Context, creds *contracts.RepositoryCreden
 		Checksum:     res.Checksum,
 		Compression:  res.Compression,
 		Verified:     res.Verified,
+		Encrypted:    res.Encrypted,
+		CertName:     res.CertName,
 		DatabaseLSN:  formatLSN(lsns.DatabaseLSN),
 		FirstLSN:     formatLSN(lsns.FirstLSN),
 		LastLSN:      formatLSN(lsns.LastLSN),
@@ -313,6 +325,80 @@ func (m *SQLMotor) Inventory(ctx context.Context, payload contracts.SQLInventory
 // sqlBracketId cita un identificador T-SQL con corchetes (escapa ]).
 func sqlBracketId(name string) string {
 	return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
+}
+
+// quoteTSQLLocal cita un literal T-SQL (escapa comillas simples).
+func quoteTSQLLocal(s string) string {
+	return "N'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// CertBackup ejecuta un job SQL_CERTBACKUP: custodia del certificado y su
+// clave privada (RF-45). BACKUP CERTIFICATE genera .cer + .pvk en el
+// staging (el .pvk cifrado con CertPassword) y ambos se transfieren al
+// destino con las mismas garantías que un medio de backup.
+func (m *SQLMotor) CertBackup(ctx context.Context, creds *contracts.RepositoryCredentials,
+	payload contracts.SQLCertBackupJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
+
+	if payload.CertName == "" || payload.CertPassword == "" {
+		return nil, &CodeError{Code: "E_VALIDATION",
+			Message: "la custodia requiere cert_name y cert_password"}
+	}
+
+	progress(10, "conectando a SQL Server ("+payload.Server+")", 0)
+	db, err := sqlOpen(ctx, payload.Server, payload.Instance)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	tr, err := sqlTargetTransferer(ctx, creds, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer tr.Close()
+
+	stamp := time.Now().Format("20060102_150405")
+	cerPath := filepath.Join(sqlStagingRoot(), fmt.Sprintf("%s_%s.cer", payload.CertName, stamp))
+	pvkPath := filepath.Join(sqlStagingRoot(), fmt.Sprintf("%s_%s.pvk", payload.CertName, stamp))
+	defer func() {
+		_ = os.Remove(cerPath)
+		_ = os.Remove(pvkPath)
+	}()
+
+	progress(40, "BACKUP CERTIFICATE "+payload.CertName, 0)
+	q := fmt.Sprintf(
+		"BACKUP CERTIFICATE %s TO FILE = %s WITH PRIVATE KEY (FILE = %s, ENCRYPTION BY PASSWORD = %s",
+		sqlBracketId(payload.CertName), quoteTSQLLocal(cerPath), quoteTSQLLocal(pvkPath), quoteTSQLLocal(payload.CertPassword))
+	if payload.CertDecryptionPassword != "" {
+		q += ", DECRYPTION BY PASSWORD = " + quoteTSQLLocal(payload.CertDecryptionPassword)
+	}
+	q += ")"
+	if err := db.ExecContext(ctx, q); err != nil {
+		return nil, &CodeError{Code: "E_JOB_FAILED", Message: "BACKUP CERTIFICATE: " + err.Error()}
+	}
+
+	progress(70, "transfiriendo custodia al destino", 0)
+	start := time.Now()
+	cerURI, err := tr.Transfer(ctx, cerPath)
+	if err != nil {
+		return nil, &CodeError{Code: "E_STORAGE", Message: err.Error()}
+	}
+	pvkURI, err := tr.Transfer(ctx, pvkPath)
+	if err != nil {
+		return nil, &CodeError{Code: "E_STORAGE", Message: err.Error()}
+	}
+
+	progress(100, "custodia completada", 0)
+	out, err := json.Marshal(contracts.SQLCertBackupJobResult{
+		CertName:    payload.CertName,
+		CertURI:     cerURI,
+		PvkURI:      pvkURI,
+		DurationSec: time.Since(start).Seconds(),
+	})
+	if err != nil {
+		return nil, &CodeError{Code: "E_INTERNAL", Message: err.Error()}
+	}
+	return out, nil
 }
 
 // asStringLocal normaliza un valor escaneado dinámicamente a texto.

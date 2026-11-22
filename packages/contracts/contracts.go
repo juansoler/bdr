@@ -29,18 +29,19 @@ const (
 
 // Tipos de job.
 const (
-	JobTypeBackupFile   = "BACKUP_FILE"
-	JobTypeRestoreFile  = "RESTORE_FILE"
-	JobTypeBackupImage  = "BACKUP_IMAGE"
-	JobTypeBackupVM     = "BACKUP_VM"
-	JobTypeRestoreVM    = "RESTORE_VM"
-	JobTypeBackupLXC    = "BACKUP_LXC"
-	JobTypeRestoreLXC   = "RESTORE_LXC"
-	JobTypeSQLBackup    = "SQL_BACKUP"
-	JobTypeSQLRestore   = "SQL_RESTORE"
-	JobTypeSQLVerify    = "SQL_VERIFY"
-	JobTypeSQLInventory = "SQL_INVENTORY"
-	JobTypeSQLCheckDB   = "SQL_CHECKDB"
+	JobTypeBackupFile    = "BACKUP_FILE"
+	JobTypeRestoreFile   = "RESTORE_FILE"
+	JobTypeBackupImage   = "BACKUP_IMAGE"
+	JobTypeBackupVM      = "BACKUP_VM"
+	JobTypeRestoreVM     = "RESTORE_VM"
+	JobTypeBackupLXC     = "BACKUP_LXC"
+	JobTypeRestoreLXC    = "RESTORE_LXC"
+	JobTypeSQLBackup     = "SQL_BACKUP"
+	JobTypeSQLRestore    = "SQL_RESTORE"
+	JobTypeSQLVerify     = "SQL_VERIFY"
+	JobTypeSQLInventory  = "SQL_INVENTORY"
+	JobTypeSQLCheckDB    = "SQL_CHECKDB"
+	JobTypeSQLCertBackup = "SQL_CERTBACKUP"
 )
 
 // Estados de job (docs/06-api.md §5).
@@ -674,6 +675,15 @@ type SQLBackupJobPayload struct {
 	StorageTargetID string `json:"storage_target_id"`
 	RetentionDays   int    `json:"retention_days,omitempty"` // Object Lock GOVERNANCE (S3)
 	Verify          *bool  `json:"verify,omitempty"`         // nil = verificar (por defecto)
+	// Encryption: cifrado nativo WITH ENCRYPTION (RF-45). El certificado
+	// DEBE tener custodia (SQL_CERTBACKUP) o el medio es irrecuperable.
+	Encryption *SQLEncryption `json:"encryption,omitempty"`
+}
+
+// SQLEncryption es el cifrado nativo de un backup SQL (RF-45).
+type SQLEncryption struct {
+	Algorithm string `json:"algorithm,omitempty"` // AES_128|AES_192|AES_256 (vacío = AES_256)
+	CertName  string `json:"cert_name"`
 }
 
 // SQLRestoreJobPayload es el payload de un job SQL_RESTORE: descarga la
@@ -722,6 +732,33 @@ type SQLCheckDBJobPayload struct {
 	Database string `json:"database"`
 }
 
+// SQLCertBackupJobPayload es el payload de un job SQL_CERTBACKUP: custodia
+// de un certificado de master (RF-45) — BACKUP CERTIFICATE con su clave
+// privada al destino de almacenamiento. Sin custodia, los backups cifrados
+// con ese certificado son irrecuperables.
+type SQLCertBackupJobPayload struct {
+	Server   string `json:"server"`
+	Instance string `json:"instance,omitempty"`
+	CertName string `json:"cert_name"`
+	// CertPassword cifra el fichero .pvk de la clave privada. Lo genera y
+	// custodia sellado el control plane; viaja al agente por el canal mTLS.
+	CertPassword string `json:"cert_password"`
+	// CertDecryptionPassword (opcional): solo si la clave privada del
+	// certificado está protegida por contraseña en master (cuando fue
+	// creada FROM FILE con ENCRYPTION BY PASSWORD). Vacío = la clave está
+	// protegida por la master key.
+	CertDecryptionPassword string `json:"cert_decryption_password,omitempty"`
+	StorageTargetID        string `json:"storage_target_id"`
+}
+
+// SQLCertBackupJobResult es el resultado de un job SQL_CERTBACKUP.
+type SQLCertBackupJobResult struct {
+	CertName    string  `json:"cert_name"`
+	CertURI     string  `json:"cert_uri"` // .cer en el destino
+	PvkURI      string  `json:"pvk_uri"`  // .pvk (clave privada) en el destino
+	DurationSec float64 `json:"duration_sec"`
+}
+
 // SQLBackupJobResult es el resultado de un job SQL_BACKUP. Los LSN viajan
 // como texto (numeric(25,0) de msdb no cabe garantizado en un JSON number
 // de los clientes JS).
@@ -734,6 +771,8 @@ type SQLBackupJobResult struct {
 	Checksum     bool    `json:"checksum"`
 	Compression  bool    `json:"compression"`
 	Verified     bool    `json:"verified"`
+	Encrypted    bool    `json:"encrypted"`           // WITH ENCRYPTION aplicado
+	CertName     string  `json:"cert_name,omitempty"` // certificado usado (si cifrado)
 	DatabaseLSN  string  `json:"database_lsn,omitempty"`
 	FirstLSN     string  `json:"first_lsn,omitempty"`
 	LastLSN      string  `json:"last_lsn,omitempty"`
@@ -796,6 +835,9 @@ type SQLPlanRequest struct {
 	// plan (RESTORE VERIFYONLY sobre su objeto en el destino). Vacío = solo
 	// la verificación post-backup.
 	VerifyCron string `json:"verify_cron,omitempty"`
+	// EncryptCert: certificado de master para cifrar los backups del plan
+	// (RF-45). Vacío = sin cifrar. El certificado debe tener custodia.
+	EncryptCert string `json:"encrypt_cert,omitempty"`
 }
 
 // SQLPlanView es la vista de un plan SQL para la API y el panel.
@@ -812,6 +854,7 @@ type SQLPlanView struct {
 	RetentionDays   int        `json:"retention_days,omitempty"`
 	Verify          bool       `json:"verify"`
 	VerifyCron      string     `json:"verify_cron,omitempty"`
+	EncryptCert     string     `json:"encrypt_cert,omitempty"`
 	Enabled         bool       `json:"enabled"`
 	LastJobID       string     `json:"last_job_id,omitempty"`
 	NextRunAt       *time.Time `json:"next_run_at,omitempty"`

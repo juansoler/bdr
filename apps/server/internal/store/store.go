@@ -194,8 +194,23 @@ type RestorePoint struct {
 	SQL *SQLBackupMeta `json:"SQL,omitempty"`
 }
 
-// SQLPlan es un plan programado de backup para una base de SQL Server.
-// Se ejecuta en el agente del host SQL (SSPI de la cuenta de servicio) y
+// SQLCertificate es la custodia de un certificado de SQL Server usado para
+// cifrar backups (RF-45): sin el .cer/.pvk custodiados y su contraseña,
+// los medios cifrados son irrecuperables. La contraseña del .pvk queda
+// sellada (PasswordSealed, via secrets.Box).
+type SQLCertificate struct {
+	Name           string    `json:"Name"`   // nombre del certificado en master
+	Server         string    `json:"Server"` // host o host\instancia de origen
+	Instance       string    `json:"Instance,omitempty"`
+	TargetID       string    `json:"TargetID,omitempty"` // destino de la custodia
+	PasswordSealed string    `json:"PasswordSealed,omitempty"`
+	CertURI        string    `json:"CertURI,omitempty"` // .cer custodiado
+	PvkURI         string    `json:"PvkURI,omitempty"`  // .pvk custodiado
+	LastBackupAt   time.Time `json:"LastBackupAt,omitempty"`
+	CreatedAt      time.Time `json:"CreatedAt"`
+}
+
+// SQLPlan es un plan programado de backup para una base de SQL Server.// Se ejecuta en el agente del host SQL (SSPI de la cuenta de servicio) y
 // transfiere el resultado al destino de almacenamiento indicado.
 type SQLPlan struct {
 	ID              string    `json:"ID"`
@@ -211,6 +226,7 @@ type SQLPlan struct {
 	Verify          *bool     `json:"Verify,omitempty"`        // nil = verificar
 	Enabled         bool      `json:"Enabled"`
 	VerifyCron      string    `json:"VerifyCron,omitempty"`
+	EncryptCert     string    `json:"EncryptCert,omitempty"` // RF-45: cifrar backups del plan
 	LastJobID       string    `json:"LastJobID,omitempty"`
 	NextRunAt       time.Time `json:"NextRunAt,omitempty"`
 	NextVerifyAt    time.Time `json:"NextVerifyAt,omitempty"`
@@ -547,6 +563,7 @@ type State struct {
 	Storage          map[string]*StorageTarget       `json:"storage_targets"`
 	TerminalSessions map[string]*TerminalSession     `json:"terminal_sessions,omitempty"`
 	SQLPlans         map[string]*SQLPlan             `json:"sql_plans,omitempty"`
+	SQLCerts         map[string]*SQLCertificate      `json:"sql_certificates,omitempty"`
 }
 
 // NewState crea un estado vacío.
@@ -619,6 +636,9 @@ func (s *State) ensureMaps() {
 	}
 	if s.SQLPlans == nil {
 		s.SQLPlans = map[string]*SQLPlan{}
+	}
+	if s.SQLCerts == nil {
+		s.SQLCerts = map[string]*SQLCertificate{}
 	}
 }
 
