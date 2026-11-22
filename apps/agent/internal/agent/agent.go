@@ -327,9 +327,9 @@ func (a *Agent) updateEndpoint(ctx context.Context, endpoint string) error {
 }
 
 // applyUpgrade se autoactualiza: descarga, verifica y reemplaza el binario;
-// restartSelf no retorna (re-ejecución Unix o reinicio por el gestor de
-// servicios de Windows). Un fallo aquí solo se registra: el siguiente
-// heartbeat reintenta.
+// restartSelf gestiona el relevo (re-ejecución Unix; en Windows parada
+// limpia del servicio + arranque por el helper service-restart). Un fallo
+// aquí solo se registra: el siguiente heartbeat reintenta.
 func (a *Agent) applyUpgrade(ctx context.Context, u contracts.AgentUpgrade) {
 	if a.restartSelf == nil {
 		return

@@ -35,10 +35,11 @@ var (
 
 // Replace descarga u.URL, verifica u.SHA256 y sustituye el ejecutable en
 // marcha por el nuevo. El binario anterior queda como <exe>.old para
-// rollback manual. Al terminar llama a restart(exePath), que en la práctica
-// no retorna (re-ejecución o salida para que el gestor de servicios
-// reinicie). La sustitución es atómica por renombrado: si algo falla antes
-// del restart, el binario actual sigue intacto.
+// rollback manual. Al terminar llama a restart(exePath), que se encarga del
+// relevo: re-ejecución in-place en Unix; en Windows, parada limpia del
+// servicio y arranque por un helper (service-restart) en 1-2 s. La
+// sustitución es atómica por renombrado: si algo falla antes del restart,
+// el binario actual sigue intacto.
 //
 // hc es el cliente HTTP de la descarga; nil usa http.DefaultClient. La URL
 // de la oferta suele ser relativa al listener mTLS del control: para esas

@@ -30,3 +30,7 @@ func runAgentProcess(ctx context.Context, ag *agent.Agent, once bool) error {
 func restartSelf(newExe string) error {
 	return syscall.Exec(newExe, os.Args, os.Environ())
 }
+
+// cmdServiceRestart es el helper interno de autoactualización de Windows:
+// en Unix no tiene sentido (la re-ejecución es in-place).
+func cmdServiceRestart([]string) {}

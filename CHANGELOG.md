@@ -2,6 +2,34 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.7] — 2026-11-22
+
+### Corregido
+
+- **Windows: tras autoactualizarse, el agente tardaba minutos en volver (o
+  parecía seguir en la versión antigua hasta reiniciar el servicio a mano)** —
+  el reinicio salía con `exit(1)` y delegaba en la recuperación del SCM, que
+  cuenta cada salida como FALLO del servicio: con `restart/5000, restart/
+  10000, restart/300000` y `reset= 86400`, la tercera autoactualización del
+  día caía en la ranura de 5 minutos. Síntomas observados: el binario nuevo
+  quedaba en disco (`bdr-agent.exe`), el panel seguía mostrando la versión
+  vieja y, al reiniciar a mano, aparecía la nueva. Además, si el operador
+  re-lanzaba el instalador del panel mientras esperaba, el re-enrolamiento
+  creaba fichas de equipo duplicadas (cada una con una versión distinta).
+  Ahora el agente para **en limpio** (`SERVICE_STOPPED`, código 0 — no
+  consume la recuperación del SCM, que queda para crashes reales, y no genera
+  eventos 7031/7034) y un helper interno (`bdr-agent service-restart`) espera
+  la salida del proceso y arranca el servicio vía SCM en 1-2 s con el binario
+  nuevo. Nota de despliegue: el fix viaja en el binario nuevo, así que la
+  actualización HACIA 0.16.7 puede seguir necesitando un reinicio manual del
+  servicio; a partir de ella, las siguientes son automáticas.
+- **El relevo en consola/tarea programada heredaba stdio inválido**: en
+  procesos sin consola los handles estándar son NULL/muertos y `cmd.Start`
+  falla con «The handle is invalid» — el agente quedaba vivo con el binario
+  viejo mientras el nuevo ya estaba en disco. Ahora el hijo solo hereda
+  stdio cuando es utilizable (`Stat` correcto) y arranca desacoplado
+  (`CREATE_NO_WINDOW`).
+
 ## [0.16.6] — 2026-11-22
 
 ### Corregido

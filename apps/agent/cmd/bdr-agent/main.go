@@ -43,6 +43,8 @@ func main() {
 		cmdImageWrite(os.Args[2:])
 	case "screenhelper": // interno: helper de sesión Windows (lo lanza el servicio)
 		cmdScreenHelper()
+	case "service-restart": // interno: helper de autoactualización Windows
+		cmdServiceRestart(os.Args[2:])
 	case "image-fetch":
 		cmdImageFetch(os.Args[2:])
 	case "version", "--version", "-version":
