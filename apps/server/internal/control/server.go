@@ -204,6 +204,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/pg/restore", s.handlePGRestore)
 	mux.HandleFunc("/api/v1/admin/pg/verify", s.handlePGVerify)
 	mux.HandleFunc("/api/v1/admin/pg/inventory", s.handlePGInventory)
+	mux.HandleFunc("/api/v1/admin/pg/discover", s.handlePGDiscover)
+	mux.HandleFunc("/api/v1/admin/sql/discover", s.handleSQLDiscover)
 	mux.HandleFunc("/api/v1/admin/pg/restore-points", s.handlePGRestorePoints)
 	mux.HandleFunc("/api/v1/admin/sql/databases", s.handleSQLDatabases)
 	mux.HandleFunc("/api/v1/admin/sql/restore-points", s.handleSQLRestorePoints)

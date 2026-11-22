@@ -94,6 +94,27 @@ func formatLSN(l connector.LSN) string {
 	return s
 }
 
+// Discover ejecuta un job SQL_DISCOVER: enumera las instancias de SQL
+// Server instaladas en el host del agente (registro de Windows; en otros
+// SO devuelve el error explicativo del conector).
+func (m *SQLMotor) Discover(ctx context.Context) (json.RawMessage, error) {
+	inst, err := connector.Discover(ctx)
+	if err != nil {
+		return nil, &CodeError{Code: "E_SQL_DISCOVER", Message: err.Error()}
+	}
+	items := make([]contracts.SQLInstanceView, 0, len(inst))
+	for _, i := range inst {
+		items = append(items, contracts.SQLInstanceView{
+			Name: i.Name, Default: i.Default, Version: i.Version, Edition: i.Edition,
+		})
+	}
+	out, err := json.Marshal(contracts.SQLDiscoverJobResult{Items: items})
+	if err != nil {
+		return nil, &CodeError{Code: "E_INTERNAL", Message: err.Error()}
+	}
+	return out, nil
+}
+
 // Backup ejecuta un job SQL_BACKUP.
 func (m *SQLMotor) Backup(ctx context.Context, creds *contracts.RepositoryCredentials,
 	payload contracts.SQLBackupJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {

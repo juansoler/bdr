@@ -275,6 +275,53 @@ func (s *Server) handlePGInventory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, contracts.BackupResponse{JobID: jobID, State: store.JobPending})
 }
 
+// handlePGDiscover crea un job PG_DISCOVER (detecta instancias locales).
+// POST /api/v1/admin/pg/discover
+func (s *Server) handlePGDiscover(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	r, a, ok := s.authorize(w, r, "operate")
+	if !ok {
+		return
+	}
+	var req pgConnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "cuerpo inválido")
+		return
+	}
+	if req.AgentID == "" {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "agent_id es obligatorio")
+		return
+	}
+
+	var jobID string
+	err := s.Store.Update(r.Context(), func(st *store.State) error {
+		agent := st.Agents[req.AgentID]
+		if agent == nil {
+			return store.ErrNotFound
+		}
+		now := s.Now().UTC()
+		payload, _ := json.Marshal(contracts.PGDiscoverJobPayload{})
+		id, _ := newID()
+		st.Jobs[id] = &store.Job{
+			ID: id, Type: contracts.JobTypePGDiscover, State: store.JobPending,
+			AgentID: agent.ID, Trigger: "manual",
+			Payload: payload, MaxAttempts: 1, CreatedBy: a.auditName(),
+			CreatedAt: now, UpdatedAt: now,
+		}
+		st.AppendJobEvent(contracts.JobEvent{JobID: id, Kind: "state", State: store.JobPending, At: now})
+		jobID = id
+		return nil
+	})
+	if err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", err.Error())
+		return
+	}
+	s.audit(r, a, "pg.discover", "agent", req.AgentID, "ok", map[string]string{"job": jobID})
+	writeJSON(w, http.StatusAccepted, contracts.BackupResponse{JobID: jobID, State: store.JobPending})
+}
+
 // handlePGRestorePoints lista los puntos de restauración PostgreSQL
 // (Kind "pg"), más recientes primero, filtrando por agente y/o base.
 // GET /api/v1/admin/pg/restore-points

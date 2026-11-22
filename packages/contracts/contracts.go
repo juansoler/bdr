@@ -46,6 +46,8 @@ const (
 	JobTypePGRestore     = "PG_RESTORE"
 	JobTypePGVerify      = "PG_VERIFY"
 	JobTypePGInventory   = "PG_INVENTORY"
+	JobTypeSQLDiscover   = "SQL_DISCOVER"
+	JobTypePGDiscover    = "PG_DISCOVER"
 )
 
 // Estados de job (docs/06-api.md §5).
@@ -906,6 +908,39 @@ type PGDatabaseView struct {
 	System   bool   `json:"is_system"` // template0/template1/postgres
 	Connect  bool   `json:"connect"`   // datallowconn (template0 no acepta)
 	Dumpable bool   `json:"dumpable"`  // candidata a pg_dump
+}
+
+// SQLDiscoverJobPayload es el payload de un job SQL_DISCOVER: enumera las
+// instancias de SQL Server instaladas en el host del agente (solo Windows).
+type SQLDiscoverJobPayload struct{}
+
+// SQLInstanceView describe una instancia detectada (panel §23).
+type SQLInstanceView struct {
+	Name    string `json:"name"` // MSSQLSERVER (por defecto) o SQLEXPRESS…
+	Default bool   `json:"default"`
+	Version string `json:"version,omitempty"`
+	Edition string `json:"edition,omitempty"`
+}
+
+// SQLDiscoverJobResult es el resultado de un job SQL_DISCOVER.
+type SQLDiscoverJobResult struct {
+	Items []SQLInstanceView `json:"items"`
+}
+
+// PGDiscoverJobPayload es el payload de un job PG_DISCOVER: detecta las
+// instancias locales de PostgreSQL (servicios/clústers del host).
+type PGDiscoverJobPayload struct{}
+
+// PGInstanceView describe una instancia PostgreSQL detectada (panel).
+type PGInstanceView struct {
+	Port    string `json:"port,omitempty"`
+	Service string `json:"service,omitempty"` // unidad/servicio detectado
+	Version string `json:"version,omitempty"`
+}
+
+// PGDiscoverJobResult es el resultado de un job PG_DISCOVER.
+type PGDiscoverJobResult struct {
+	Items []PGInstanceView `json:"items"`
 }
 
 // SQLRestoreChainStep es un eslabón de la cadena de restauración

@@ -498,6 +498,54 @@ func (s *Server) handleSQLDatabases(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "updated_at": updatedAt})
 }
 
+// handleSQLDiscover crea un job SQL_DISCOVER (enumera instancias del host;
+// solo Windows).
+// POST /api/v1/admin/sql/discover
+func (s *Server) handleSQLDiscover(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	r, a, ok := s.authorize(w, r, "operate")
+	if !ok {
+		return
+	}
+	var req sqlJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "cuerpo inválido")
+		return
+	}
+	if req.AgentID == "" {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "agent_id es obligatorio")
+		return
+	}
+
+	var jobID string
+	err := s.Store.Update(r.Context(), func(st *store.State) error {
+		agent := st.Agents[req.AgentID]
+		if agent == nil {
+			return store.ErrNotFound
+		}
+		now := s.Now().UTC()
+		payload, _ := json.Marshal(contracts.SQLDiscoverJobPayload{})
+		id, _ := newID()
+		st.Jobs[id] = &store.Job{
+			ID: id, Type: contracts.JobTypeSQLDiscover, State: store.JobPending,
+			AgentID: agent.ID, Trigger: "manual",
+			Payload: payload, MaxAttempts: 1, CreatedBy: a.auditName(),
+			CreatedAt: now, UpdatedAt: now,
+		}
+		st.AppendJobEvent(contracts.JobEvent{JobID: id, Kind: "state", State: store.JobPending, At: now})
+		jobID = id
+		return nil
+	})
+	if err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", err.Error())
+		return
+	}
+	s.audit(r, a, "sql.discover", "agent", req.AgentID, "ok", map[string]string{"job": jobID})
+	writeJSON(w, http.StatusAccepted, contracts.BackupResponse{JobID: jobID, State: store.JobPending})
+}
+
 // handleSQLRestorePoints lista los puntos de restauración SQL (Kind "sql"),
 // más recientes primero, filtrando por agente y/o base.
 // GET /api/v1/admin/sql/restore-points?agent_id=&database=

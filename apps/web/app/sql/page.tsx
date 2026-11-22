@@ -129,6 +129,11 @@ export default function SQLPage() {
   const [dbBusy, setDbBusy] = useState(false);
   const dbReqId = useRef(0);
 
+  // Detección de instancias del agente (SQL_DISCOVER): al elegir agente,
+  // rellena servidor/instancia automáticamente (solo Windows).
+  const [instances, setInstances] = useState<string[]>([]);
+  const discoverReqId = useRef(0);
+
   // Asistente de restauración (RF-42): cadena calculada desde el catálogo.
   // El destino puede ser OTRA instancia (p. ej. un motor limpio): agente,
   // servidor e instancia destino propios; la cadena se calcula siempre
@@ -321,6 +326,55 @@ export default function SQLPage() {
       setRestoreFor(null);
     });
 
+  // Detección de instancias al elegir agente: job SQL_DISCOVER con polling
+  // corto; rellena servidor/instancia solo si el operador no ha escrito nada.
+  useEffect(() => {
+    if (!token || !agentId) {
+      setInstances([]);
+      return;
+    }
+    const reqId = ++discoverReqId.current;
+    (async () => {
+      try {
+        const res = await api<{ job_id: string }>("/api/v1/admin/sql/discover", token, {
+          method: "POST",
+          body: JSON.stringify({ agent_id: agentId }),
+        });
+        const jobURL = `/api/v1/admin/jobs/${res.job_id}`;
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 2000));
+          if (discoverReqId.current !== reqId) return;
+          const job = await api<{ state: string; result?: string }>(jobURL, token);
+          if (JOB_TERMINAL.includes(job.state)) {
+            if (job.state === "succeeded" && job.result) {
+              const parsed = JSON.parse(job.result) as { items?: { name: string; default: boolean }[] };
+              const names = (parsed.items ?? []).map((i) => i.name);
+              if (discoverReqId.current === reqId) {
+                setInstances(names);
+                if (names.length && !server) {
+                  const def = (parsed.items ?? []).find((i) => i.default) ?? (parsed.items ?? [])[0];
+                  if (def) {
+                    if (def.name.toUpperCase() === "MSSQLSERVER") {
+                      setServer("localhost");
+                      if (!instance) setInstance("");
+                    } else {
+                      setServer("localhost");
+                      if (!instance) setInstance(def.name);
+                    }
+                  }
+                }
+              }
+            }
+            break;
+          }
+        }
+      } catch {
+        /* discovery es best-effort: sin bloquear la operativa manual */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, token]);
+
   const requireSel = () => {    if (!agentId || !server || !database || !targetId) {
       setError("Elige agente, destino y escribe servidor y base de datos.");
       return false;
@@ -463,7 +517,9 @@ export default function SQLPage() {
               ))}
             </select>
           </Field>
-          <Field label="Servidor" hint="host o host\instancia">
+          <Field label="Servidor" hint={instances.length
+            ? `instancias detectadas: ${instances.join(", ")} · puedes editarlo a mano`
+            : "host o host\\instancia (elige agente para autodetectar)"}>
             <Input value={server} onChange={(e) => setServer(e.target.value)} placeholder="SQLVM01\MSSQLSERVER" />
           </Field>
           <Field label="Instancia (opcional)">

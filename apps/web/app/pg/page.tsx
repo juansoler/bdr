@@ -64,6 +64,9 @@ export default function PGPage() {
   const [dbList, setDbList] = useState<PGDBView[]>([]);
   const [dbBusy, setDbBusy] = useState(false);
 
+  // Detección de instancias PG del agente (PG_DISCOVER): rellena el puerto.
+  const [pgInstances, setPgInstances] = useState<{ port?: string; service?: string }[]>([]);
+
   // Asistente de restauración.
   const [restoreFor, setRestoreFor] = useState<PGPoint | null>(null);
   const [dstAgentId, setDstAgentId] = useState("");
@@ -111,6 +114,42 @@ export default function PGPage() {
       setBusy(null);
     }
   };
+
+  // Al elegir agente: PG_DISCOVER con polling corto; rellena el puerto si
+  // el operador no lo ha tocado.
+  useEffect(() => {
+    if (!token || !agentId) {
+      setPgInstances([]);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await api<{ job_id: string }>("/api/v1/admin/pg/discover", token, {
+          method: "POST",
+          body: JSON.stringify({ agent_id: agentId }),
+        });
+        const jobURL = `/api/v1/admin/jobs/${res.job_id}`;
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const job = await api<{ state: string; result?: string }>(jobURL, token);
+          if (["succeeded", "failed", "canceled", "expired"].includes(job.state)) {
+            if (job.state === "succeeded" && job.result) {
+              const parsed = JSON.parse(job.result) as { items?: { port?: string; service?: string }[] };
+              setPgInstances(parsed.items ?? []);
+              if ((parsed.items ?? []).length && !port) {
+                const first = (parsed.items ?? [])[0];
+                if (first?.port) setPort(first.port);
+              }
+            }
+            break;
+          }
+        }
+      } catch {
+        /* best-effort */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, token]);
 
   const runDump = () =>
     act("dump", async () => {
@@ -213,7 +252,9 @@ export default function PGPage() {
           <Field label="Host" hint="vacío = socket local">
             <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="localhost" />
           </Field>
-          <Field label="Puerto">
+          <Field label="Puerto" hint={pgInstances.length
+            ? `instancias detectadas: ${pgInstances.map((i) => `${i.service ?? "?"}${i.port ? ":" + i.port : ""}`).join(", ")}`
+            : "elige agente para autodetectar"}>
             <Input value={port} onChange={(e) => setPort(e.target.value)} placeholder="5432" />
           </Field>
           <Field label="Usuario">

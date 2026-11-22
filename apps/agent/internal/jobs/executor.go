@@ -133,6 +133,10 @@ func (e *Executor) Execute(ctx context.Context, job contracts.JobView, opts RunO
 		return e.executeSQLVerify(ctx, job, opts)
 	case contracts.JobTypeSQLInventory:
 		return e.executeSQLInventory(ctx, job, opts)
+	case contracts.JobTypeSQLDiscover:
+		return e.executeSQLDiscover(ctx, job)
+	case contracts.JobTypePGDiscover:
+		return e.executePGDiscover(ctx, job)
 	case contracts.JobTypeSQLCheckDB:
 		return e.executeSQLCheckDB(ctx, job, opts)
 	case contracts.JobTypeSQLCertBackup:
@@ -195,6 +199,7 @@ type SQLRunner interface {
 	Verify(ctx context.Context, creds *contracts.RepositoryCredentials,
 		payload contracts.SQLVerifyJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
 	Inventory(ctx context.Context, payload contracts.SQLInventoryJobPayload) (json.RawMessage, error)
+	Discover(ctx context.Context) (json.RawMessage, error)
 	CheckDB(ctx context.Context, payload contracts.SQLCheckDBJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
 	CertBackup(ctx context.Context, creds *contracts.RepositoryCredentials,
 		payload contracts.SQLCertBackupJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
@@ -213,6 +218,7 @@ type PGRunner interface {
 	Verify(ctx context.Context, creds *contracts.RepositoryCredentials,
 		payload contracts.PGVerifyJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
 	Inventory(ctx context.Context, payload contracts.PGInventoryJobPayload) (json.RawMessage, error)
+	Discover(ctx context.Context) (json.RawMessage, error)
 }
 
 // SetPGRunner inyecta el runner PostgreSQL.
@@ -303,6 +309,22 @@ func (e *Executor) executeSQLInventory(ctx context.Context, job contracts.JobVie
 		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
 	}
 	return e.sqlRunner.Inventory(ctx, payload)
+}
+
+func (e *Executor) executeSQLDiscover(ctx context.Context, job contracts.JobView) (json.RawMessage, error) {
+	if e.sqlRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor SQL Server (instala el agente en el host SQL, versión >= 0.14.0)"}
+	}
+	return e.sqlRunner.Discover(ctx)
+}
+
+func (e *Executor) executePGDiscover(ctx context.Context, job contracts.JobView) (json.RawMessage, error) {
+	if e.pgRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor PostgreSQL (actualiza el agente, versión >= 0.16.20)"}
+	}
+	return e.pgRunner.Discover(ctx)
 }
 
 func (e *Executor) executeSQLCheckDB(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
