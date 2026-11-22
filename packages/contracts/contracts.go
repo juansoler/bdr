@@ -870,7 +870,10 @@ type ImageJobResult struct {
 	KopiaSnapshotID string            `json:"kopia_snapshot_id,omitempty"`
 	Disks           []ImageDiskResult `json:"disks"`
 	BytesTotal      int64             `json:"bytes_total"`
-	DurationMS      int64             `json:"duration_ms"`
+	// BytesUploaded es lo realmente transferido al destino: los segmentos
+	// a cero no se suben y los runs dispersos se suben a tamaño real.
+	BytesUploaded int64 `json:"bytes_uploaded,omitempty"`
+	DurationMS    int64 `json:"duration_ms"`
 }
 
 // ImageDiskResult resume la captura de un disco.

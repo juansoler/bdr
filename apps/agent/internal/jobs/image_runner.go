@@ -27,8 +27,15 @@ import (
 	"github.com/juansoler/bdr/packages/version"
 )
 
-// imageSegmentSize es el tamaño de segmento para capturas de disco.
-const imageSegmentSize = int64(64 << 20) // 64 MiB
+// imageSegmentSize es el tamaño de segmento para capturas de disco. Es
+// variable para que los tests puedan encogerlo; en producción vale 64 MiB.
+var imageSegmentSize = int64(64 << 20)
+
+// captureRunSize es el tamaño de run dentro de un segmento disperso: los
+// trozos no nulos se suben con este tamaño en lugar de arrastrar el
+// segmento entero. Así un solo byte no nulo en un espacio libre
+// fragmentado cuesta 4 MiB subidos en vez de 64 MiB.
+var captureRunSize = int64(4 << 20) // 64 MiB
 
 // ImageRunner captura imágenes completas de disco (equipos físicos).
 type ImageRunner struct {
@@ -99,16 +106,17 @@ func (r *ImageRunner) Capture(ctx context.Context, creds *contracts.RepositoryCr
 		if err != nil {
 			return nil, &CodeError{Code: "E_IMAGE_OPEN", Message: fmt.Sprintf("disco %d (%s): %v", d.Index, d.DevicePath, err)}
 		}
-		segCount, err := captureSource(ctx, dest, src, d, manifest, prog, &result.BytesTotal)
+		stats, err := captureSource(ctx, dest, src, d, manifest, prog, &result.BytesTotal)
 		_ = src.Close()
 		if err != nil {
 			return nil, err
 		}
 		result.Disks = append(result.Disks, contracts.ImageDiskResult{
 			Index: d.Index, Device: d.DevicePath, Table: d.Table,
-			TotalBytes: d.TotalBytes, Segments: segCount,
+			TotalBytes: d.TotalBytes, Segments: stats.Streams,
 		})
 		result.BytesTotal += d.TotalBytes
+		result.BytesUploaded += stats.BytesUploaded
 	}
 
 	out, err := finishCapture(ctx, dest, manifest, "image", progress, result.BytesTotal)
@@ -143,22 +151,45 @@ func filterImageDisks(disks []pkgimg.Disk, want []int) ([]pkgimg.Disk, error) {
 	return filtered, nil
 }
 
+// captureStats resume la captura de un disco.
+type captureStats struct {
+	// Streams es el número de streams añadidos al manifiesto (incluye los
+	// streams Zero, que no se suben).
+	Streams int
+	// BytesRead son los bytes leídos del origen: siempre el tamaño virtual
+	// completo del disco.
+	BytesRead int64
+	// BytesUploaded son los bytes transferidos al destino (solo blobs):
+	// los huecos a cero no se suben y los runs dispersos se suben a su
+	// tamaño real.
+	BytesUploaded int64
+}
+
 // captureSource captura un origen de disco (dispositivo físico o volumen
 // NBD) en segmentos subidos al destino. Reutilizable por imagen y VMs.
 // Añade el disco al manifiesto.
+//
+// Segmentación híbrida para minimizar lo subido sin fragmentar las zonas
+// densas: cada segmento se escanea en runs de captureRunSize; si es todo
+// ceros no se sube nada (stream Zero); si la mitad o más del segmento
+// contiene datos se sube entero (una sola petición, como siempre); si está
+// disperso se suben solo los runs no nulos y los runs nulos contiguos se
+// coalescen en streams Zero. Cada byte del disco queda cubierto por
+// exactamente un stream (cero o blob), de modo que el restore es
+// byte-exacto aunque el volumen destino contenga datos viejos.
 func captureSource(ctx context.Context, dest uploadDest, src io.ReaderAt, disk pkgimg.Disk,
 	manifest *pkgimg.Manifest,
-	progress func(done, total int64, msg string), bytesDone *int64) (int, error) {
+	progress func(done, total int64, msg string), bytesDone *int64) (captureStats, error) {
 
 	manifest.Disks = append(manifest.Disks, disk)
 	total := disk.TotalBytes
 	idx := disk.Index
 	buf := make([]byte, imageSegmentSize)
-	segCount := 0
+	var stats captureStats
 	now := time.Now().UTC()
 	for seg := 0; ; seg++ {
 		if err := ctx.Err(); err != nil {
-			return segCount, &CodeError{Code: "E_CANCELED", Message: "job cancelado"}
+			return stats, &CodeError{Code: "E_CANCELED", Message: "job cancelado"}
 		}
 		offset := int64(seg) * imageSegmentSize
 		if offset >= total {
@@ -184,43 +215,129 @@ func captureSource(ctx context.Context, dest uploadDest, src io.ReaderAt, disk p
 					"aviso: disco %d: cola ilegible desde el offset %d; se recorta al final legible", idx, offset))
 				break
 			}
-			return segCount, &CodeError{Code: "E_IMAGE_CAPTURE",
+			return stats, &CodeError{Code: "E_IMAGE_CAPTURE",
 				Message: fmt.Sprintf("disco %d seg %d: %v", idx, seg, rerr)}
 		}
 		if n == 0 && offset < total {
-			return segCount, &CodeError{Code: "E_IMAGE_CAPTURE",
+			return stats, &CodeError{Code: "E_IMAGE_CAPTURE",
 				Message: fmt.Sprintf("disco %d seg %d: lectura corta en offset %d de %d (¿dispositivo no listo?)", idx, seg, offset, total)}
 		}
 		chunk := buf[:n]
-		sum := sha256Hex(chunk)
-		name := fmt.Sprintf("disk%d-seg%04d", idx, seg)
-		st := pkgimg.Stream{
-			Disk: idx, Segment: seg, Name: name,
-			Offset: offset, Bytes: int64(n), SHA256: sum,
-			State: pkgimg.SegmentCompleted,
-		}
-		switch {
-		case allZero(chunk):
-			st.Zero = true
-		default:
-			key, err := dest.putSegment(ctx, dest.Prefix()+name+"-"+sum, chunk, now)
-			if err != nil {
-				return segCount, &CodeError{Code: "E_IMAGE_UPLOAD",
-					Message: fmt.Sprintf("disco %d seg %d: %v", idx, seg, err)}
-			}
-			st.Blob = key
-		}
-		manifest.Streams = append(manifest.Streams, st)
-		segCount++
+		stats.BytesRead += int64(n)
 		*bytesDone += int64(n)
-		if segCount%20 == 0 || n < int(imageSegmentSize) {
-			progress(*bytesDone, 0, fmt.Sprintf("disco %d: segmento %d (%s)", idx, seg, humanBytes(*bytesDone)))
+		if err := emitSegmentStreams(ctx, dest, idx, seg, offset, chunk, now, manifest, &stats); err != nil {
+			return stats, err
+		}
+		if stats.Streams%20 == 0 || n < int(imageSegmentSize) {
+			progress(*bytesDone, 0, fmt.Sprintf("disco %d: segmento %d (%s leídos, %s subidos)",
+				idx, seg, humanBytes(stats.BytesRead), humanBytes(stats.BytesUploaded)))
 		}
 		if n < int(imageSegmentSize) {
 			break
 		}
 	}
-	return segCount, nil
+	return stats, nil
+}
+
+// emitSegmentStreams convierte el segmento leído en streams del manifiesto
+// según su densidad de datos (ver captureSource).
+func emitSegmentStreams(ctx context.Context, dest uploadDest, diskIdx, seg int, offset int64,
+	chunk []byte, now time.Time, manifest *pkgimg.Manifest, stats *captureStats) error {
+
+	base := fmt.Sprintf("disk%d-seg%04d", diskIdx, seg)
+	segLen := int64(len(chunk))
+
+	// Clasifica los runs del segmento.
+	type run struct {
+		off, size int64
+		zero      bool
+	}
+	runSize := captureRunSize
+	if runSize <= 0 || runSize > segLen {
+		runSize = segLen
+	}
+	var runs []run
+	var nonZeroBytes int64
+	for ro := int64(0); ro < segLen; ro += runSize {
+		size := segLen - ro
+		if size > runSize {
+			size = runSize
+		}
+		z := allZero(chunk[ro : ro+size])
+		runs = append(runs, run{off: offset + ro, size: size, zero: z})
+		if !z {
+			nonZeroBytes += size
+		}
+	}
+
+	switch {
+	case nonZeroBytes == 0:
+		// Segmento vacío: un único stream Zero; no se sube nada.
+		manifest.Streams = append(manifest.Streams, pkgimg.Stream{
+			Disk: diskIdx, Segment: seg, Name: base,
+			Offset: offset, Bytes: segLen,
+			State: pkgimg.SegmentCompleted, Zero: true,
+		})
+		stats.Streams++
+		return nil
+	case nonZeroBytes*2 >= segLen:
+		// Denso: el segmento entero en una sola petición, como siempre.
+		sum := sha256Hex(chunk)
+		key, err := dest.putSegment(ctx, dest.Prefix()+base+"-"+sum, chunk, now)
+		if err != nil {
+			return &CodeError{Code: "E_IMAGE_UPLOAD",
+				Message: fmt.Sprintf("disco %d seg %d: %v", diskIdx, seg, err)}
+		}
+		manifest.Streams = append(manifest.Streams, pkgimg.Stream{
+			Disk: diskIdx, Segment: seg, Name: base,
+			Offset: offset, Bytes: segLen, SHA256: sum,
+			State: pkgimg.SegmentCompleted, Blob: key,
+		})
+		stats.Streams++
+		stats.BytesUploaded += segLen
+		return nil
+	}
+
+	// Disperso: blob por run no nulo; los runs nulos contiguos se coalescen
+	// en un único stream Zero cada vez.
+	for i := 0; i < len(runs); {
+		r := runs[i]
+		if r.zero {
+			end := r.off + r.size
+			j := i
+			for j+1 < len(runs) && runs[j+1].zero {
+				j++
+				end = runs[j].off + runs[j].size
+			}
+			manifest.Streams = append(manifest.Streams, pkgimg.Stream{
+				Disk: diskIdx, Segment: seg,
+				Name:   fmt.Sprintf("%s-zero%03d", base, i),
+				Offset: r.off, Bytes: end - r.off,
+				State: pkgimg.SegmentCompleted, Zero: true,
+			})
+			stats.Streams++
+			i = j + 1
+			continue
+		}
+		rel := r.off - offset
+		data := chunk[rel : rel+r.size]
+		sum := sha256Hex(data)
+		name := fmt.Sprintf("%s-run%03d", base, i)
+		key, err := dest.putSegment(ctx, dest.Prefix()+name+"-"+sum, data, now)
+		if err != nil {
+			return &CodeError{Code: "E_IMAGE_UPLOAD",
+				Message: fmt.Sprintf("disco %d seg %d run %d: %v", diskIdx, seg, i, err)}
+		}
+		manifest.Streams = append(manifest.Streams, pkgimg.Stream{
+			Disk: diskIdx, Segment: seg, Name: name,
+			Offset: r.off, Bytes: r.size, SHA256: sum,
+			State: pkgimg.SegmentCompleted, Blob: key,
+		})
+		stats.Streams++
+		stats.BytesUploaded += r.size
+		i++
+	}
+	return nil
 }
 
 type captureResult struct {

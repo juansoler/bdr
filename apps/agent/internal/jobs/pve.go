@@ -323,16 +323,17 @@ func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCred
 			return nil, &CodeError{Code: "E_IMAGE_OPEN", Message: fmt.Sprintf("%s: %v", dev, err)}
 		}
 		r.Log.Info("capturando volumen", "volid", d.Volid, "nbd", dev, "bytes", disk.TotalBytes)
-		segCount, cerr := captureSource(ctx, dest, src, disk, manifest, prog, &bytesDone)
+		stats, cerr := captureSource(ctx, dest, src, disk, manifest, prog, &bytesDone)
 		_ = src.Close()
 		cleanup()
 		if cerr != nil {
 			return nil, cerr
 		}
 		result.Disks = append(result.Disks, contracts.ImageDiskResult{
-			Index: i, Device: d.Volid, TotalBytes: disk.TotalBytes, Segments: segCount,
+			Index: i, Device: d.Volid, TotalBytes: disk.TotalBytes, Segments: stats.Streams,
 		})
 		result.BytesTotal += disk.TotalBytes
+		result.BytesUploaded += stats.BytesUploaded
 	}
 
 	out, err := finishCapture(ctx, dest, manifest, "vm", progress, bytesDone)
@@ -342,6 +343,8 @@ func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCred
 	result.ManifestID = manifest.ManifestID
 	result.ManifestKey = out.manifestKey
 	result.DurationMS = time.Since(start).Milliseconds()
+	r.Log.Info("captura de VM completa",
+		"leidos", humanBytes(result.BytesTotal), "subidos", humanBytes(result.BytesUploaded))
 
 	// Punto de restauración: el resultado viaja en el job; el servidor lo
 	// registra como restore point kind=vm.
@@ -352,6 +355,7 @@ func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCred
 		"name":              name,
 		"disks":             result.Disks,
 		"bytes_total":       result.BytesTotal,
+		"bytes_uploaded":    result.BytesUploaded,
 		"duration_ms":       result.DurationMS,
 		"kopia_snapshot_id": result.KopiaSnapshotID,
 	})

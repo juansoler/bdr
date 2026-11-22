@@ -62,6 +62,28 @@ func WriteImage(opts WriteOptions) (pkgimg.Manifest, error) {
 	defer dst.Close()
 
 	for i, s := range streams {
+		if s.Zero {
+			// Región toda a ceros: no hay blob que abrir; se escriben
+			// ceros en su offset (en bloques, para no reservar un buffer
+			// del tamaño del stream).
+			const zeroChunk = 4 << 20
+			buf := make([]byte, zeroChunk)
+			for off, remaining := s.Offset, s.Bytes; remaining > 0; {
+				n := remaining
+				if n > zeroChunk {
+					n = zeroChunk
+				}
+				if _, err := dst.WriteAt(buf[:n], off); err != nil {
+					return manifest, fmt.Errorf("segmento %s: escribir ceros: %w", s.Name, err)
+				}
+				off += n
+				remaining -= n
+			}
+			if opts.Progress != nil {
+				opts.Progress(i+1, len(streams), s.Offset+s.Bytes)
+			}
+			continue
+		}
 		name := s.Blob
 		if name == "" {
 			name = s.Name

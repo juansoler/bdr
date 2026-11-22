@@ -2,6 +2,30 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.15.1] — 2026-11-22
+
+### Cambiado
+
+- **Backups de imagen y VM mucho más ligeros con discos dispersos** — la
+  captura (`BACKUP_VM` y `BACKUP_IMAGE`) ahora segmenta de forma híbrida:
+  el segmento de 64 MiB se escanea en runs de 4 MiB y
+  - si está todo a ceros no se sube nada (como antes),
+  - si la mitad o más del segmento tiene datos se sube entero (como antes,
+    en una sola petición),
+  - si está disperso **solo se suben los runs con datos** (4 MiB) y los
+    huecos se coalescen en streams `Zero`.
+  Un solo byte no nulo en un espacio libre fragmentado pasa de costar
+  64 MiB subidos a costar 4 MiB. El manifiesto no cambia de formato
+  (compatible con agentes y restores anteriores); el resultado del job
+  añade `bytes_uploaded` para ver lo realmente transferido frente a los
+  bytes leídos del disco.
+
+### Corregido
+
+- **`image-write` con streams a cero**: el despliegue bare-metal fallaba al
+  intentar abrir un fichero inexistente para los segmentos marcados como
+  cero en el manifiesto; ahora escribe ceros en su offset sin abrir nada.
+
 ## [0.15.0] — 2026-11-22
 
 ### Añadido

@@ -73,6 +73,68 @@ func TestWriteImageRoundtrip(t *testing.T) {
 	}
 }
 
+// Un stream Zero no tiene blob: WriteImage debe escribir ceros en su
+// offset sin intentar abrir un fichero (los manifiestos con runs dispersos
+// generan muchos streams Zero).
+func TestWriteImageWritesZeroStreams(t *testing.T) {
+	dir := t.TempDir()
+
+	blob0 := []byte("primer bloque con datos")
+	sum0 := sha256.Sum256(blob0)
+	blob1 := []byte("tercer bloque con datos")
+	sum1 := sha256.Sum256(blob1)
+	if err := os.WriteFile(filepath.Join(dir, "disk0-seg0000"), blob0, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "disk0-seg0002"), blob1, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const holeBytes = 1024 // región a ceros sin fichero
+	manifest := pkgimg.Manifest{
+		SchemaVersion: 1, Kind: "image",
+		Streams: []pkgimg.Stream{
+			{
+				Disk: 0, Segment: 0, Name: "disk0-seg0000",
+				Offset: 0, Bytes: int64(len(blob0)),
+				SHA256: hex.EncodeToString(sum0[:]), State: pkgimg.SegmentCompleted,
+			},
+			{
+				Disk: 0, Segment: 1, Name: "disk0-seg0001",
+				Offset: int64(len(blob0)), Bytes: holeBytes,
+				State: pkgimg.SegmentCompleted, Zero: true,
+			},
+			{
+				Disk: 0, Segment: 2, Name: "disk0-seg0002",
+				Offset: int64(len(blob0) + holeBytes), Bytes: int64(len(blob1)),
+				SHA256: hex.EncodeToString(sum1[:]), State: pkgimg.SegmentCompleted,
+			},
+		},
+	}
+	mb, _ := json.Marshal(manifest)
+	_ = os.WriteFile(filepath.Join(dir, "manifest.json"), mb, 0o600)
+
+	target := filepath.Join(dir, "target.img")
+	if _, err := WriteImage(WriteOptions{SegmentsDir: dir, Target: target, Verify: true}); err != nil {
+		t.Fatalf("WriteImage con stream Zero: %v", err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := make([]byte, 0, len(blob0)+holeBytes+len(blob1))
+	want = append(want, blob0...)
+	want = append(want, make([]byte, holeBytes)...)
+	want = append(want, blob1...)
+	if len(got) != len(want) {
+		t.Fatalf("tamaño: %d ≠ %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("byte %d: %d ≠ %d", i, got[i], want[i])
+		}
+	}
+}
+
 // Un segmento con SHA-256 alterado aborta la escritura (destino no queda
 // "bien" pero tampoco silenciosamente corrupto: el error es explícito).
 func TestWriteImageDetectsCorruption(t *testing.T) {
