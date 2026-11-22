@@ -2,6 +2,36 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.16] — 2026-11-22
+
+### Añadido
+
+- **SQL Server: restauración desde el catálogo con asistente (RF-42)**:
+  - Constructor de la cadena mínima FULL → DIFF → LOG desde los puntos
+    del catálogo, con continuidad de LSN (comparación big.Int), corte
+    temporal opcional (STOPAT) y detección de huecos con error explícito.
+    Base = último FULL no COPY_ONLY; un DIFF es válido si hereda el
+    `database_backup_lsn` del FULL base.
+  - Endpoint `POST /api/v1/admin/sql/restore-chain` que devuelve la
+    cadena ordenada (URIs en orden de aplicación) o `valid=false` con el
+    motivo (falta un FULL, hueco de logs…).
+  - **Asistente en el panel**: botón Restaurar en los puntos SQL → modal
+    con base destino (in situ u otro nombre con aviso de MOVE), punto en
+    el tiempo, cadena calculada visible (tipo, fin, LSN, tamaño) y
+    confirmación destructiva obligatoria antes de lanzar el job.
+  - **Restauración en otra instancia**: el asistente permite elegir el
+    agente/servidor/instancia de destino — la cadena se calcula sobre los
+    puntos del origen y el job se ejecuta en el agente destino. Motor
+    limpio: mismo nombre de base sin MOVE; destino existente: WITH
+    REPLACE.
+
+### Corregido
+
+- **Puntos de recuperación (general)**: los puntos SQL ya no muestran el
+  botón de restauración de ficheros (abría el flujo RESTORE_FILE y
+  fallaba con «el destino debe ser una ruta absoluta», hallazgo del
+  lab); en su lugar enlazan a la pestaña SQL Server.
+
 ## [0.16.15] — 2026-11-22
 
 ### Mejorado
