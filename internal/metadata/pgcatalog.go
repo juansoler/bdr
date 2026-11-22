@@ -18,7 +18,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strconv"
+	"math/big"
+	"strings"
 	"time"
 
 	"github.com/juansoler/bdr/internal/backup"
@@ -118,7 +119,7 @@ INSERT INTO sql_backups (
     checksum, compression, verified,
     lsn, first_lsn, last_lsn,
     staging_path, repo_path, error, tags
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::numeric,$14::numeric,$15::numeric,$16,$17,$18,$19::jsonb)
 ON CONFLICT (id) DO UPDATE SET
     instance = EXCLUDED.instance,
     database = EXCLUDED.database,
@@ -143,7 +144,7 @@ ON CONFLICT (id) DO UPDATE SET
 		info.ID, info.Instance, info.Database, string(info.BackupType), info.CopyOnly,
 		started, info.FinishedAt, info.DurationSec, info.SizeBytes,
 		info.Checksum, info.Compression, info.Verify,
-		int64(info.LSN), int64(info.FirstLSN), int64(info.LastLSN),
+		lsnParam(info.LSN), lsnParam(info.FirstLSN), lsnParam(info.LastLSN),
 		info.Path, info.RepoPath, info.Error, string(tags),
 	)
 	if err != nil {
@@ -242,16 +243,26 @@ func scanBackup(r scanner) (*BackupInfo, error) {
 	return &info, nil
 }
 
-// parseCatalogLSN parsea un LSN leído como texto del numeric(25,0).
+// parseCatalogLSN parsea un LSN leído como texto del numeric(25,0)
+// (hasta 25 dígitos: texto + big.Int, ver P-26).
 func parseCatalogLSN(s string) (connector.LSN, error) {
 	if s == "" {
-		return 0, nil
+		return "", nil
 	}
-	v, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("LSN del catálogo inválido %q: %w", s, err)
+	if _, ok := new(big.Int).SetString(strings.TrimSpace(s), 10); !ok {
+		return "", fmt.Errorf("LSN del catálogo inválido %q", s)
 	}
-	return connector.LSN(v), nil
+	return connector.LSN(strings.TrimSpace(s)), nil
+}
+
+// lsnParam prepara un LSN para insertarlo en una columna numeric(25,0):
+// vacío → NULL; con valor → texto (pgx lo envía y PG castea con ::numeric).
+func lsnParam(l connector.LSN) any {
+	s := strings.TrimSpace(string(l))
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // StoreChain guarda (upsert por instance+database) la cadena de una base.

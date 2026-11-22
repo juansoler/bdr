@@ -2,7 +2,7 @@ package connector
 
 import (
 	"fmt"
-	"strconv"
+	"math/big"
 	"strings"
 	"time"
 )
@@ -54,8 +54,26 @@ func (p ConnectionParams) CurrentAuth() AuthMode {
 	return AuthWindows
 }
 
-// LSN es un número de secuencia de registro de SQL Server.
-type LSN uint64
+// LSN es un número de secuencia de registro de SQL Server. En msdb los
+// campos *_lsn son numeric(25,0): hasta 25 dígitos, que NO caben en un
+// uint64 (hallazgo del lab P-26: LSN real de 21 dígitos,
+// 338420000000652000001). Se transporta como texto decimal y se compara
+// con big.Int.
+type LSN string
+
+// Compare compara dos LSNs como números enteros (a<b → -1, = → 0, a>b →
+// 1). Un LSN vacío o no numérico vale 0.
+func (l LSN) Compare(o LSN) int {
+	ai, aok := new(big.Int).SetString(strings.TrimSpace(string(l)), 10)
+	bi, bok := new(big.Int).SetString(strings.TrimSpace(string(o)), 10)
+	if !aok {
+		ai = big.NewInt(0)
+	}
+	if !bok {
+		bi = big.NewInt(0)
+	}
+	return ai.Cmp(bi)
+}
 
 // LSNSet agrupa los LSN que msdb.dbo.backupset registra para un backup.
 type LSNSet struct {
@@ -64,22 +82,22 @@ type LSNSet struct {
 	LastLSN     LSN
 }
 
-// parseLSN convierte un LSN recibido como texto en LSN.
-//
-// En msdb.dbo.backupset los campos *_lsn son numeric(25,0); las consultas
-// los CASTean a varchar y se parsean aquí, en lugar de escanear directo a
-// uint64 (el driver puede entregar el decimal con otra representación y
-// truncar o fallar: ver criterio de laboratorio P-26).
+// parseLSN valida y normaliza un LSN recibido como texto (las consultas
+// hacen CAST a varchar; ver P-26). Acepta cualquier longitud de dígitos
+// que big.Int soporte (numeric(25,0) incluido); rechaza negativos y no
+// numéricos.
 func parseLSN(s string) (LSN, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return 0, nil
+		return "", nil
 	}
-	v, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("LSN inválido %q: %w", s, err)
+	if s[0] == '-' || s[0] == '+' {
+		return "", fmt.Errorf("LSN inválido %q (no negativo)", s)
 	}
-	return LSN(v), nil
+	if _, ok := new(big.Int).SetString(s, 10); !ok {
+		return "", fmt.Errorf("LSN inválido %q", s)
+	}
+	return LSN(s), nil
 }
 
 // ChainEntry representa una fila de msdb.dbo.backupset.
@@ -87,10 +105,10 @@ type ChainEntry struct {
 	Type            string `json:"type"` // D = full, I = differential, L = log
 	BackupStart     string `json:"backup_start"`
 	BackupFinish    string `json:"backup_finish"`
-	DatabaseLSN     LSN    `json:"database_backup_lsn"`
+	DatabaseLSN     LSN    `json:"database_backup_lsn"` // numeric(25,0) como texto
 	CheckpointLSN   LSN    `json:"checkpoint_lsn"`
 	FirstLSN        LSN    `json:"first_lsn"`
 	LastLSN         LSN    `json:"last_lsn"`
 	CopyOnly        bool   `json:"copy_only"`
-	CompressedBytes uint64 `json:"compressed_backup_size"`
+	CompressedBytes LSN    `json:"compressed_backup_size"` // numeric(25,0) como texto
 }

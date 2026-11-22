@@ -13,14 +13,16 @@ func TestParseLSN(t *testing.T) {
 		want   LSN
 		falla  bool
 	}{
-		{"cero", "0", 0, false},
-		{"valor simple", "42", 42, false},
-		{"con espacios", " 7 ", 7, false},
-		{"vacío", "", 0, false},
-		{"máximo uint64", "18446744073709551615", 18446744073709551615, false},
-		{"desborda uint64", "18446744073709551616", 0, true},
-		{"no numérico", "abc", 0, true},
-		{"negativo", "-1", 0, true},
+		{"cero", "0", "0", false},
+		{"valor simple", "42", "42", false},
+		{"con espacios", " 7 ", "7", false},
+		{"vacío", "", "", false},
+		{"máximo uint64", "18446744073709551615", "18446744073709551615", false},
+		{"LSN real de 21 dígitos (P-26)", "338420000000652000001", "338420000000652000001", false},
+		{"máximo numeric(25,0)", "9999999999999999999999999", "9999999999999999999999999", false},
+		{"no numérico", "abc", "", true},
+		{"negativo", "-1", "", true},
+		{"con decimales", "12.5", "", true},
 	}
 
 	for _, c := range cases {
@@ -28,7 +30,7 @@ func TestParseLSN(t *testing.T) {
 			got, err := parseLSN(c.in)
 			if c.falla {
 				if err == nil {
-					t.Fatalf("parseLSN(%q) debería fallar; devolvió %d", c.in, got)
+					t.Fatalf("parseLSN(%q) debería fallar; devolvió %q", c.in, got)
 				}
 				return
 			}
@@ -36,9 +38,29 @@ func TestParseLSN(t *testing.T) {
 				t.Fatalf("parseLSN(%q): %v", c.in, err)
 			}
 			if got != c.want {
-				t.Fatalf("parseLSN(%q) = %d; esperaba %d", c.in, got, c.want)
+				t.Fatalf("parseLSN(%q) = %q; esperaba %q", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+func TestLSNCompare(t *testing.T) {
+	cases := []struct {
+		a, b LSN
+		want int
+	}{
+		{"100", "200", -1},
+		{"200", "100", 1},
+		{"200", "200", 0},
+		{"", "0", 0},  // vacío = 0
+		{"", "1", -1}, // vacío = 0 < 1
+		{"338420000000652000001", "338420000000652000002", -1}, // 21 dígitos
+		{"9999999999999999999999999", "10000000000000000000000000", -1},
+	}
+	for _, c := range cases {
+		if got := c.a.Compare(c.b); got != c.want {
+			t.Errorf("Compare(%q, %q) = %d; esperaba %d", c.a, c.b, got, c.want)
+		}
 	}
 }
 

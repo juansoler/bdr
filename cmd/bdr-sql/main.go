@@ -292,7 +292,7 @@ func runChain(ctx context.Context, args []string) error {
 		fmt.Printf("cadena de %s: %d backups — válida\n", *database, len(chain))
 	}
 	for _, e := range chain {
-		fmt.Printf("  %s | %s -> %s | dbLSN=%d first=%d last=%d | copy_only=%v | %d bytes\n",
+		fmt.Printf("  %s | %s -> %s | dbLSN=%s first=%s last=%s | copy_only=%v | %s bytes\n",
 			e.Type, e.BackupStart, e.BackupFinish,
 			e.DatabaseLSN, e.FirstLSN, e.LastLSN, e.CopyOnly, e.CompressedBytes)
 	}

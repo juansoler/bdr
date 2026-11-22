@@ -175,7 +175,7 @@ func ChainEntryFromDBEntry(e connector.ChainEntry) ChainEntryInfo {
 		FirstLSN:     e.FirstLSN,
 		LastLSN:      e.LastLSN,
 		CopyOnly:     e.CopyOnly,
-		Compressed:   e.CompressedBytes > 0,
+		Compressed:   e.CompressedBytes != "" && e.CompressedBytes != "0",
 	}
 }
 

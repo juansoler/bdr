@@ -277,6 +277,8 @@ func bracketId(name string) string {
 // ValidateChain valida que la cadena de backups tenga continuidad de LSN.
 // Requiere que las entradas vengan ordenadas cronológicamente
 // (full -> diff -> log...), tal como devuelve connector.ListBackupChain.
+// La comparación es numérica con big.Int (numeric(25,0) no cabe en uint64,
+// ver P-26).
 func ValidateChain(chain []connector.ChainEntry) error {
 	if len(chain) == 0 {
 		return fmt.Errorf("cadena vacía")
@@ -285,8 +287,8 @@ func ValidateChain(chain []connector.ChainEntry) error {
 		prev := chain[i-1]
 		curr := chain[i]
 		// Validación básica: el first_lsn del actual debe ser >= last_lsn del anterior
-		if curr.FirstLSN < prev.LastLSN {
-			return fmt.Errorf("discontinuidad de LSN en posición %d: prev last_lsn=%d > curr first_lsn=%d",
+		if curr.FirstLSN.Compare(prev.LastLSN) < 0 {
+			return fmt.Errorf("discontinuidad de LSN en posición %d: prev last_lsn=%s > curr first_lsn=%s",
 				i, prev.LastLSN, curr.FirstLSN)
 		}
 	}

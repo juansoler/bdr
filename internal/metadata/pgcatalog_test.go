@@ -44,9 +44,9 @@ func TestPGCatalog(t *testing.T) {
 		Checksum:    true,
 		Compression: true,
 		Verify:      true,
-		LSN:         connector.LSN(10),
-		FirstLSN:    connector.LSN(100),
-		LastLSN:     connector.LSN(200),
+		LSN:         connector.LSN("10"),
+		FirstLSN:    connector.LSN("100"),
+		LastLSN:     connector.LSN("200"),
 		Path:        "/staging/app_FULL.bak",
 		RepoPath:    "s3://bdr/sql/app_FULL.bak",
 		Tags:        map[string]string{"type": "FULL"},
@@ -65,8 +65,8 @@ func TestPGCatalog(t *testing.T) {
 	if got.Database != "app" || got.Instance != "sql-vm-01" {
 		t.Errorf("backup leído: %+v", got)
 	}
-	if got.LSN != 10 || got.FirstLSN != 100 || got.LastLSN != 200 {
-		t.Errorf("LSNs mal leídos: db=%d first=%d last=%d", got.LSN, got.FirstLSN, got.LastLSN)
+	if got.LSN != "10" || got.FirstLSN != "100" || got.LastLSN != "200" {
+		t.Errorf("LSNs mal leídos: db=%q first=%q last=%q", got.LSN, got.FirstLSN, got.LastLSN)
 	}
 	if !got.Verify || !got.Compression || got.DurationSec != 42.5 {
 		t.Errorf("metadatos mal leídos: %+v", got)
@@ -85,9 +85,9 @@ func TestPGCatalog(t *testing.T) {
 		Validated: true,
 		Entries: []ChainEntryInfo{{
 			Type:        backup.TypeFull,
-			DatabaseLSN: connector.LSN(10),
-			FirstLSN:    connector.LSN(100),
-			LastLSN:     connector.LSN(200),
+			DatabaseLSN: connector.LSN("10"),
+			FirstLSN:    connector.LSN("100"),
+			LastLSN:     connector.LSN("200"),
 		}},
 	}
 	if err := c.StoreChain(ctx, chain); err != nil {
@@ -97,7 +97,7 @@ func TestPGCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetChain: %v", err)
 	}
-	if !gotChain.Validated || len(gotChain.Entries) != 1 || gotChain.Entries[0].LastLSN != 200 {
+	if !gotChain.Validated || len(gotChain.Entries) != 1 || gotChain.Entries[0].LastLSN != "200" {
 		t.Fatalf("cadena mal leída: %+v", gotChain)
 	}
 

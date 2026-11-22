@@ -67,9 +67,9 @@ func TestBuildRestoreTSQL(t *testing.T) {
 
 func TestValidateChain(t *testing.T) {
 	chain := []connector.ChainEntry{
-		{Type: "D", FirstLSN: 100, LastLSN: 200},
-		{Type: "I", FirstLSN: 200, LastLSN: 300},
-		{Type: "L", FirstLSN: 300, LastLSN: 400},
+		{Type: "D", FirstLSN: "100", LastLSN: "200"},
+		{Type: "I", FirstLSN: "200", LastLSN: "300"},
+		{Type: "L", FirstLSN: "300", LastLSN: "400"},
 	}
 	if err := ValidateChain(chain); err != nil {
 		t.Fatalf("cadena continua rechazada: %v", err)
@@ -84,7 +84,7 @@ func TestValidateChain(t *testing.T) {
 	}
 
 	rota := append([]connector.ChainEntry(nil), chain...)
-	rota[2].FirstLSN = 150 // discontinuidad respecto a last_lsn=300 del anterior
+	rota[2].FirstLSN = "150" // discontinuidad respecto a last_lsn=300 del anterior
 	if err := ValidateChain(rota); err == nil {
 		t.Fatal("debe detectar la discontinuidad de LSN")
 	}

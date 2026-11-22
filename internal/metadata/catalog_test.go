@@ -19,13 +19,13 @@ func TestNewBackupInfoMapeaVerificaciónYLSNs(t *testing.T) {
 	}
 	info := NewBackupInfo(res, "app", "inst1", backup.TypeFull,
 		"/staging/app_FULL.bak", "/repo/app_FULL.bak",
-		connector.LSN(10), connector.LSN(100), connector.LSN(200))
+		connector.LSN("10"), connector.LSN("100"), connector.LSN("200"))
 
 	if !info.Verify {
 		t.Error("Verify debe heredar res.Verified")
 	}
-	if info.LSN != 10 || info.FirstLSN != 100 || info.LastLSN != 200 {
-		t.Errorf("LSNs mal mapeados: db=%d first=%d last=%d", info.LSN, info.FirstLSN, info.LastLSN)
+	if info.LSN != "10" || info.FirstLSN != "100" || info.LastLSN != "200" {
+		t.Errorf("LSNs mal mapeados: db=%q first=%q last=%q", info.LSN, info.FirstLSN, info.LastLSN)
 	}
 	if !info.Checksum || !info.Compression {
 		t.Error("Checksum/Compression no heredados del resultado")
@@ -34,7 +34,7 @@ func TestNewBackupInfoMapeaVerificaciónYLSNs(t *testing.T) {
 		t.Error("un FULL no debe marcarse CopyOnly")
 	}
 
-	co := NewBackupInfo(res, "app", "inst1", backup.TypeCopyOnly, "/s", "/r", 0, 0, 0)
+	co := NewBackupInfo(res, "app", "inst1", backup.TypeCopyOnly, "/s", "/r", "", "", "")
 	if !co.CopyOnly {
 		t.Error("un COPY_ONLY debe marcarse CopyOnly")
 	}
@@ -45,7 +45,7 @@ func TestInMemoryCatalog(t *testing.T) {
 	c := NewInMemoryCatalog()
 
 	res := &backup.Result{SizeBytes: 1, FinishedAt: time.Now()}
-	info := NewBackupInfo(res, "app", "inst1", backup.TypeFull, "/s", "/r", 1, 2, 3)
+	info := NewBackupInfo(res, "app", "inst1", backup.TypeFull, "/s", "/r", "1", "2", "3")
 	if err := c.StoreBackup(ctx, info); err != nil {
 		t.Fatalf("StoreBackup: %v", err)
 	}
@@ -57,12 +57,12 @@ func TestInMemoryCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetBackup: %v", err)
 	}
-	if got.Database != "app" || got.LastLSN != 3 {
+	if got.Database != "app" || got.LastLSN != "3" {
 		t.Fatalf("GetBackup devolvió %+v", got)
 	}
 
 	// ListBackups filtra por base de datos.
-	otra := NewBackupInfo(res, "otra", "inst1", backup.TypeLog, "/s2", "/r2", 0, 0, 0)
+	otra := NewBackupInfo(res, "otra", "inst1", backup.TypeLog, "/s2", "/r2", "", "", "")
 	if err := c.StoreBackup(ctx, otra); err != nil {
 		t.Fatalf("StoreBackup otra: %v", err)
 	}
@@ -102,11 +102,11 @@ func TestChainEntryFromDBEntry(t *testing.T) {
 		Type:            "D",
 		BackupStart:     "2026-11-21T10:00:00",
 		BackupFinish:    "2026-11-21T10:05:00",
-		DatabaseLSN:     10,
-		FirstLSN:        100,
-		LastLSN:         200,
+		DatabaseLSN:     "10",
+		FirstLSN:        "100",
+		LastLSN:         "200",
 		CopyOnly:        false,
-		CompressedBytes: 4096,
+		CompressedBytes: "4096",
 	}
 	info := ChainEntryFromDBEntry(e)
 	if info.Type != backup.TypeFull {
@@ -115,8 +115,8 @@ func TestChainEntryFromDBEntry(t *testing.T) {
 	if !info.Compressed {
 		t.Error("Compressed debe ser true con CompressedBytes > 0")
 	}
-	if info.LastLSN != 200 {
-		t.Errorf("LastLSN = %d; esperaba 200", info.LastLSN)
+	if info.LastLSN != "200" {
+		t.Errorf("LastLSN = %q; esperaba 200", info.LastLSN)
 	}
 
 	// Códigos restantes y flag copy_only.

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -85,12 +84,14 @@ func sqlBackupType(s string) (backup.Type, bool, error) {
 	}
 }
 
-// formatLSN serializa un LSN como texto (vacío si es 0: omitempty).
+// formatLSN serializa un LSN para el resultado del job (ya es texto:
+// numeric(25,0) no cabe en uint64, ver P-26). Vacío/0 → "" (omitempty).
 func formatLSN(l connector.LSN) string {
-	if l == 0 {
+	s := strings.TrimSpace(string(l))
+	if s == "" || s == "0" {
 		return ""
 	}
-	return strconv.FormatUint(uint64(l), 10)
+	return s
 }
 
 // Backup ejecuta un job SQL_BACKUP.

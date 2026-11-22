@@ -198,7 +198,7 @@ ORDER BY backup_start_date ASC`
 		if cbLSN, err := parseLSN(compressed); err != nil {
 			return nil, err
 		} else {
-			e.CompressedBytes = uint64(cbLSN)
+			e.CompressedBytes = cbLSN
 		}
 		result = append(result, e)
 	}
