@@ -36,6 +36,7 @@ var (
 	procGetUserObjectInformation = user32DLL.NewProc("GetUserObjectInformationW")
 	procSetThreadDesktop         = user32DLL.NewProc("SetThreadDesktop") // escritorios = objetos USER: user32
 	procGetThreadDesktop         = user32DLL.NewProc("GetThreadDesktop") // (el panic de 0.16.4 lo probó)
+	procGetProcessWindowStation  = user32DLL.NewProc("GetProcessWindowStation")
 	procCreateCompatibleDC       = gdi32DLL.NewProc("CreateCompatibleDC")
 	procCreateDIBSection         = gdi32DLL.NewProc("CreateDIBSection")
 	procSelectObject             = gdi32DLL.NewProc("SelectObject")
@@ -184,10 +185,59 @@ func (g *gdiCapture) Frame() ([]byte, int, int, error) {
 		sdc, uintptr(int32(g.vx)), uintptr(int32(g.vy)), srccopy)
 	if r1 == 0 {
 		return nil, 0, 0, fmt.Errorf(
-			"GDI: BitBlt falló: %v (memDC=%#x bmp=%#x vx=%d vy=%d %dx%d)",
-			err, uintptr(g.memDC), uintptr(g.bmp), g.vx, g.vy, w, h)
+			"GDI: BitBlt falló: %v (memDC=%#x bmp=%#x oldBmp=%#x vx=%d vy=%d %dx%d)",
+			err, uintptr(g.memDC), uintptr(g.bmp), uintptr(g.oldBmp), g.vx, g.vy, w, h)
 	}
 	return g.pix, g.w, g.h, nil
+}
+
+// logSessionContext registra el contexto de seguridad del helper: sesión,
+// window station, escritorio del hilo y usuario. Es EL dato decisivo para
+// diagnosticar el «BitBlt: handle invalid» — si el helper no aterriza en la
+// sesión interactiva del usuario (sesión ≠ consola, station ≠ WinSta0), la
+// captura no puede funcionar.
+func logSessionContext(logf func(string, ...any)) {
+	pid := windows.GetCurrentProcessId()
+	var sess uint32
+	if err := windows.ProcessIdToSessionId(pid, &sess); err == nil {
+		logf("contexto: pid=%d sesión=%d", pid, sess)
+	} else {
+		logf("contexto: pid=%d (sesión desconocida: %v)", pid, err)
+	}
+	if ws, _, _ := procGetProcessWindowStation.Call(); ws != 0 {
+		name := userObjectName(ws)
+		if name == "" {
+			name = "?"
+		}
+		logf("contexto: window station=%s", name)
+	}
+	if dn := currentThreadDesktopName(); dn != "" {
+		logf("contexto: escritorio del hilo=%s", dn)
+	}
+	var nb uint32
+	if err := windows.GetUserNameEx(windows.NameSamCompatible, nil, &nb); err == nil && nb > 0 {
+		buf := make([]uint16, nb)
+		if err2 := windows.GetUserNameEx(windows.NameSamCompatible, &buf[0], &nb); err2 == nil {
+			logf("contexto: usuario=%s", syscall.UTF16ToString(buf[:nb]))
+		}
+	}
+}
+
+// userObjectName devuelve el nombre de un objeto USER (window station o
+// escritorio) vía GetUserObjectInformationW(UOI_NAME).
+func userObjectName(h uintptr) string {
+	var needed uint32
+	procGetUserObjectInformation.Call(h, uoiName, 0, 0, uintptr(unsafe.Pointer(&needed)))
+	if needed == 0 || needed > 1024 {
+		return ""
+	}
+	buf := make([]uint16, needed/2+1)
+	r1, _, _ := procGetUserObjectInformation.Call(h, uoiName,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(needed), uintptr(unsafe.Pointer(&needed)))
+	if r1 == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf)
 }
 
 // bindInteractiveDesktop fija el escritorio interactivo ACTIVO al hilo

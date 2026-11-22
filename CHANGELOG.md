@@ -2,6 +2,28 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.6] — 2026-11-22
+
+### Corregido
+
+- **Windows: el helper no aterriza en la sesión interactiva del usuario** —
+  el log de 0.16.5 lo acusa: «escritorio interactivo no abrible» +
+  «BitBlt: The handle is invalid» con DC y DIB válidos. Lanzado con el
+  token de WTSQueryUserToken, el proceso puede quedar en la sesión del
+  servicio (0), donde WinSta0 no tiene escritorio real (GetDC «funciona»,
+  BitBlt falla). Ahora se aplica el patrón canónico de «iniciar proceso
+  interactivo desde un servicio»: `DuplicateTokenEx(TokenPrimary)` +
+  **`SetTokenInformation(TokenSessionId)` explícito** con la sesión de
+  consola antes del `CreateProcessAsUser`.
+
+### Añadido
+
+- El helper registra su contexto de seguridad en el log:
+  sesión del proceso, window station, escritorio del hilo y usuario
+  (DOMAIN\usuario) — el diagnóstico decisivo para este tipo de fallo;
+  y el fallo de BitBlt incluye ahora también el oldBmp (detecta fallos
+  de SelectObject).
+
 ## [0.16.5] — 2026-11-22
 
 ### Corregido

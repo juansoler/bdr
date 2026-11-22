@@ -82,6 +82,9 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) error {
 	bindInteractiveDesktop(func(format string, args ...any) {
 		logLine(logFile, format, args...)
 	})
+	logSessionContext(func(format string, args ...any) {
+		logLine(logFile, format, args...)
+	})
 
 	engine := NewTileEngine()
 	logLine(logFile, "paso 3: inicializando captura GDI")

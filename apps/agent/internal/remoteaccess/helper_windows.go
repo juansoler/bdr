@@ -39,6 +39,24 @@ func spawnScreenHelper() (*helperProcess, error) {
 	}
 	defer token.Close()
 
+	// Patrón canónico de «iniciar proceso interactivo desde un servicio»:
+	// duplicar el token a primario y FIJAR EXPLÍCITAMENTE el SessionId de la
+	// sesión destino. Sin este paso, algunos caminos dejan el hijo en la
+	// sesión del servicio (0) — donde WinSta0 no tiene escritorio real:
+	// GetDC «funciona», BitBlt falla con «handle invalid» y OpenInputDesktop
+	// falla (síntomas exactos del log del helper 0.16.5).
+	var dupToken windows.Token
+	if err := windows.DuplicateTokenEx(token, windows.MAXIMUM_ALLOWED, nil,
+		windows.SecurityImpersonation, windows.TokenPrimary, &dupToken); err != nil {
+		return nil, fmt.Errorf("DuplicateTokenEx: %w", err)
+	}
+	defer dupToken.Close()
+	sid := uint32(sessionID)
+	if err := windows.SetTokenInformation(dupToken, windows.TokenSessionId,
+		(*byte)(unsafe.Pointer(&sid)), 4); err != nil {
+		return nil, fmt.Errorf("SetTokenInformation(TokenSessionId=%d): %w", sessionID, err)
+	}
+
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -77,7 +95,7 @@ func spawnScreenHelper() (*helperProcess, error) {
 	}
 	pi := &windows.ProcessInformation{}
 	err = windows.CreateProcessAsUser(
-		token, exe16, cmd16, nil, nil, true, /* hereda handles */
+		dupToken, exe16, cmd16, nil, nil, true, /* hereda handles */
 		windows.CREATE_NO_WINDOW, nil, nil, si, pi)
 	// Los extremos del hijo sobran en el padre tras CreateProcess.
 	_ = windows.CloseHandle(inRead)
