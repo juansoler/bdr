@@ -137,14 +137,15 @@ if [[ $PLATFORM_OS = linux ]]; then
 fi
 if [[ ! -f "$DATA_DIR/control/kopia.config" ]]; then
   echo "== inicializando repositorio Kopia en /opt/bdr/repo…"
+  # Sin sudo -u: sistemas sin sudo (Debian minimal, pve) no lo tienen y el
+  # instalador ya exige root. Se inicializa como root y después se transfiere
+  # todo al usuario del servicio — el control lee el config y escribe en el
+  # repo como bdr. Darwin no tiene usuario de servicio.
+  KOPIA_PASSWORD="$KOPIA_PASS" "$BIN_DIR/kopia" \
+    --config-file="$DATA_DIR/control/kopia.config" repository create filesystem \
+    --path=/opt/bdr/repo --cache-directory="$DATA_DIR/kcache"
   if [[ $PLATFORM_OS = linux ]]; then
-    sudo -u bdr env KOPIA_PASSWORD="$KOPIA_PASS" "$BIN_DIR/kopia" \
-      --config-file="$DATA_DIR/control/kopia.config" repository create filesystem \
-      --path=/opt/bdr/repo --cache-directory="$DATA_DIR/kcache"
-  else
-    KOPIA_PASSWORD="$KOPIA_PASS" "$BIN_DIR/kopia" \
-      --config-file="$DATA_DIR/control/kopia.config" repository create filesystem \
-      --path=/opt/bdr/repo --cache-directory="$DATA_DIR/kcache"
+    chown -R bdr:bdr "$DATA_DIR" /opt/bdr/repo
   fi
 fi
 

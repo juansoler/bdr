@@ -117,8 +117,11 @@ func newSendInputInjector(logf func(string, ...any)) *sendInputInjector {
 }
 
 // sendOne envía un INPUT ya construido en buf (40 bytes).
+// Orden canónico: SendInput(cInputs, pInputs, cbSize) — la versión anterior
+// pasaba el puntero como cInputs y «1» como puntero (ERROR_NOACCESS en el
+// primer evento; el log de la 0.16.21 lo delató).
 func (s *sendInputInjector) sendOne(buf []byte, what string) error {
-	r1, _, err := procSendInput.Call(uintptr(unsafe.Pointer(&buf[0])), 1, sizeofInput)
+	r1, _, err := procSendInput.Call(1, uintptr(unsafe.Pointer(&buf[0])), sizeofInput)
 	if r1 != 1 {
 		s.mu.Lock()
 		s.failN++

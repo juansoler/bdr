@@ -40,16 +40,17 @@ mkdir -p "$DATA_DIR"
 chmod 0700 "$DATA_DIR"
 chown bdr-agent:bdr-agent "$DATA_DIR"
 
-# Enrolamiento como el usuario del servicio para que la configuración (0600)
-# quede con el dueño correcto.
+# Sin sudo -u: sistemas sin sudo (Debian minimal, pve) no lo tienen y el
+# instalador ya exige root. Se enrola como root y después se transfiere el
+# data-dir al usuario del servicio — la configuración (0600) queda con su
+# dueño correcto, que era el motivo del drop de privilegios.
 ENROLL_ARGS=(register --server "$SERVER" --data-dir "$DATA_DIR")
 if [[ -n "$FP" ]]; then
   ENROLL_ARGS+=(--server-fingerprint "$FP")
 fi
 
 set +e
-BDR_ENROLL_TOKEN="$BDR_ENROLL_TOKEN" sudo -u bdr-agent \
-  /usr/local/bin/bdr-agent "${ENROLL_ARGS[@]}"
+BDR_ENROLL_TOKEN="$BDR_ENROLL_TOKEN" /usr/local/bin/bdr-agent "${ENROLL_ARGS[@]}"
 RC=$?
 set -e
 if [[ $RC -ne 0 ]]; then
@@ -57,6 +58,7 @@ if [[ $RC -ne 0 ]]; then
   exit $RC
 fi
 unset BDR_ENROLL_TOKEN
+chown -R bdr-agent:bdr-agent "$DATA_DIR"
 
 systemctl daemon-reload
 systemctl enable --now bdr-agent

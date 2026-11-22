@@ -2,6 +2,33 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.22] — 2026-11-22
+
+### Corregido
+
+- **Windows: SendInput nunca inyectaba nada** (ratón y teclado muertos con
+  la pantalla visible) — los argumentos estaban invertidos: se pasaba el
+  puntero al INPUT como `cInputs` y `1` como `pInputs` → Windows leía la
+  dirección 0x1 y devolvía `ERROR_NOACCESS` («acceso no válido a la
+  ubicación de memoria») en el primer evento. El log de la 0.16.21 lo
+  delató (`rc=0` + ese mensaje exacto). Orden canónico restaurado:
+  `SendInput(cInputs=1, pInputs, cbSize)`.
+
+## [0.16.22] — 2026-11-22
+
+### Corregido
+
+- **Instalador del servidor en sistemas sin `sudo`** (Debian minimal, PVE):
+  la inicialización del repositorio Kopia usaba `sudo -u bdr` y moría con
+  `sudo: command not found`, dejando la instalación a medias. Ahora se
+  inicializa como root (el instalador ya lo exige) y se transfiere al
+  usuario del servicio con `chown` — mismo resultado, cero dependencia de
+  sudo. Aplica a `install-linux.sh`, `install-macos.sh` y a la copia raíz
+  `install.sh`.
+- **Instalador manual del agente Linux**: mismo problema con
+  `sudo -u bdr-agent` en el enrolamiento — ahora root + `chown` del
+  data-dir.
+
 ## [0.16.21] — 2026-11-22
 
 ### Corregido
