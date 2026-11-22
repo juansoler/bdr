@@ -39,7 +39,7 @@ func TestBuildBackupTSQL(t *testing.T) {
 	}{
 		{
 			nombre: "full", database: "app", t: TypeFull, path: `D:\bk\app.bak`,
-			quiere:  []string{"BACKUP DATABASE N'app' TO DISK = N'D:\\bk\\app.bak'", "COMPRESSION", "CHECKSUM", "STATS = 10"},
+			quiere:  []string{"BACKUP DATABASE [app] TO DISK = N'D:\\bk\\app.bak'", "COMPRESSION", "CHECKSUM", "STATS = 10"},
 			prohibe: []string{"COPY_ONLY", "DIFFERENTIAL", "BACKUP LOG"},
 		},
 		{
@@ -54,7 +54,7 @@ func TestBuildBackupTSQL(t *testing.T) {
 		},
 		{
 			nombre: "log", database: "app", t: TypeLog, path: `D:\bk\app.trn`,
-			quiere:  []string{"BACKUP LOG N'app'", "COMPRESSION, CHECKSUM"},
+			quiere:  []string{"BACKUP LOG [app]", "COMPRESSION, CHECKSUM"},
 			prohibe: []string{"DIFFERENTIAL", "COPY_ONLY"},
 		},
 		{
@@ -64,7 +64,12 @@ func TestBuildBackupTSQL(t *testing.T) {
 		},
 		{
 			nombre: "nombre con apóstrofo", database: "O'Brien", t: TypeFull, path: `D:\bk\ob.bak`,
-			quiere: []string{"N'O''Brien'"},
+			quiere:  []string{"BACKUP DATABASE [O'Brien] TO DISK"},
+			prohibe: []string{"N'O''Brien'"},
+		},
+		{
+			nombre: "nombre con corchete", database: `Weird]Name`, t: TypeFull, path: `D:\bk\w.bak`,
+			quiere: []string{"BACKUP DATABASE [Weird]]Name] TO DISK"},
 		},
 	}
 
@@ -95,7 +100,7 @@ func TestBuildBackupTSQLCifrado(t *testing.T) {
 		t.Fatalf("buildBackupTSQL cifrado: %v", err)
 	}
 	for _, want := range []string{
-		"BACKUP DATABASE N'app'",
+		"BACKUP DATABASE [app]",
 		"COMPRESSION, CHECKSUM",
 		"ENCRYPTION (ALGORITHM = AES_128, SERVER CERTIFICATE = N'BDR_Cert')",
 	} {

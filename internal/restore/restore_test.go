@@ -12,7 +12,7 @@ import (
 func TestBuildRestoreTSQL(t *testing.T) {
 	t.Run("recovery simple", func(t *testing.T) {
 		got := buildRestoreTSQL("app", `D:\bk\app.bak`, ModeRecovery, nil, nil, 10)
-		want := `RESTORE DATABASE N'app' FROM DISK = N'D:\bk\app.bak' WITH REPLACE, RECOVERY, STATS = 10`
+		want := `RESTORE DATABASE [app] FROM DISK = N'D:\bk\app.bak' WITH REPLACE, RECOVERY, STATS = 10`
 		if got != want {
 			t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 		}
@@ -20,7 +20,7 @@ func TestBuildRestoreTSQL(t *testing.T) {
 
 	t.Run("norecovery", func(t *testing.T) {
 		got := buildRestoreTSQL("app", `D:\bk\app.bak`, ModeNoRecovery, nil, nil, 10)
-		want := `RESTORE DATABASE N'app' FROM DISK = N'D:\bk\app.bak' WITH REPLACE, NORECOVERY, STATS = 10`
+		want := `RESTORE DATABASE [app] FROM DISK = N'D:\bk\app.bak' WITH REPLACE, NORECOVERY, STATS = 10`
 		if got != want {
 			t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 		}
@@ -32,7 +32,7 @@ func TestBuildRestoreTSQL(t *testing.T) {
 			{Logical: "app_log", Physical: `E:\logs\app.ldf`},
 		}
 		got := buildRestoreTSQL("app", `C:\bk\app.bak`, ModeNoRecovery, moves, nil, 10)
-		want := `RESTORE DATABASE N'app' FROM DISK = N'C:\bk\app.bak' WITH REPLACE, NORECOVERY, STATS = 10,` +
+		want := `RESTORE DATABASE [app] FROM DISK = N'C:\bk\app.bak' WITH REPLACE, NORECOVERY, STATS = 10,` +
 			` MOVE N'app' TO N'E:\data\app.mdf', MOVE N'app_log' TO N'E:\logs\app.ldf'`
 		if got != want {
 			t.Fatalf("got:\n%s\nwant:\n%s", got, want)
@@ -55,8 +55,12 @@ func TestBuildRestoreTSQL(t *testing.T) {
 
 	t.Run("escape de nombres", func(t *testing.T) {
 		got := buildRestoreTSQL("O'Brien", `D:\bk\ob.bak`, ModeRecovery, nil, nil, 10)
-		if !strings.Contains(got, "N'O''Brien'") {
-			t.Errorf("nombre sin escapar:\n%s", got)
+		if !strings.Contains(got, "RESTORE DATABASE [O'Brien]") {
+			t.Errorf("nombre como identificador esperado:\n%s", got)
+		}
+		got2 := buildRestoreTSQL("Weird]Name", `D:\bk\w.bak`, ModeRecovery, nil, nil, 10)
+		if !strings.Contains(got2, "RESTORE DATABASE [Weird]]Name]") {
+			t.Errorf("corchete sin doblar:\n%s", got2)
 		}
 	})
 }

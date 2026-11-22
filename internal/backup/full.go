@@ -45,8 +45,16 @@ func NormalizeAlgorithm(a string) (string, error) {
 	}
 }
 
+// bracketId cita un identificador T-SQL con corchetes (escapa ]). En
+// BACKUP/RESTORE DATABASE|LOG el nombre de base es un IDENTIFICADOR, no
+// un literal: BACKUP DATABASE N'x' falla con error 102 (hallazgo del lab
+// P-28). Los apóstrofos son legales dentro de los corchetes.
+func bracketId(name string) string {
+	return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
+}
+
 func buildBackupTSQL(database string, t Type, copyOnly bool, path string, enc *Encryption) (string, error) {
-	dbq := quoteTSQL(database)
+	dbq := bracketId(database)
 	pathq := quoteTSQL(path)
 
 	encClause := ""

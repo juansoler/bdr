@@ -246,12 +246,13 @@ func asString(v any) string {
 	}
 }
 
-// buildRestoreTSQL genera la sentencia RESTORE nativa. moves lleva pares
-// (nombre lógico, ruta física) ya resueltos; stopAt solo se pasa en la
-// restauración final con RECOVERY.
+// buildRestoreTSQL genera la sentencia RESTORE nativa. El nombre de base
+// es un identificador ([corchetes], no literal: error 102, hallazgo del
+// lab P-28). moves lleva pares (nombre lógico, ruta física) ya resueltos;
+// stopAt solo se pasa en la restauración final con RECOVERY.
 func buildRestoreTSQL(database, file string, mode Mode, moves []movePair, stopAt *time.Time, stats int) string {
 	q := fmt.Sprintf("RESTORE DATABASE %s FROM DISK = %s WITH REPLACE, %s, STATS = %d",
-		quoteTSQL(database), quoteTSQL(file), mode, stats)
+		bracketId(database), quoteTSQL(file), mode, stats)
 	for _, m := range moves {
 		q += fmt.Sprintf(", MOVE %s TO %s", quoteTSQL(m.Logical), quoteTSQL(m.Physical))
 	}
@@ -266,6 +267,11 @@ func buildRestoreTSQL(database, file string, mode Mode, moves []movePair, stopAt
 // quoteTSQL escapa comillas simples para literales T-SQL.
 func quoteTSQL(s string) string {
 	return "N'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// bracketId cita un identificador T-SQL con corchetes (escapa ]).
+func bracketId(name string) string {
+	return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
 }
 
 // ValidateChain valida que la cadena de backups tenga continuidad de LSN.
