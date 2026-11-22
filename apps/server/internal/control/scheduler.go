@@ -45,6 +45,7 @@ func (s *Server) runSchedulerTick(ctx context.Context) {
 	type launch struct{ planID, agentID string }
 	var due []launch
 	var sqlDue []string
+	var sqlVerifyDue []string
 	var offlineAlerts []notifPayload
 	var expiredJobs []string
 
@@ -134,6 +135,24 @@ func (s *Server) runSchedulerTick(ctx context.Context) {
 			}
 			sqlDue = append(sqlDue, p.ID)
 		}
+
+		// 5. Verificaciones programadas de planes SQL (RF-44): VERIFYONLY
+		// periódico del último backup del plan contra el destino.
+		for _, p := range st.SQLPlans {
+			if !p.Enabled || p.VerifyCron == "" || !agentActive(st, p.AgentID) {
+				continue
+			}
+			if p.NextVerifyAt.IsZero() || p.NextVerifyAt.After(now) {
+				continue
+			}
+			if tg := st.Storage[p.StorageTargetID]; tg == nil || !tg.Enabled {
+				continue
+			}
+			if planHasPendingJob(st, p.AgentID, p.ID) || agentBusy(st, p.AgentID) {
+				continue
+			}
+			sqlVerifyDue = append(sqlVerifyDue, p.ID)
+		}
 		return nil
 	})
 	if err != nil {
@@ -180,6 +199,11 @@ func (s *Server) runSchedulerTick(ctx context.Context) {
 	// Planes SQL vencidos.
 	for _, id := range sqlDue {
 		s.launchSQLScheduled(ctx, id, now)
+	}
+
+	// Verificaciones programadas de planes SQL.
+	for _, id := range sqlVerifyDue {
+		s.launchSQLVerifyScheduled(ctx, id, now)
 	}
 
 	// Alertas de offline.
@@ -311,6 +335,54 @@ func (s *Server) launchSQLScheduled(ctx context.Context, planID string, now time
 	})
 	if err == nil {
 		s.Logger.Info("job SQL programado creado", "plan_id", planID)
+	}
+}
+
+// launchSQLVerifyScheduled crea un job SQL_VERIFY sobre el último backup
+// del plan (RF-44: verificación programada del repositorio). Si el plan
+// aún no tiene backups, no avanza la programación.
+func (s *Server) launchSQLVerifyScheduled(ctx context.Context, planID string, now time.Time) {
+	err := s.Store.Update(ctx, func(st *store.State) error {
+		p := st.SQLPlans[planID]
+		if p == nil || !p.Enabled || p.VerifyCron == "" || !agentActive(st, p.AgentID) {
+			return errAbort
+		}
+		if planHasPendingJob(st, p.AgentID, p.ID) || agentBusy(st, p.AgentID) {
+			return errAbort
+		}
+		// Último punto de restauración del plan con URI de repositorio.
+		var latest *store.RestorePoint
+		for _, rp := range st.RestorePoints {
+			if rp.Kind != "sql" || rp.PlanID != planID || rp.SnapshotID == "" || rp.SQL == nil {
+				continue
+			}
+			if latest == nil || rp.CreatedAt.After(latest.CreatedAt) {
+				latest = rp
+			}
+		}
+		if latest == nil {
+			return errAbort // sin backups aún: reintenta el próximo tick
+		}
+		payload, _ := json.Marshal(contracts.SQLVerifyJobPayload{
+			Server: p.Server, Instance: p.Instance,
+			RepoURI: latest.SnapshotID, StorageTargetID: p.StorageTargetID,
+		})
+		id, _ := newID()
+		j := &store.Job{
+			ID: id, Type: contracts.JobTypeSQLVerify, State: store.JobPending,
+			AgentID: p.AgentID, PlanID: p.ID, Trigger: "schedule",
+			Payload: payload, MaxAttempts: 3, CreatedAt: now, UpdatedAt: now,
+		}
+		st.Jobs[id] = j
+		st.AppendJobEvent(contracts.JobEvent{JobID: id, Kind: "state", State: store.JobPending, At: now})
+		p.UpdatedAt = now
+		if sch, err := cron.Parse(p.VerifyCron); err == nil {
+			p.NextVerifyAt = sch.Next(now.In(timeZone(p.Timezone)))
+		}
+		return nil
+	})
+	if err == nil {
+		s.Logger.Info("verificación SQL programada creada", "plan_id", planID)
 	}
 }
 

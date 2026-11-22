@@ -762,7 +762,7 @@ func (s *Server) recordSQLRestorePoint(st *store.State, j *store.Job, now time.T
 		end = t
 	}
 	rp := &store.RestorePoint{
-		ID: id, AgentID: j.AgentID, JobID: j.ID,
+		ID: id, AgentID: j.AgentID, PlanID: j.PlanID, JobID: j.ID,
 		Kind:       "sql",
 		SnapshotID: result.RepoURI, TargetID: payload.StorageTargetID,
 		SourcePath: "sql/" + payload.Server + "/" + payload.Database,

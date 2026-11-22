@@ -170,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/admin/sql/restore", s.handleSQLRestore)
 	mux.HandleFunc("/api/v1/admin/sql/verify", s.handleSQLVerify)
 	mux.HandleFunc("/api/v1/admin/sql/inventory", s.handleSQLInventory)
+	mux.HandleFunc("/api/v1/admin/sql/checkdb", s.handleSQLCheckDB)
 	mux.HandleFunc("/api/v1/admin/sql/restore-points", s.handleSQLRestorePoints)
 	mux.HandleFunc("POST /api/v1/admin/sql/plans", s.handleSQLPlanCreate)
 	mux.HandleFunc("GET /api/v1/admin/sql/plans", s.handleSQLPlansList)

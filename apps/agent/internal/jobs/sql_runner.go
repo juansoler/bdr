@@ -309,3 +309,98 @@ func (m *SQLMotor) Inventory(ctx context.Context, payload contracts.SQLInventory
 	}
 	return out, nil
 }
+
+// sqlBracketId cita un identificador T-SQL con corchetes (escapa ]).
+func sqlBracketId(name string) string {
+	return "[" + strings.ReplaceAll(name, "]", "]]") + "]"
+}
+
+// asStringLocal normaliza un valor escaneado dinámicamente a texto.
+func asStringLocal(v any) string {
+	switch s := v.(type) {
+	case string:
+		return s
+	case []byte:
+		return string(s)
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(s)
+	}
+}
+
+// CheckDB ejecuta un job SQL_CHECKDB: DBCC CHECKDB (NO_INFOMSGS,
+// ALL_ERRORMSGS) sobre una base en vivo. La salida de DBCC llega como
+// filas de mensajes; se escanea dinámicamente para no acoplarse al esquema
+// exacto del result set. Con corrupción el job FALLA (E_CHECKDB_FAILED)
+// con los mensajes: el control plane levanta alerta por el camino
+// genérico de jobs fallidos (RF-44).
+func (m *SQLMotor) CheckDB(ctx context.Context, payload contracts.SQLCheckDBJobPayload,
+	progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
+
+	if payload.Database == "" {
+		return nil, &CodeError{Code: "E_VALIDATION", Message: "el checkdb requiere database"}
+	}
+
+	progress(20, "conectando a SQL Server ("+payload.Server+")", 0)
+	db, err := sqlOpen(ctx, payload.Server, payload.Instance)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	progress(40, "DBCC CHECKDB de "+payload.Database, 0)
+	start := time.Now()
+
+	// Con NO_INFOMSGS una base sana no devuelve filas; la corrupción emite
+	// filas de mensajes (Error/Level/State/MessageText/...).
+	rows, err := db.QueryContext(ctx,
+		"DBCC CHECKDB ("+sqlBracketId(payload.Database)+") WITH NO_INFOMSGS, ALL_ERRORMSGS")
+	if err != nil {
+		return nil, &CodeError{Code: "E_JOB_FAILED", Message: "DBCC CHECKDB: " + err.Error()}
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, &CodeError{Code: "E_JOB_FAILED", Message: "DBCC CHECKDB: " + err.Error()}
+	}
+	var messages []string
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return nil, &CodeError{Code: "E_JOB_FAILED", Message: "leer salida DBCC: " + err.Error()}
+		}
+		parts := make([]string, 0, len(cols))
+		for _, v := range vals {
+			if s := asStringLocal(v); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		if len(parts) > 0 {
+			messages = append(messages, strings.Join(parts, " | "))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, &CodeError{Code: "E_JOB_FAILED", Message: "leer salida DBCC: " + err.Error()}
+	}
+
+	if len(messages) > 0 {
+		return nil, &CodeError{Code: "E_CHECKDB_FAILED",
+			Message: "DBCC CHECKDB reporta problemas en " + payload.Database + ": " + strings.Join(messages, " ;; ")}
+	}
+
+	progress(100, "CHECKDB limpio", 0)
+	out, err := json.Marshal(contracts.SQLCheckDBJobResult{
+		Database:    payload.Database,
+		DurationSec: time.Since(start).Seconds(),
+	})
+	if err != nil {
+		return nil, &CodeError{Code: "E_INTERNAL", Message: err.Error()}
+	}
+	return out, nil
+}

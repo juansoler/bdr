@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/juansoler/bdr/apps/server/internal/cron"
 	"github.com/juansoler/bdr/apps/server/internal/store"
@@ -285,6 +286,60 @@ func (s *Server) handleSQLInventory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, contracts.BackupResponse{JobID: jobID, State: store.JobPending})
 }
 
+// handleSQLCheckDB crea un job SQL_CHECKDB: DBCC CHECKDB sobre una base
+// en vivo (RF-44). Con corrupción el job falla y se levanta alerta.
+// POST /api/v1/admin/sql/checkdb
+func (s *Server) handleSQLCheckDB(w http.ResponseWriter, r *http.Request) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	r, a, ok := s.authorize(w, r, "operate")
+	if !ok {
+		return
+	}
+	var req struct {
+		sqlJobRequest
+		Database string `json:"database"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "cuerpo inválido")
+		return
+	}
+	if req.AgentID == "" || req.Server == "" || req.Database == "" {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", "agent_id, server y database son obligatorios")
+		return
+	}
+
+	var jobID string
+	err := s.Store.Update(r.Context(), func(st *store.State) error {
+		agent := st.Agents[req.AgentID]
+		if agent == nil {
+			return store.ErrNotFound
+		}
+		now := s.Now().UTC()
+		payload, _ := json.Marshal(contracts.SQLCheckDBJobPayload{
+			Server: req.Server, Instance: req.Instance, Database: req.Database,
+		})
+		id, _ := newID()
+		st.Jobs[id] = &store.Job{
+			ID: id, Type: contracts.JobTypeSQLCheckDB, State: store.JobPending,
+			AgentID: agent.ID, Trigger: "manual",
+			Payload: payload, MaxAttempts: 1, CreatedBy: a.auditName(),
+			CreatedAt: now, UpdatedAt: now,
+		}
+		st.AppendJobEvent(contracts.JobEvent{JobID: id, Kind: "state", State: store.JobPending, At: now})
+		jobID = id
+		return nil
+	})
+	if err != nil {
+		s.problem(w, r, http.StatusBadRequest, "E_VALIDATION", err.Error())
+		return
+	}
+	s.audit(r, a, "sql.checkdb", "agent", req.AgentID, "ok",
+		map[string]string{"database": req.Database, "job": jobID})
+	writeJSON(w, http.StatusAccepted, contracts.BackupResponse{JobID: jobID, State: store.JobPending})
+}
+
 // handleSQLRestorePoints lista los puntos de restauración SQL (Kind "sql"),
 // más recientes primero, filtrando por agente y/o base.
 // GET /api/v1/admin/sql/restore-points?agent_id=&database=
@@ -336,6 +391,11 @@ func sqlPlanView(p *store.SQLPlan) contracts.SQLPlanView {
 	if !p.NextRunAt.IsZero() {
 		nr := p.NextRunAt
 		v.NextRunAt = &nr
+	}
+	v.VerifyCron = p.VerifyCron
+	if !p.NextVerifyAt.IsZero() {
+		nv := p.NextVerifyAt
+		v.NextVerifyAt = &nv
 	}
 	return v
 }
@@ -394,6 +454,21 @@ func (s *Server) sqlPlanFromRequest(r *http.Request, req contracts.SQLPlanReques
 	// La próxima ejecución se recalcula al crear o al cambiar horario/zona.
 	if existing == nil || existing.Schedule != p.Schedule || existing.Timezone != p.Timezone {
 		p.NextRunAt = sch.Next(now.In(loc))
+	}
+	// Cron de verificación programada (RF-44): opcional; vacío = solo la
+	// verificación post-backup. Validación y próxima verificación.
+	if strings.TrimSpace(req.VerifyCron) == "" {
+		p.VerifyCron = ""
+		p.NextVerifyAt = time.Time{}
+	} else {
+		schV, err := cron.Parse(strings.TrimSpace(req.VerifyCron))
+		if err != nil {
+			return nil, fmt.Errorf("verify_cron inválido: %w", err)
+		}
+		p.VerifyCron = strings.TrimSpace(req.VerifyCron)
+		if existing == nil || existing.VerifyCron != p.VerifyCron || existing.Timezone != p.Timezone {
+			p.NextVerifyAt = schV.Next(now.In(loc))
+		}
 	}
 	return p, nil
 }

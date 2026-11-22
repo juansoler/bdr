@@ -210,8 +210,10 @@ type SQLPlan struct {
 	RetentionDays   int       `json:"RetentionDays,omitempty"` // 0 = el del destino
 	Verify          *bool     `json:"Verify,omitempty"`        // nil = verificar
 	Enabled         bool      `json:"Enabled"`
+	VerifyCron      string    `json:"VerifyCron,omitempty"`
 	LastJobID       string    `json:"LastJobID,omitempty"`
 	NextRunAt       time.Time `json:"NextRunAt,omitempty"`
+	NextVerifyAt    time.Time `json:"NextVerifyAt,omitempty"`
 	CreatedAt       time.Time `json:"CreatedAt"`
 	UpdatedAt       time.Time `json:"UpdatedAt"`
 }

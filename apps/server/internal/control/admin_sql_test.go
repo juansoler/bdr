@@ -93,6 +93,13 @@ func TestSQLBackupValidaciones(t *testing.T) {
 	if status != http.StatusBadRequest {
 		t.Fatalf("inventory sin server: %d", status)
 	}
+
+	// CheckDB sin database.
+	status, _ = doJSON(t, http.MethodPost, srv.URL+"/api/v1/admin/sql/checkdb", adminToken,
+		map[string]any{"agent_id": agentID, "server": "sqlhost"})
+	if status != http.StatusBadRequest {
+		t.Fatalf("checkdb sin database: %d", status)
+	}
 }
 
 func TestSQLBackupEnqueueYRestorePoints(t *testing.T) {

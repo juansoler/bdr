@@ -25,9 +25,11 @@ interface SQLPlanView {
   storage_target_id: string;
   retention_days?: number;
   verify: boolean;
+  verify_cron?: string;
   enabled: boolean;
   last_job_id?: string;
   next_run_at?: string | null;
+  next_verify_at?: string | null;
 }
 
 interface SQLRPView {
@@ -72,6 +74,7 @@ export default function SQLPage() {
   const [retentionDays, setRetentionDays] = useState("0");
   const [verify, setVerify] = useState(true);
   const [schedule, setSchedule] = useState("");
+  const [verifyCron, setVerifyCron] = useState("");
   const [timezone, setTimezone] = useState("UTC");
 
   const load = useCallback(async () => {
@@ -170,6 +173,19 @@ export default function SQLPage() {
       setNotice(`Verificación lanzada: job ${res.job_id}.`);
     });
 
+  const runCheckDB = () =>
+    act("checkdb", async () => {
+      if (!agentId || !server || !database) {
+        setError("Elige agente y escribe servidor y base de datos.");
+        return;
+      }
+      const res = await api<{ job_id: string }>("/api/v1/admin/sql/checkdb", token, {
+        method: "POST",
+        body: JSON.stringify({ agent_id: agentId, server, instance, database }),
+      });
+      setNotice(`DBCC CHECKDB lanzado: job ${res.job_id}. Si hay corrupción, el job falla y salta alerta.`);
+    });
+
   const createPlan = () =>
     act("plan", async () => {
       if (!requireSel()) return;
@@ -185,6 +201,7 @@ export default function SQLPage() {
           type,
           schedule,
           timezone,
+          verify_cron: verifyCron,
           retention_days: Number(retentionDays) || 0,
           verify,
         }),
@@ -283,6 +300,9 @@ export default function SQLPage() {
           <Field label="Horario (cron)" hint="solo para el plan programado">
             <Input value={schedule} onChange={(e) => setSchedule(e.target.value)} placeholder="0 3 * * *" />
           </Field>
+          <Field label="Verify cron (opcional)" hint="RF-44: VERIFYONLY periódico del último backup">
+            <Input value={verifyCron} onChange={(e) => setVerifyCron(e.target.value)} placeholder="0 5 * * 6" />
+          </Field>
           <Field label="Zona horaria">
             <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="Europe/Madrid" />
           </Field>
@@ -294,6 +314,7 @@ export default function SQLPage() {
         <div className="mt-4 flex flex-wrap gap-2">
           <Button loading={busy === "backup"} onClick={runBackup}>Backup ahora</Button>
           <Button variant="secondary" loading={busy === "plan"} onClick={createPlan}>Crear plan programado</Button>
+          <Button variant="secondary" loading={busy === "checkdb"} onClick={runCheckDB}>CheckDB</Button>
           <Button variant="ghost" loading={busy === "inventory"} onClick={runInventory}>Inventario</Button>
         </div>
       </div>

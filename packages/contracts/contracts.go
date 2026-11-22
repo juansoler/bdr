@@ -40,6 +40,7 @@ const (
 	JobTypeSQLRestore   = "SQL_RESTORE"
 	JobTypeSQLVerify    = "SQL_VERIFY"
 	JobTypeSQLInventory = "SQL_INVENTORY"
+	JobTypeSQLCheckDB   = "SQL_CHECKDB"
 )
 
 // Estados de job (docs/06-api.md §5).
@@ -711,6 +712,16 @@ type SQLInventoryJobPayload struct {
 	Instance string `json:"instance,omitempty"`
 }
 
+// SQLCheckDBJobPayload es el payload de un job SQL_CHECKDB: ejecuta
+// DBCC CHECKDB (WITH NO_INFOMSGS, ALL_ERRORMSGS) sobre una base en vivo
+// (RF-44). Con corrupción, el job FALLA con los mensajes de DBCC y el
+// control plane levanta la alerta por el camino genérico de jobs fallidos.
+type SQLCheckDBJobPayload struct {
+	Server   string `json:"server"`
+	Instance string `json:"instance,omitempty"`
+	Database string `json:"database"`
+}
+
 // SQLBackupJobResult es el resultado de un job SQL_BACKUP. Los LSN viajan
 // como texto (numeric(25,0) de msdb no cabe garantizado en un JSON number
 // de los clientes JS).
@@ -750,6 +761,13 @@ type SQLInventoryJobResult struct {
 	Items []SQLDatabaseView `json:"items"`
 }
 
+// SQLCheckDBJobResult es el resultado de un job SQL_CHECKDB limpio
+// (sin corrupción; con corrupción el job falla y lleva los mensajes).
+type SQLCheckDBJobResult struct {
+	Database    string  `json:"database"`
+	DurationSec float64 `json:"duration_sec"`
+}
+
 // SQLDatabaseView describe una base de datos de la instancia (panel §23).
 type SQLDatabaseView struct {
 	Name          string `json:"name"`
@@ -774,6 +792,10 @@ type SQLPlanRequest struct {
 	RetentionDays   int    `json:"retention_days,omitempty"` // 0 = el del destino
 	Verify          *bool  `json:"verify,omitempty"`         // nil = verificar
 	Enabled         *bool  `json:"enabled,omitempty"`        // nil = true
+	// VerifyCron: verificación programada (RF-44) del último backup del
+	// plan (RESTORE VERIFYONLY sobre su objeto en el destino). Vacío = solo
+	// la verificación post-backup.
+	VerifyCron string `json:"verify_cron,omitempty"`
 }
 
 // SQLPlanView es la vista de un plan SQL para la API y el panel.
@@ -789,9 +811,11 @@ type SQLPlanView struct {
 	StorageTargetID string     `json:"storage_target_id"`
 	RetentionDays   int        `json:"retention_days,omitempty"`
 	Verify          bool       `json:"verify"`
+	VerifyCron      string     `json:"verify_cron,omitempty"`
 	Enabled         bool       `json:"enabled"`
 	LastJobID       string     `json:"last_job_id,omitempty"`
 	NextRunAt       *time.Time `json:"next_run_at,omitempty"`
+	NextVerifyAt    *time.Time `json:"next_verify_at,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
 }

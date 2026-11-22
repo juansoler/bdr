@@ -132,6 +132,8 @@ func (e *Executor) Execute(ctx context.Context, job contracts.JobView, opts RunO
 		return e.executeSQLVerify(ctx, job, opts)
 	case contracts.JobTypeSQLInventory:
 		return e.executeSQLInventory(ctx, job, opts)
+	case contracts.JobTypeSQLCheckDB:
+		return e.executeSQLCheckDB(ctx, job, opts)
 	default:
 		return nil, &CodeError{Code: "E_JOB_TYPE", Message: "tipo de job no soportado: " + job.Type}
 	}
@@ -182,6 +184,7 @@ type SQLRunner interface {
 	Verify(ctx context.Context, creds *contracts.RepositoryCredentials,
 		payload contracts.SQLVerifyJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
 	Inventory(ctx context.Context, payload contracts.SQLInventoryJobPayload) (json.RawMessage, error)
+	CheckDB(ctx context.Context, payload contracts.SQLCheckDBJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error)
 }
 
 // SetSQLRunner inyecta el runner del motor SQL Server.
@@ -272,6 +275,21 @@ func (e *Executor) executeSQLInventory(ctx context.Context, job contracts.JobVie
 		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
 	}
 	return e.sqlRunner.Inventory(ctx, payload)
+}
+
+func (e *Executor) executeSQLCheckDB(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
+	if e.sqlRunner == nil {
+		return nil, &CodeError{Code: "E_JOB_TYPE",
+			Message: "este agente no soporta el motor SQL Server (instala el agente en el host SQL, versión >= 0.14.0)"}
+	}
+	var payload contracts.SQLCheckDBJobPayload
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
+		return nil, &CodeError{Code: "E_PAYLOAD", Message: "payload del job inválido"}
+	}
+	return e.sqlRunner.CheckDB(ctx, payload, func(percent int, msg string, bytesDone int64) {
+		e.progress(opts, Progress{Percent: percent, Message: msg, BytesDone: bytesDone, BytesTotal: bytesDone})
+		e.log(opts, "info", msg)
+	})
 }
 
 func (e *Executor) executeBackupVM(ctx context.Context, job contracts.JobView, opts RunOptions) (json.RawMessage, error) {
