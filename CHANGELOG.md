@@ -2,6 +2,29 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.20] — 2026-11-22
+
+### Añadido
+
+- **Motor PostgreSQL (pg_dump/pg_restore)** con paridad sobre la
+  infraestructura común (jobs, transferencia SMB/S3, catálogo, panel):
+  - **Jobs del agente**: `PG_DUMP` (formato custom comprimido, con
+    verificación `pg_restore --list` tras cada dump), `PG_RESTORE`
+    (createdb opcional para motores limpios y `--clean --if-exists` para
+    reemplazo, destino en otra máquina incluido), `PG_VERIFY` e
+    `PG_INVENTORY` (bases con owner, template y si son volcables).
+    Errores accionables si falta el cliente PostgreSQL en el host.
+  - **API**: `POST /api/v1/admin/pg/{dump,restore,verify,inventory}` y
+    `GET /api/v1/admin/pg/restore-points`. Ingesta de los dumps como
+    puntos de restauración Kind `pg`. Restore destructivo con
+    `confirm=true`.
+  - **Panel**: pestaña PostgreSQL con dump manual, inventario de bases,
+    puntos y asistente de restauración.
+  - Las contraseñas no viajan por la API: el agente usa la variable de
+    entorno `BDR_PG_PASSWORD` de su servicio (o `.pgpass`), igual que el
+    motor SQL usa SSPI.
+  - Fase 2 (posterior): PITR físico con `pg_basebackup` + archivado WAL.
+
 ## [0.16.19] — 2026-11-22
 
 ### Corregido
