@@ -140,21 +140,24 @@ export default function SQLPage() {
     }
   };
 
-  // Carga y auto-inventario de bases para el nodo elegido. Cada cambio de
-  // selección invalida la petición anterior (dbReqId).
+  // Carga y auto-inventario de bases para el nodo elegido, con debounce:
+  // solo se dispara 700 ms después de dejar de escribir (cada tecla
+  // invalida la petición anterior y su timer). Sin debounce, escribir
+  // "LOCALHOST" lanzaba un job SQL_INVENTORY por letra (hallazgo del lab).
   useEffect(() => {
     if (!token) return;
     const reqId = ++dbReqId.current;
-    if (!agentId || !server) {
+    const serverT = server.trim();
+    if (!agentId || !serverT) {
       setDbList([]);
       setDbUpdatedAt(null);
       setDbBusy(false);
       return;
     }
     setDbBusy(true);
-    (async () => {
+    const timer = setTimeout(async () => {
       try {
-        const qs = new URLSearchParams({ agent_id: agentId, server });
+        const qs = new URLSearchParams({ agent_id: agentId, server: serverT });
         if (instance) qs.set("instance", instance);
         let r = await api<SQLDatabasesResp>(`/api/v1/admin/sql/databases?${qs}`, token);
         if (dbReqId.current !== reqId) return;
@@ -162,7 +165,7 @@ export default function SQLPage() {
           // Sin caché: disparar inventario y esperar el job.
           const res = await api<{ job_id: string }>("/api/v1/admin/sql/inventory", token, {
             method: "POST",
-            body: JSON.stringify({ agent_id: agentId, server, instance }),
+            body: JSON.stringify({ agent_id: agentId, server: serverT, instance }),
           });
           const jobURL = `/api/v1/admin/jobs/${res.job_id}`;
           for (;;) {
@@ -190,7 +193,8 @@ export default function SQLPage() {
       } finally {
         if (dbReqId.current === reqId) setDbBusy(false);
       }
-    })();
+    }, 700);
+    return () => clearTimeout(timer);
   }, [agentId, server, instance, token]);
 
   const requireSel = () => {    if (!agentId || !server || !database || !targetId) {
