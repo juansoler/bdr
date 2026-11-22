@@ -2,6 +2,17 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.18] — 2026-11-22
+
+### Corregido
+
+- **SQL Server: el job de restauración llegaba al agente sin destino de
+  almacenamiento** (hallazgo del lab): sin él, el agente no puede
+  descargar la cadena del repo y el job fallaba con «el job SQL requiere
+  un destino de almacenamiento». Ahora el eslabón de la cadena calculada
+  expone el `target_id`, el panel lo envía y el control lo deriva del
+  catálogo si la petición no lo trae.
+
 ## [0.16.17] — 2026-11-22
 
 ### Corregido
