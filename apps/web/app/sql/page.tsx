@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, ErrorBox, Field, Input, cx } from "@/components/ui";
+import { Modal } from "@/components/Modal";
 import { ApiError, api, type AgentList, type RestorePointViewList, type StorageTargetList, type StorageTargetView } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
@@ -66,6 +67,26 @@ interface SQLDatabasesResp {
   updated_at?: string | null;
 }
 
+// Eslabón de la cadena calculada (contracts.SQLRestoreChainStep).
+interface SQLChainStep {
+  restore_point_id: string;
+  backup_type: string;
+  backup_finish: string;
+  first_lsn?: string;
+  last_lsn?: string;
+  repo_uri: string;
+  size_bytes?: number;
+}
+
+interface SQLChainView {
+  database: string;
+  valid: boolean;
+  error?: string;
+  stop_at?: string | null;
+  files?: string[];
+  steps?: SQLChainStep[];
+}
+
 const JOB_TERMINAL = ["succeeded", "failed", "canceled", "expired"];
 
 const fmtGiB = (b?: number) => (b ? `${Math.round(b / (1 << 30))} GiB` : "—");
@@ -100,6 +121,15 @@ export default function SQLPage() {
   const [dbUpdatedAt, setDbUpdatedAt] = useState<string | null>(null);
   const [dbBusy, setDbBusy] = useState(false);
   const dbReqId = useRef(0);
+
+  // Asistente de restauración (RF-42): cadena calculada desde el catálogo.
+  const [restoreFor, setRestoreFor] = useState<string | null>(null);
+  const [destName, setDestName] = useState("");
+  const [stopAt, setStopAt] = useState("");
+  const [chain, setChain] = useState<SQLChainView | null>(null);
+  const [chainBusy, setChainBusy] = useState(false);
+  const [restoreConfirm, setRestoreConfirm] = useState(false);
+  const chainReqId = useRef(0);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -196,6 +226,73 @@ export default function SQLPage() {
     }, 700);
     return () => clearTimeout(timer);
   }, [agentId, server, instance, token]);
+
+  // Calcula la cadena de restauración para la base abierta en el asistente
+  // (RF-42). stopAt vacío = último disponible.
+  const loadChain = useCallback(
+    async (database: string, cutoff: string, reqId: number) => {
+      setChainBusy(true);
+      setChain(null);
+      try {
+        const body: Record<string, unknown> = { database };
+        if (agentId) body.agent_id = agentId;
+        if (cutoff) body.stop_at = new Date(cutoff).toISOString();
+        const v = await api<SQLChainView>("/api/v1/admin/sql/restore-chain", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        if (chainReqId.current === reqId) setChain(v);
+      } catch (err) {
+        if (chainReqId.current === reqId) {
+          setError(err instanceof ApiError ? err.message : "No se pudo calcular la cadena de restauración.");
+        }
+      } finally {
+        if (chainReqId.current === reqId) setChainBusy(false);
+      }
+    },
+    [agentId, token]
+  );
+
+  const openRestore = (database: string) => {
+    const reqId = ++chainReqId.current;
+    setRestoreFor(database);
+    setDestName(database);
+    setStopAt("");
+    setRestoreConfirm(false);
+    setError(null);
+    loadChain(database, "", reqId);
+  };
+
+  const changeStopAt = (value: string) => {
+    const reqId = ++chainReqId.current;
+    setStopAt(value);
+    if (restoreFor) loadChain(restoreFor, value, reqId);
+  };
+
+  const launchRestore = () =>
+    act("restore", async () => {
+      if (!chain?.valid || !chain.files?.length) {
+        setError("La cadena no es válida o está vacía.");
+        return;
+      }
+      if (!restoreConfirm) {
+        setError("Confirma la restauración: es destructiva sobre la base destino.");
+        return;
+      }
+      const res = await api<{ job_id: string }>("/api/v1/admin/sql/restore", token, {
+        method: "POST",
+        body: JSON.stringify({
+          agent_id: agentId,
+          server,
+          instance,
+          database: destName,
+          files: chain.files,
+          ...(stopAt ? { stop_at: new Date(stopAt).toISOString() } : {}),
+        }),
+      });
+      setNotice(`Restauración lanzada: job ${res.job_id}.`);
+      setRestoreFor(null);
+    });
 
   const requireSel = () => {    if (!agentId || !server || !database || !targetId) {
       setError("Elige agente, destino y escribe servidor y base de datos.");
@@ -519,11 +616,17 @@ export default function SQLPage() {
                     </span>
                   </td>
                   <td className="py-2 pr-4">
-                    <Button size="sm" variant="secondary"
-                      loading={busy === `verify-${rp.snapshot_id}`}
-                      onClick={() => runVerify(rp.snapshot_id)}>
-                      Verificar
-                    </Button>
+                    <div className="flex gap-1.5">
+                      <Button size="sm" variant="secondary"
+                        loading={busy === `verify-${rp.snapshot_id}`}
+                        onClick={() => runVerify(rp.snapshot_id)}>
+                        Verificar
+                      </Button>
+                      <Button size="sm" variant="ghost"
+                        onClick={() => rp.sql && openRestore(rp.sql.database)}>
+                        Restaurar
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -531,11 +634,78 @@ export default function SQLPage() {
           </table>
         )}
         <p className="mt-3 font-mono text-[10px] text-slate-600">
-          El restore se lanza desde la API con <span className="text-slate-400">confirm=true</span> sobre una cadena de
-          puntos (ver <Link href="/jobs" className="text-signal">Trabajos</Link>); el panel aún no lo expone por
-          seguridad operativa.
+          El restore de una base se lanza desde el asistente (botón Restaurar): el control calcula la cadena
+          FULL→DIFF→LOG con continuidad de LSN y la confirma el operador antes de ejecutar.
         </p>
       </div>
+
+      {restoreFor ? (
+        <Modal kicker="SQL Server" title={`Restaurar ${restoreFor}`} onClose={() => setRestoreFor(null)} wide>
+          <div className="space-y-5">
+            <div className="border border-alert/50 bg-alert/10 px-3 py-2 font-mono text-xs text-alert">
+              DESTRUCTIVO: el contenido de la base destino se reemplaza. El agente lo ejecuta con la cuenta de
+              servicio del host SQL.
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Base destino" hint={destName && destName.toLowerCase() !== restoreFor.toLowerCase()
+                ? "otro nombre en la misma instancia puede exigir MOVE (rutas físicas libres)"
+                : "por defecto, la misma base (restauración in situ)"}>
+                <Input value={destName} onChange={(e) => setDestName(e.target.value)} />
+              </Field>
+              <Field label="Punto en el tiempo (opcional)" hint="vacío = el más reciente del catálogo">
+                <Input type="datetime-local" value={stopAt} onChange={(e) => changeStopAt(e.target.value)} />
+              </Field>
+            </div>
+
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-slate-500">
+                Cadena calculada (FULL → DIFF → LOG)
+              </p>
+              {chainBusy ? (
+                <p className="mt-2 text-sm text-slate-500">Calculando cadena…</p>
+              ) : chain && !chain.valid ? (
+                <div className="mt-2"><ErrorBox message={chain.error ?? "La cadena no es válida."} /></div>
+              ) : chain?.steps?.length ? (
+                <table className="mt-2 w-full border-collapse text-left">
+                  <thead>
+                    <tr className="border-b border-ink-700 font-mono text-[10px] uppercase tracking-widest2 text-slate-500">
+                      <th className="py-1.5 pr-3">Tipo</th>
+                      <th className="py-1.5 pr-3">Fin</th>
+                      <th className="py-1.5 pr-3">Último LSN</th>
+                      <th className="py-1.5 pr-3">Tamaño</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chain.steps.map((st, i) => (
+                      <tr key={st.restore_point_id} className="border-b border-ink-800/80 text-sm text-slate-300">
+                        <td className="py-1.5 pr-3">
+                          <span className="font-mono text-signal">{i + 1}. {st.backup_type}</span>
+                        </td>
+                        <td className="py-1.5 pr-3 font-mono text-xs">
+                          {st.backup_finish?.slice(0, 16).replace("T", " ")}
+                        </td>
+                        <td className="py-1.5 pr-3 font-mono text-xs">{st.last_lsn || "—"}</td>
+                        <td className="py-1.5 pr-3 font-mono text-xs">{fmtGiB(st.size_bytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : null}
+            </div>
+
+            <label className="flex items-center gap-2 font-mono text-xs text-slate-300">
+              <input type="checkbox" checked={restoreConfirm} onChange={(e) => setRestoreConfirm(e.target.checked)} />
+              Confirmo la restauración de {restoreFor} → {destName || "—"}
+            </label>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setRestoreFor(null)}>Cancelar</Button>
+              <Button variant="danger" loading={busy === "restore"} onClick={launchRestore}>Restaurar</Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }

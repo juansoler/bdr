@@ -818,6 +818,31 @@ type SQLDatabaseView struct {
 	Protectable   bool   `json:"protectable"`
 }
 
+// SQLRestoreChainStep es un eslabón de la cadena de restauración
+// calculada desde el catálogo (RF-42).
+type SQLRestoreChainStep struct {
+	RestorePointID string    `json:"restore_point_id"`
+	JobID          string    `json:"job_id,omitempty"`
+	BackupType     string    `json:"backup_type"` // FULL | DIFFERENTIAL | LOG
+	BackupFinish   time.Time `json:"backup_finish"`
+	FirstLSN       string    `json:"first_lsn,omitempty"`
+	LastLSN        string    `json:"last_lsn,omitempty"`
+	RepoURI        string    `json:"repo_uri"`
+	SizeBytes      int64     `json:"size_bytes,omitempty"`
+}
+
+// SQLRestoreChainView es la cadena calculada para restaurar una base
+// hasta un punto en el tiempo (o el más reciente). Valid=false con Error
+// cuando no hay cadena completa (p. ej. falta un FULL).
+type SQLRestoreChainView struct {
+	Database string                `json:"database"`
+	Valid    bool                  `json:"valid"`
+	Error    string                `json:"error,omitempty"`
+	StopAt   *time.Time            `json:"stop_at,omitempty"`
+	Files    []string              `json:"files,omitempty"` // URIs en orden de aplicación
+	Steps    []SQLRestoreChainStep `json:"steps,omitempty"`
+}
+
 // SQLPlanRequest crea o actualiza un plan programado de backup SQL.
 type SQLPlanRequest struct {
 	AgentID         string `json:"agent_id"` // agente del host SQL
