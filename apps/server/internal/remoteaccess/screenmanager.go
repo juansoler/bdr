@@ -96,16 +96,16 @@ func (m *ScreenManager) ScreenCapabilities(agentID, osFamily string) contracts.S
 	}
 }
 
-// screenProviderFor describe cómo obtiene el escritorio local cada familia
+// screenProviderFor describe cómo produce los tiles el agente en cada familia
 // de SO (ver contracts.ScreenCapabilities.Provider).
 func screenProviderFor(osFamily string) string {
 	switch osFamily {
 	case "windows":
-		return "vnc-external"
+		return "tiles-gdi"
 	case "darwin":
-		return "vnc-built-in"
+		return "tiles-vnc-bridge"
 	case "linux":
-		return "vnc-helper"
+		return "tiles-x11"
 	default:
 		return ""
 	}

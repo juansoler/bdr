@@ -336,17 +336,17 @@
 | US-301 | Políticas por instancia y base de datos | Configuración granular aplicada | 4 |
 | US-302 | Alertas de RPO e informes de protección SQL | RPO atrasado alerta; informe generado | 4 |
 
-### EP-33 — Acceso por pantalla (VNC): Windows sin dependencia externa
+### EP-33 — Acceso por pantalla: agente nativo sin VNC de terceros
 
-El acceso por pantalla v0.15.0 funciona ya en macOS (Compartir pantalla
-nativo) y Linux (x11vnc bajo demanda). En Windows requiere un servidor VNC
-ya instalado en el equipo (escucha solo en localhost). Esta épica elimina
-esa dependencia externa.
+**Resuelta en 0.16.0**: el agente captura el escritorio él mismo con el
+protocolo de tiles (estilo MeshCentral) — Windows con helper de sesión GDI +
+SendInput; Linux con XGetImage + XTEST (jezek/xgb, sin CGO) y fallback
+x11vnc; macOS con bridge al «Compartir pantalla» del sistema. Queda como
+mejora opcional la captura CoreGraphics nativa en macOS.
 
 | ID | Historia | Aceptación | Fase |
 |---|---|---|---|
-| US-310 | Servidor RFB propio en el agente Windows | Escritorio visible en el panel sin VNC de terceros; captura por GDI/DXGI vía syscalls (CGO_ENABLED=0); solo loopback | 3 |
-| US-311 | Decisión documentada sobre helper externo | Si se evalúa bundlar un VNC (GPL): análisis de licencia en NOTICE y del impacto en bundles/SHA256SUMS del release | 3 |
+| US-313 | Captura CoreGraphics nativa en macOS (opcional) | Sin depender del toggle «Compartir pantalla»; requiere resolver CGO/TCC para el servicio | 4 |
 
 ---
 

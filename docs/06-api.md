@@ -351,7 +351,8 @@ Reglas:
 
 ### 4.5 Acceso por pantalla (VNC)
 
-Acceso al escritorio del equipo gestionado desde el panel (visor noVNC).
+Acceso al escritorio del equipo gestionado desde el panel (visor canvas
+propio con protocolo de tiles estilo MeshCentral).
 Mismo modelo que el canal de terminal remota: el agente mantiene una
 conexión WebSocket **saliente** con el servidor (`GET /api/v1/agent/screen/connect`,
 mTLS + API key) y el servidor solo autoriza y retransmite; nunca hay puertos
@@ -373,17 +374,18 @@ GET  /api/v1/admin/screen/sessions/{id}/stream           (screen:connect o ?tick
 `session_id`, `stream_url` y `stream_ticket` (solo en la creación: los
 WebSockets del navegador no pueden enviar `Authorization`, así que presentan
 el ticket como query param). `GET …/stream` es el WebSocket de datos:
-transporta **solo bytes del protocolo RFB** en ambas direcciones — sin
-mensajes de control JSON (noVNC los interpretaría como datos corruptos); el
-motivo de fin de sesión viaja en el frame de cierre de WebSocket.
+transporta **mensajes del protocolo de tiles** (binarios: screen_info con el
+tamaño, tiles JPEG de 64 px con su XY, y entrada de ratón/teclado del
+operador — ver `packages/contracts/screenaccess.go`); el motivo de fin de
+sesión viaja en el frame de cierre de WebSocket.
 
 Límites y auditoría: máximo de 2 sesiones de pantalla simultáneas por
 agente, TTL de sesión de 30 minutos, reaper de sesiones pendientes/expiradas
 y auditoría `screen.session.created` / `screen.session.closed`. El cierre del
-visor cierra la sesión. Proveedor VNC local por plataforma: macOS «Compartir
-pantalla» nativo; Linux `x11vnc` lanzado bajo demanda (solo loopback, sin
-contraseña VNC); Windows requiere un servidor VNC ya instalado en
-`127.0.0.1:5900` (p. ej. TigerVNC/UltraVNC).
+visor cierra la sesión. Backends por plataforma (sin instalar nada): Windows —
+helper de sesión nativo del agente (captura GDI + SendInput); Linux — captura
+X11 nativa (fallback automático a x11vnc solo-loopback si X11 no es accesible);
+macOS — bridge contra el «Compartir pantalla» integrado del sistema.
 
 ---
 

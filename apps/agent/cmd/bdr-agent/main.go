@@ -41,6 +41,8 @@ func main() {
 		cmdStatus(os.Args[2:])
 	case "image-write":
 		cmdImageWrite(os.Args[2:])
+	case "screenhelper": // interno: helper de sesión Windows (lo lanza el servicio)
+		cmdScreenHelper()
 	case "image-fetch":
 		cmdImageFetch(os.Args[2:])
 	case "version", "--version", "-version":

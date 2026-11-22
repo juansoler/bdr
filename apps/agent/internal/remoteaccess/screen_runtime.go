@@ -1,20 +1,19 @@
-// screen_runtime.go implementa el runtime de acceso por pantalla (VNC) del
-// agente: mantiene el canal WebSocket con el servidor, procesa mensajes de
-// control (texto) y bytes RFB (binarios multiplexados), y bombea los datos
-// entre el canal y el servidor VNC local en 127.0.0.1.
+// screen_runtime.go implementa el runtime de acceso por pantalla (protocolo
+// de tiles) del agente: mantiene el canal WebSocket con el servidor, procesa
+// mensajes de control (texto) y bytes del protocolo de tiles (binarios
+// multiplexados), y coordina los backends de escritorio por plataforma.
 //
 // El agente SIEMPRE inicia la conexión (outbound); el servidor nunca abre
-// puertos entrantes en el equipo gestionado, y el VNC local solo escucha en
-// loopback (nunca en la red del equipo).
+// puertos entrantes en el equipo gestionado. El backend produce los tiles él
+// mismo (captura nativa o bridge VNC de loopback): no hay servicio VNC de
+// terceros que instalar.
 package remoteaccess
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"sync"
-	"time"
 
 	"github.com/coder/websocket"
 	"github.com/juansoler/bdr/packages/contracts"
@@ -68,7 +67,7 @@ func (r *ScreenRuntime) Close() {
 }
 
 // screenReadLoop procesa los mensajes entrantes del servidor: control (texto)
-// y datos RFB (binarios multiplexados por ID de sesión).
+// y datos del protocolo de tiles (binarios multiplexados por ID de sesión).
 func (r *ScreenRuntime) screenReadLoop() error {
 	for {
 		r.mu.Lock()
@@ -117,9 +116,8 @@ func (r *ScreenRuntime) handleScreenControl(msg contracts.ScreenMessage) {
 			})
 			return
 		}
-		// Bomba bidireccional: VNC local ↔ servidor; al cerrarse el VNC,
-		// notifica exit.
-		go r.pumpVNC(s)
+		// Bomba de salida: backend → servidor; al terminar, notifica exit.
+		go r.pumpSession(s)
 		_ = r.sendScreenJSON(contracts.ScreenMessage{
 			Type:      contracts.ScreenMsgAgentOpened,
 			SessionID: p.SessionID,
@@ -142,39 +140,46 @@ func (r *ScreenRuntime) handleScreenControl(msg contracts.ScreenMessage) {
 	}
 }
 
-// handleScreenBinary escribe bytes RFB del operador en el VNC local.
+// handleScreenBinary pasa la entrada del visor al backend de la sesión.
 func (r *ScreenRuntime) handleScreenBinary(sessionID string, payload []byte) {
-	if s, ok := r.manager.GetSession(sessionID); ok && s.conn != nil {
-		_, _ = s.conn.Write(payload)
+	if s, ok := r.manager.GetSession(sessionID); ok {
+		s.backend.Handle(payload)
 	}
 }
 
-// pumpVNC lee del VNC local y envía al servidor como frames binarios
-// multiplexados. Cuando el VNC termina, notifica exit y limpia la sesión.
-func (r *ScreenRuntime) pumpVNC(s *ScreenSession) {
-	buf := make([]byte, 32*1024)
+// pumpSession bombea los eventos del backend hacia el servidor como frames
+// binarios multiplexados. Al terminar el backend, notifica exit y limpia.
+func (r *ScreenRuntime) pumpSession(s *ScreenSession) {
 	for {
-		n, err := s.conn.Read(buf)
-		if n > 0 {
-			if frame, encErr := encodeAgentData(s.ID, buf[:n]); encErr == nil {
+		select {
+		case <-s.backend.Done():
+			r.notifyExit(s.ID)
+			r.manager.CloseSession(s.ID)
+			return
+		case msg, ok := <-s.backend.Events():
+			if !ok {
+				r.notifyExit(s.ID)
+				r.manager.CloseSession(s.ID)
+				return
+			}
+			if frame, err := encodeAgentData(s.ID, msg); err == nil {
 				_ = r.sendScreenBinary(frame)
 			}
 		}
-		if err != nil {
-			break
-		}
 	}
+}
 
-	// El VNC local se cerró (fin ordenado o sesión cerrada): notifica y
-	// limpia. Solo notifica exit si la sesión sigue registrada.
-	if _, ok := r.manager.GetSession(s.ID); ok {
-		_ = r.sendScreenJSON(contracts.ScreenMessage{
-			Type:      contracts.ScreenMsgAgentExit,
-			SessionID: s.ID,
-			Payload:   mustJSON(contracts.ScreenExitPayload{Code: 0}),
-		})
-		r.manager.CloseSession(s.ID)
+// notifyExit informa al servidor de que el backend terminó. Solo si la
+// sesión sigue registrada (si el servidor pidió close, basta el ack).
+func (r *ScreenRuntime) notifyExit(sessionID string) {
+	if _, ok := r.manager.GetSession(sessionID); !ok {
+		return
 	}
+	_ = r.sendScreenJSON(contracts.ScreenMessage{
+		Type:      contracts.ScreenMsgAgentExit,
+		SessionID: sessionID,
+		Payload:   mustJSON(contracts.ScreenExitPayload{Code: 0}),
+	})
 }
 
 // sendScreenJSON envía un mensaje de control (texto) al servidor.
@@ -213,31 +218,31 @@ type ScreenSessionManager struct {
 	sessions map[string]*ScreenSession
 }
 
-// NewScreenSessionManager crea un nuevo gestor de sesiones de pantalla.
+// NewScreenSessionManager crea el gestor de sesiones de pantalla.
 func NewScreenSessionManager() *ScreenSessionManager {
-	return &ScreenSessionManager{sessions: make(map[string]*ScreenSession)}
+	return &ScreenSessionManager{
+		sessions: make(map[string]*ScreenSession),
+	}
 }
 
-// ScreenSession representa una sesión de pantalla activa: una conexión TCP
-// contra el servidor VNC local (127.0.0.1:5900) y, si el agente lo lanzó,
-// el helper que hay que terminar al cerrar.
+// ScreenSession representa una sesión de pantalla activa: un backend de
+// escritorio (captura nativa o bridge) y su bomba de eventos.
 type ScreenSession struct {
 	ID      string
-	conn    net.Conn
-	stopVNC func() // nil si el VNC ya existía y no lo gestionamos
+	backend screenBackend
 }
 
-// NewSession abre (o reutiliza) el VNC local y registra la sesión.
+// NewSession arranca el backend de pantalla de la plataforma y registra la
+// sesión. allowClipboard queda reservado (v1 sin sincronización de clipboard).
 func (m *ScreenSessionManager) NewSession(id string, allowClipboard bool) (*ScreenSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	vnc, err := openLocalVNC(allowClipboard)
+	backend, err := newScreenBackend()
 	if err != nil {
 		return nil, err
 	}
-
-	s := &ScreenSession{ID: id, conn: vnc.conn, stopVNC: vnc.stop}
+	s := &ScreenSession{ID: id, backend: backend}
 	m.sessions[id] = s
 	return s, nil
 }
@@ -250,7 +255,7 @@ func (m *ScreenSessionManager) GetSession(id string) (*ScreenSession, bool) {
 	return s, ok
 }
 
-// CloseSession cierra la sesión, corta el TCP y termina el helper local.
+// CloseSession cierra la sesión y su backend.
 func (m *ScreenSessionManager) CloseSession(id string) {
 	m.mu.Lock()
 	s, ok := m.sessions[id]
@@ -258,16 +263,10 @@ func (m *ScreenSessionManager) CloseSession(id string) {
 		delete(m.sessions, id)
 	}
 	m.mu.Unlock()
-
 	if !ok {
 		return
 	}
-	if s.conn != nil {
-		_ = s.conn.Close() // desbloquea la bomba de salida (EOF)
-	}
-	if s.stopVNC != nil {
-		s.stopVNC()
-	}
+	s.backend.Close()
 }
 
 // CloseAll cierra todas las sesiones (pérdida del canal con el servidor).
@@ -278,18 +277,7 @@ func (m *ScreenSessionManager) CloseAll() {
 		ids = append(ids, id)
 	}
 	m.mu.Unlock()
-
 	for _, id := range ids {
 		m.CloseSession(id)
 	}
 }
-
-// localVNC es el resultado de atender un escritorio local: la conexión TCP
-// contra el servidor VNC y la limpieza del helper lanzado (si lo hay).
-type localVNC struct {
-	conn net.Conn
-	stop func()
-}
-
-// vncDialTimeout es el timeout de conexión contra el VNC local.
-const vncDialTimeout = time.Second

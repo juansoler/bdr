@@ -117,16 +117,42 @@ type ScreenCapabilities struct {
 	AgentID  string `json:"agent_id"`
 	Online   bool   `json:"online"`
 	OSFamily string `json:"os_family"`
-	// Provider describe cómo obtiene el agente el escritorio local:
-	//   - darwin: "vnc-built-in" (Compartir pantalla de macOS)
-	//   - linux:  "vnc-helper" (x11vnc/x0vncserver lanzado bajo demanda)
-	//   - windows: "vnc-external" (servidor VNC ya instalado en localhost)
+	// Provider describe cómo produce el agente los tiles:
+	//   - windows: "tiles-gdi"    (helper de sesión nativo: captura GDI + SendInput)
+	//   - linux:   "tiles-x11"    (captura X11 nativa con XGetImage + XTEST)
+	//   - darwin:  "tiles-vnc-bridge" (bridge contra el «Compartir pantalla» de macOS)
+	//   - fallback de Linux sin X: "tiles-vnc-bridge" vía x11vnc bajo demanda
 	Provider string `json:"provider,omitempty"`
 	// DisplayRequired indica si el equipo necesita una sesión gráfica activa.
 	DisplayRequired bool `json:"display_required,omitempty"`
 }
 
 // --- Protocolo de datos (WebSocket) ------------------------------------------
+//
+// El stream de pantalla transporta el protocolo propio de tiles (estilo
+// MeshCentral): el agente captura el escritorio, lo divide en tiles de 64px,
+// detecta cambios por CRC y envía cada tile cambiado codificado en JPEG. El
+// servidor solo retransmite bytes — el formato es opaco para el relay.
+//
+// Cada mensaje es un frame binario WebSocket cuyo primer byte es el tipo:
+//
+//	Agente → navegador:
+//	  0x01 screen_info [u16 ancho][u16 alto] (big endian)
+//	  0x02 tile        [u16 x][u16 y][u16 w][u16 h][JPEG…]
+//	Navegador → agente:
+//	  0x10 mouse       [u8 acción 0=move 1=down 2=up][u8 botones][u16 x][u16 y]
+//	  0x11 key         [u8 acción 0=down 1=up][u32 keysym] (big endian)
+//	  0x12 quality     [u8 calidad JPEG 10-95][u16 intervalo_ms]
+//	  0x13 refresh     (sin payload: reenviar todos los tiles)
+//
+// El mismo framing con prefijo [u16 longitud][u8 tipo] se usa internamente
+// entre el agente y su helper de sesión en Windows (stdio).
+//
+// Backends por plataforma (agente): Windows — helper de sesión con captura
+// GDI + SendInput; Linux — captura X11 nativa (XGetImage/XTEST, sin CGO);
+// macOS — bridge cliente VNC contra el «Compartir pantalla» del sistema.
+// Nunca hay servidor VNC de terceros que instalar: el agente produce los
+// tiles él mismo y el VNC local solo escucha en loopback (macOS nativo).
 
 // ScreenMessage es el sobre para mensajes de control (frames de texto) del
 // canal de datos de pantalla. Los frames binarios llevan bytes crudos del

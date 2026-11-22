@@ -2,6 +2,41 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.0] — 2026-11-22
+
+### Añadido
+
+- **Escritorio remoto nativo con protocolo de tiles (estilo MeshCentral)** —
+  ya no hay que instalar ningún servicio VNC de terceros. El agente captura
+  el escritorio él mismo, divide en tiles de 64 px, detecta cambios por CRC
+  y envía solo los tiles modificados codificados en JPEG (calidad y ritmo
+  ajustables por el visor). El panel sustituye noVNC por un visor canvas
+  propio con entrada de ratón/teclado en el mismo canal WebSocket.
+  - **Windows**: el servicio (sesión 0) lanza `bdr-agent screenhelper`
+    dentro de la sesión interactiva del usuario (`WTSQueryUserToken` +
+    `CreateProcessAsUser` → WinSta0\Default, mismo patrón que el `--slave`
+    de MeshCentral). El helper captura con GDI (`BitBlt`+`GetDIBits`,
+    escritorio virtual completo multi-monitor) e inyecta entrada con
+    `SendInput`. Sin CGO, sin VNC externo.
+  - **Linux**: captura X11 nativa (`XGetImage` + XTEST vía jezek/xgb, sin
+    CGO), con resolución de `XAUTHORITY` del usuario de consola; fallback
+    automático a x11vnc bajo demanda (solo loopback) si X11 no es accesible.
+  - **macOS**: bridge cliente VNC contra el «Compartir pantalla» integrado
+    del sistema (toggle nativo, sin instalaciones); la captura CoreGraphics
+    nativa queda como mejora futura (requeriría CGO o permisos TCC).
+  - **Protocolo de tiles** documentado en contracts (screen_info, tile JPEG,
+    mouse, key por keysym, quality, refresh); framing interno por stdio
+    para el helper de Windows. El relay del servidor no cambia (bytes opacos).
+  - Panel: canvas con escala automática manteniendo aspecto, Ctrl+Alt+Supr,
+    refresco, pantalla completa, liberación de modificadores al perder foco.
+  - Eliminada la dependencia `@novnc/novnc` (MPL) del panel.
+
+### Cambiado
+
+- El stream de la sesión de pantalla transporta el protocolo de tiles en
+  lugar de RFB/VNC (el visor de la 0.15.0 no es compatible con agentes
+  0.16.0 y viceversa: sesiones nuevas, mismo endpoint).
+
 ## [0.15.1] — 2026-11-22
 
 ### Cambiado

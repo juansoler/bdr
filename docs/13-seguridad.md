@@ -157,9 +157,13 @@ modelo de amenazas y mitigaciones:
   agente, cierre automático al perder el canal o al cerrar el visor.
 - **Auditoría**: `terminal.session.*` y `screen.session.created/closed` con
   operador, agente y motivo.
-- **El stream de pantalla solo transporta bytes RFB**; el motivo de fin de
-  sesión viaja en el frame de cierre de WebSocket (no hay canal de control
-  JSON que un atacante pueda usar para inyectar texto en el protocolo).
+- **El stream de pantalla transporta el protocolo de tiles (binario)**; el
+  motivo de fin de sesión viaja en el frame de cierre de WebSocket (no hay
+  canal de control JSON que un atacante pueda usar para inyectar texto). La
+  entrada del operador la inyecta el agente nativamente en la sesión del
+  usuario (helper Windows / XTEST en Linux / eventos del bridge macOS): el
+  agente nunca abre puertos ni ejecuta órdenes de shell arbitrarias por esta
+  vía.
 
 ---
 
