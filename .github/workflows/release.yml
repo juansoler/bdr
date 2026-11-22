@@ -76,6 +76,11 @@ jobs:
 
       - name: Attestations de procedencia
         uses: actions/attest-build-provenance@v1
+        # Best-effort: la acción re-verifica la entrada en Rekor tras subirla
+        # y un 404 transitorio de consistencia eventual no debe bloquear un
+        # release. El canal de confianza real es latest.json firmado con
+        # Ed25519 + SHA256SUMS; las attestations son procedencia adicional.
+        continue-on-error: true
         with:
           subject-path: |
             dist/bdr-control-*
