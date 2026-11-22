@@ -2,6 +2,21 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.14] — 2026-11-22
+
+### Corregido
+
+- **SQL Server: la captura de LSNs fallaba tras un backup correcto**
+  (hallazgo del lab P-26 en real): los LSN de `msdb.dbo.backupset` son
+  `numeric(25,0)` — hasta 25 dígitos — y un LSN real de 21 dígitos
+  (`338420000000652000001`) desborda `uint64`, matando el job con
+  «value out of range» **después** de haber transferido el backup al
+  repositorio. El tipo interno `connector.LSN` pasa a texto decimal
+  validado con comparación `big.Int` (la validación de cadenas por LSN
+  sigue siendo numérica), el catálogo PostgreSQL inserta con cast
+  explícito a `numeric(25,0)` y los resultados de jobs ya los llevaban
+  como texto. Sin cambio de contrato externo.
+
 ## [0.16.13] — 2026-11-22
 
 ### Corregido
