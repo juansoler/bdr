@@ -2,6 +2,18 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.10] — 2026-11-22
+
+### Corregido
+
+- **Panel: el auto-inventario de SQL Server se disparaba por cada tecla**
+  (hallazgo del laboratorio): al escribir `LOCALHOST` en el campo
+  servidor, el efecto lanzaba un job `SQL_INVENTORY` por letra (`L`,
+  `LO`, `LOC`…), fallando contra hostnames inexistentes y ensuciando el
+  histórico de trabajos. Ahora espera 700 ms tras dejar de escribir y
+  cada tecla cancela el intento anterior; el valor se recorta antes de
+  usarse. Un job por nodo, no por tecla.
+
 ## [0.16.9] — 2026-11-22
 
 ### Añadido
