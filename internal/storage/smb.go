@@ -136,21 +136,51 @@ func (s *smbTransferer) Transfer(ctx context.Context, srcPath string) (string, e
 
 // Fetch descarga un objeto del share (por URI UNC del propio destino) al
 // staging local con streaming y escritura atómica.
+//
+// Las URIs del catálogo se generaron con la configuración del destino de
+// ENTONCES: si la ruta/prefijo del destino cambió después, el segmento del
+// subdirectorio puede sobrar o faltar. Por eso se prueba la ruta tal cual
+// y, si no existe, con y sin el segmento del root — siempre DENTRO del
+// share (sin salidas de directorio). Hallazgo del lab: URI con
+// "Backup/Backup/…" tras ajustar el prefijo del destino.
 func (s *smbTransferer) Fetch(ctx context.Context, uri, destPath string) error {
 	p := `\\` + s.host + `\` + s.shareName + `\`
 	if !strings.HasPrefix(uri, p) {
 		return fmt.Errorf("URI %s no pertenece al recurso \\\\%s\\%s", uri, s.host, s.shareName)
 	}
 	rel := strings.ReplaceAll(strings.TrimPrefix(uri, p), `\`, "/")
-	if s.root != "" && !strings.HasPrefix(rel, s.root+"/") {
-		return fmt.Errorf("ruta %s fuera del subdirectorio del destino", rel)
+	if strings.ContainsRune(rel, 0) || strings.Contains(rel, "../") {
+		return fmt.Errorf("ruta %q inválida", rel)
 	}
 
-	in, err := s.share.Open(rel)
-	if err != nil {
-		return fmt.Errorf("abrir %s en el recurso: %w", rel, err)
+	// Candidatos en orden: tal cual, sin el root (URI anterior al prefijo),
+	// con el root delante (URI sin él).
+	candidates := []string{rel}
+	if s.root != "" {
+		trimmed := strings.TrimPrefix(rel, s.root+"/")
+		if trimmed != rel {
+			candidates = append(candidates, trimmed)
+		} else if !strings.HasPrefix(rel, s.root+"/") {
+			candidates = append(candidates, s.root+"/"+rel)
+		}
+	}
+
+	var in io.ReadCloser
+	var opened string
+	var lastErr error
+	for _, cand := range candidates {
+		f, err := s.share.Open(cand)
+		if err == nil {
+			in, opened = f, cand
+			break
+		}
+		lastErr = err
+	}
+	if in == nil {
+		return fmt.Errorf("abrir %q en el recurso (probadas %v): %w", rel, candidates, lastErr)
 	}
 	defer in.Close()
+	rel = opened
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
 		return err
