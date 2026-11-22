@@ -2,6 +2,18 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.19] — 2026-11-22
+
+### Corregido
+
+- **Restauración SMB: URIs de configuraciones anteriores** (hallazgo del
+  lab): la URI del catálogo se generó con la configuración del destino de
+  entonces; si la ruta o el prefijo del destino cambian después, el
+  segmento del subdirectorio sobra o falta al descargar y el restore
+  falla con «file does not exist». El Fetch SMB prueba ahora la ruta tal
+  cual y, si no existe, con/sin el segmento del subdirectorio — siempre
+  dentro del share — y el error final lista las rutas probadas.
+
 ## [0.16.18] — 2026-11-22
 
 ### Corregido
