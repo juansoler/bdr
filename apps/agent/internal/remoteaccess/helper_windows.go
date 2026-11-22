@@ -23,6 +23,7 @@ type helperProcess struct {
 	stdout    io.ReadCloser
 	proc      windows.Handle
 	done      chan struct{}
+	exitCode  uint32 // código de salida del proceso (tras done)
 	closeOnce sync.Once
 }
 
@@ -72,7 +73,7 @@ func spawnScreenHelper() (*helperProcess, error) {
 		Desktop:   desktop16,
 		StdInput:  inRead,
 		StdOutput: outWrite,
-		StdErr:    outWrite,
+		StdErr:    nulHandle(&sa), // stderr a NUL: un panic del helper NUNCA corrompe el stream de tiles
 	}
 	pi := &windows.ProcessInformation{}
 	err = windows.CreateProcessAsUser(
@@ -84,8 +85,10 @@ func spawnScreenHelper() (*helperProcess, error) {
 	if err != nil {
 		_ = windows.CloseHandle(inWrite)
 		_ = windows.CloseHandle(outRead)
+		_ = windows.CloseHandle(si.StdErr)
 		return nil, fmt.Errorf("CreateProcessAsUser: %w", err)
 	}
+	_ = windows.CloseHandle(si.StdErr) // el hijo ya heredó su copia
 	_ = windows.CloseHandle(pi.Thread)
 
 	h := &helperProcess{
@@ -96,9 +99,45 @@ func spawnScreenHelper() (*helperProcess, error) {
 	}
 	go func() {
 		_, _ = windows.WaitForSingleObject(pi.Process, windows.INFINITE)
+		var code uint32
+		_ = windows.GetExitCodeProcess(pi.Process, &code)
+		h.exitCode = code
 		close(h.done)
 	}()
 	return h, nil
+}
+
+// terminationReason devuelve por qué murió el helper ("" si sigue vivo).
+func (h *helperProcess) terminationReason() string {
+	select {
+	case <-h.done:
+		switch h.exitCode {
+		case 0:
+			return "el helper de sesión terminó sin error (canal cerrado)"
+		case 1:
+			return "el helper falló: captura GDI no disponible (¿sesión sin escritorio?)"
+		case 2:
+			return "el helper terminó por uso inválido"
+		default:
+			return fmt.Sprintf("el helper de sesión terminó con código %d", h.exitCode)
+		}
+	default:
+		return ""
+	}
+}
+
+// nulHandle abre NUL (heredable) para redirigir el stderr del helper: si el
+// helper entra en pánico, Go escribe en stderr y NO debe mezclarse con los
+// tiles del stdout.
+func nulHandle(sa *windows.SecurityAttributes) windows.Handle {
+	nul, _ := windows.UTF16PtrFromString("NUL")
+	h, err := windows.CreateFile(nul, windows.GENERIC_WRITE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, sa,
+		windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		return 0
+	}
+	return h
 }
 
 // kill termina el helper.

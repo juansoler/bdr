@@ -253,10 +253,13 @@ func (m *ScreenManager) onScreenAgentOpened(sessionID string) {
 	})
 }
 
-// onScreenAgentError registra el fallo del agente al abrir la sesión.
+// onScreenAgentError registra el fallo del agente: el mensaje viaja verbatim
+// al visor (el agente compone motivos explicativos por plataforma).
 func (m *ScreenManager) onScreenAgentError(sessionID, message string) {
-	m.closeScreenInternal(sessionID, contracts.ScreenSessionClosed,
-		"el agente no pudo atender la pantalla: "+message)
+	if message == "" {
+		message = "el agente terminó la sesión de pantalla sin motivo"
+	}
+	m.closeScreenInternal(sessionID, contracts.ScreenSessionClosed, message)
 }
 
 // onScreenAgentExit cierra la sesión cuando el VNC local termina por su cuenta.

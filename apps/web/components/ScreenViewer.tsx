@@ -23,7 +23,13 @@ const DEFAULT_INTERVAL_MS = 120;
 // pinta los tiles JPEG en un canvasEl. La entrada del operador (ratón/teclado)
 // viaja en mensajes binarios al agente, que la inyecta nativamente en el
 // equipo — sin servicios VNC de terceros en ninguna plataforma.
-export function ScreenViewer({ agentId }: { agentId: string }) {
+export function ScreenViewer({
+  agentId,
+  osFamily,
+}: {
+  agentId: string;
+  osFamily?: string;
+}) {
   const { token } = useAuth();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -162,6 +168,27 @@ export function ScreenViewer({ agentId }: { agentId: string }) {
 
     async function openSession() {
       try {
+        // Pre-flight: el agente debe soportar el protocolo de tiles (≥ 0.16.0).
+        // Los agentes 0.15.x respondían con provider vnc-* (RFB/noVNC).
+        const capResp = await fetch(
+          `/api/v1/admin/agents/${agentId}/screen${osFamily ? `?os_family=${encodeURIComponent(osFamily)}` : ""}`,
+          { headers: { Authorization: `Bearer ${token}` }, credentials: "include" },
+        );
+        if (capResp.ok) {
+          const cap = (await capResp.json()) as { online?: boolean; provider?: string };
+          if (cap.provider && !cap.provider.startsWith("tiles")) {
+            throw new Error(
+              "El agente de este equipo no soporta el escritorio remoto nativo: actualiza el agente a 0.16.0 o superior y reintenta.",
+            );
+          }
+          if (cap.online === false) {
+            throw new Error(
+              "El agente no tiene el canal de pantalla conectado (¿agente parado o versión antigua?).",
+            );
+          }
+        }
+        if (disposed) return;
+
         const resp = await fetch(`/api/v1/admin/agents/${agentId}/screen/sessions`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },

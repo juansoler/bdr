@@ -23,6 +23,7 @@ type rfbBridgeBackend struct {
 	stop      chan struct{}
 	interval  atomic.Int64 // ms; ritmo máximo entre updates
 	closeOnce sync.Once
+	termErr   // motivo de terminación para el visor
 }
 
 // newRFBBridgeBackend dializa el VNC local y arranca el puente.
@@ -63,9 +64,11 @@ func (b *rfbBridgeBackend) run() {
 		default:
 		}
 		if err := b.client.RequestUpdate(force); err != nil {
+			b.failf("conexión VNC rota (RequestUpdate): %v", err)
 			return
 		}
 		if err := b.client.ReadUpdate(); err != nil {
+			b.failf("el servidor VNC cerró o envió algo inesperado: %v", err)
 			return // conexión o protocolo roto: termina la sesión
 		}
 		for _, m := range b.engine.EncodeScreen(b.client.fb, b.client.w, b.client.h, force) {

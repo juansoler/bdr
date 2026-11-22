@@ -17,6 +17,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/juansoler/bdr/packages/contracts"
+	"github.com/juansoler/bdr/packages/logging"
 )
 
 // ScreenRuntime mantiene la conexión persistente con el servidor y coordina
@@ -25,16 +26,19 @@ type ScreenRuntime struct {
 	mu      sync.Mutex // serializa escrituras al WebSocket
 	conn    *websocket.Conn
 	manager *ScreenSessionManager
+	log     *logging.Logger // nil permitido (sin logs de sesión)
 	ctx     context.Context
 	cancel  context.CancelFunc
 }
 
 // NewScreenRuntime crea un runtime ligado al contexto del agente.
-func NewScreenRuntime(ctx context.Context) *ScreenRuntime {
+// El logger es opcional (nil = sin logs).
+func NewScreenRuntime(ctx context.Context, log *logging.Logger) *ScreenRuntime {
 	ctx, cancel := context.WithCancel(ctx)
 	return &ScreenRuntime{
 		ctx:     ctx,
 		cancel:  cancel,
+		log:     log,
 		manager: NewScreenSessionManager(),
 	}
 }
@@ -148,18 +152,16 @@ func (r *ScreenRuntime) handleScreenBinary(sessionID string, payload []byte) {
 }
 
 // pumpSession bombea los eventos del backend hacia el servidor como frames
-// binarios multiplexados. Al terminar el backend, notifica exit y limpia.
+// binarios multiplexados. Al terminar el backend, informa al servidor.
 func (r *ScreenRuntime) pumpSession(s *ScreenSession) {
 	for {
 		select {
 		case <-s.backend.Done():
-			r.notifyExit(s.ID)
-			r.manager.CloseSession(s.ID)
+			r.finishSession(s)
 			return
 		case msg, ok := <-s.backend.Events():
 			if !ok {
-				r.notifyExit(s.ID)
-				r.manager.CloseSession(s.ID)
+				r.finishSession(s)
 				return
 			}
 			if frame, err := encodeAgentData(s.ID, msg); err == nil {
@@ -167,6 +169,26 @@ func (r *ScreenRuntime) pumpSession(s *ScreenSession) {
 			}
 		}
 	}
+}
+
+// finishSession cierra la sesión local e informa al servidor. Si el backend
+// murió con error, ese motivo viaja como screen_error y llega legible al
+// visor del panel (nunca más un «finalizó (código 0)» opaco).
+func (r *ScreenRuntime) finishSession(s *ScreenSession) {
+	if reason := s.backend.Err(); reason != "" {
+		if r.log != nil {
+			r.log.Warn("sesión de pantalla terminada con error",
+				"session_id", s.ID, "reason", reason)
+		}
+		_ = r.sendScreenJSON(contracts.ScreenMessage{
+			Type:      contracts.ScreenMsgAgentError,
+			SessionID: s.ID,
+			Payload:   mustJSON(contracts.ScreenErrorPayload{Code: "E_AGENT_SESSION", Message: reason}),
+		})
+	} else {
+		r.notifyExit(s.ID)
+	}
+	r.manager.CloseSession(s.ID)
 }
 
 // notifyExit informa al servidor de que el backend terminó. Solo si la

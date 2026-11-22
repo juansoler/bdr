@@ -204,7 +204,7 @@ func (a *Agent) terminalLoop(ctx context.Context) {
 // servidor: dial, servicio de sesiones y reconexión con espera entre
 // intentos. El agente siempre inicia la conexión (outbound mTLS).
 func (a *Agent) screenLoop(ctx context.Context) {
-	rt := remoteaccess.NewScreenRuntime(ctx)
+	rt := remoteaccess.NewScreenRuntime(ctx, a.log)
 	defer rt.Close()
 
 	const (

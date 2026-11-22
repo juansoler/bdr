@@ -2,6 +2,29 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.1] — 2026-11-22
+
+### Corregido
+
+- **Windows: la captura GDI fallaba siempre** — `GetDIBits` se llamaba con el
+  bitmap aún seleccionado en el DC (MSDN lo prohíbe: comportamiento
+  indefinido). Ahora se usa `CreateDIBSection`: GDI entrega los píxeles
+  directamente en memoria y el `BitBlt` escribe sobre ese buffer sin pasos
+  intermedios. Era la causa del «finalizó (código 0)» en Windows.
+- **Motivo real de terminación visible en el panel**: los backends (helper
+  Windows, X11 nativo, bridge VNC) informan ahora la causa de la muerte —
+  el agente la envía como `screen_error` y el visor la muestra tal cual
+  (p. ej. «el helper falló: captura GDI no disponible», «la captura X11
+  falló de forma persistente: …»). El agente también lo registra en su log.
+- El helper de Windows ya no comparte el pipe de stdout con su stderr: un
+  panic del helper no puede corromper el stream de tiles (stderr → NUL) y
+  el agente reporta el código de salida del helper como motivo.
+- Linux: si la profundidad del servidor X no entrega un framebuffer BGRA de
+  24/32 bpp, la sesión falla con mensaje claro en vez de pintar basura.
+- Panel: comprobación previa de protocolo — si el agente aún es 0.15.x
+  (RFB/noVNC), el visor avisa «actualiza el agente a 0.16.0+» en vez de
+  fallar con un error confuso tras el handshake.
+
 ## [0.16.0] — 2026-11-22
 
 ### Añadido

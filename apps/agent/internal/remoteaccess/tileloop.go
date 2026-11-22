@@ -8,8 +8,41 @@
 package remoteaccess
 
 import (
+	"fmt"
+	"sync"
 	"time"
 )
+
+// termErr registra el motivo de terminación de un backend para que el
+// runtime lo informe al servidor (y llegue legible al visor del panel).
+type termErr struct {
+	mu     sync.Mutex
+	reason string
+}
+
+// failAnnotate registra el motivo (solo el primero: el que causó la salida).
+func (t *termErr) failAnnotate(reason string) {
+	if reason == "" {
+		return
+	}
+	t.mu.Lock()
+	if t.reason == "" {
+		t.reason = reason
+	}
+	t.mu.Unlock()
+}
+
+// failf registra el motivo formateado.
+func (t *termErr) failf(format string, args ...any) {
+	t.failAnnotate(fmt.Sprintf(format, args...))
+}
+
+// Err devuelve el motivo registrado ("" si fue un cierre ordenado).
+func (t *termErr) Err() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reason
+}
 
 // screenBackend es una sesión de pantalla activa: produce eventos para el
 // navegador y consume su entrada.
@@ -21,6 +54,9 @@ type screenBackend interface {
 	Handle(msg []byte)
 	// Done se cierra cuando el backend termina (fallo de captura o cierre).
 	Done() <-chan struct{}
+	// Err devuelve el motivo de la terminación ("" si fue ordenada o
+	// desconocida). Consultar tras Done.
+	Err() string
 	// Close detiene el backend y libera recursos.
 	Close()
 }

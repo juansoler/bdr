@@ -7,10 +7,11 @@ package remoteaccess
 
 // helperBackend implementa screenBackend sobre el helper de sesión.
 type helperBackend struct {
-	helper *helperProcess
-	events chan []byte
-	done   chan struct{}
-	stop   chan struct{}
+	helper  *helperProcess
+	events  chan []byte
+	done    chan struct{}
+	stop    chan struct{}
+	termErr // motivo de terminación para el visor
 }
 
 // newScreenBackend crea el backend Windows: lanza el helper de sesión.
@@ -38,7 +39,14 @@ func (b *helperBackend) readLoop() {
 	for {
 		msg, err := nextStreamFrame(b.helper.stdout)
 		if err != nil {
-			return // helper terminó (cierre ordenado, logout, pantalla bloqueada…)
+			// El helper terminó: distingue fallo del propio helper (exit
+			// code) de un cierre ordenado (stop nuestro).
+			select {
+			case <-b.stop:
+			default:
+				b.failAnnotate(b.helper.terminationReason())
+			}
+			return
 		}
 		select {
 		case b.events <- msg:
@@ -56,7 +64,9 @@ func (b *helperBackend) Done() <-chan struct{} { return b.done }
 
 // Handle enmarca el mensaje del navegador hacia el stdin del helper.
 func (b *helperBackend) Handle(msg []byte) {
-	_ = b.helper.writeFrame(msg)
+	if err := b.helper.writeFrame(msg); err != nil {
+		b.failf("no se pudo escribir al helper: %v", err)
+	}
 }
 
 // writeFrame escribe un mensaje enmarcado al stdin del helper.

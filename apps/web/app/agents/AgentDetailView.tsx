@@ -623,7 +623,7 @@ export function AgentDetailView({ id }: { id: string }) {
               </Button>
             </div>
             <div className="min-h-0 flex-1">
-              <ScreenViewer agentId={id} />
+              <ScreenViewer agentId={id} osFamily={agent?.os_family} />
             </div>
           </div>
         </div>

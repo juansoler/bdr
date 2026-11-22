@@ -38,6 +38,7 @@ type x11Backend struct {
 	stop        chan struct{}
 	prevButtons byte // último estado de botones conocido (para el diff XTEST)
 	closeOnce   sync.Once
+	termErr     // motivo de terminación para el visor
 }
 
 // newX11Backend conecta al servidor X y prepara la sesión.
@@ -103,6 +104,13 @@ func (s *x11Source) Frame() ([]byte, int, int, error) {
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("X11 GetImage: %w", err)
 	}
+	// Profundidad inesperada (16 bpp…) → el buffer no coincide con BGRA:
+	// mejor fallar claro que pintar basura o desbordar.
+	if len(reply.Data) < s.b.w*s.b.h*4 {
+		return nil, 0, 0, fmt.Errorf(
+			"X11: framebuffer inesperado (%d bytes para %dx%d; ¿profundidad != 24/32?)",
+			len(reply.Data), s.b.w, s.b.h)
+	}
 	return reply.Data, s.b.w, s.b.h, nil
 }
 
@@ -115,7 +123,7 @@ func (b *x11Backend) run() {
 	defer close(b.events)
 	interval := defaultFrameEvery
 	src := &x11Source{b: b}
-	_ = captureLoop(b.engine, src, func() time.Duration { return interval }, func(m []byte) error {
+	err := captureLoop(b.engine, src, func() time.Duration { return interval }, func(m []byte) error {
 		select {
 		case b.events <- m:
 			return nil
@@ -123,6 +131,10 @@ func (b *x11Backend) run() {
 			return errStopped
 		}
 	}, b.stop)
+	if err != nil && err != errStopped {
+		// Fallo persistente de captura: el motivo llega al visor.
+		b.failf("la captura X11 falló de forma persistente: %v", err)
+	}
 }
 
 // errStopped marca la parada del bucle de emisión.
