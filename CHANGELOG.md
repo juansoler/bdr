@@ -2,6 +2,25 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.3] — 2026-11-22
+
+### Corregido
+
+- **Windows: «BitBlt falló: The handle is invalid» en cada sesión** —
+  los DC de `GetDC` y el binding de escritorio (`SetThreadDesktop`) son
+  **estado por hilo**, y las goroutines de Go migran entre hilos del SO: el
+  DC de pantalla creado en un hilo se usaba en otro. Diagnóstico confirmado
+  con el log del helper (0.16.2). Solución canónica:
+  - El helper bloquea su goroutine de captura a un único hilo
+    (`runtime.LockOSThread`) y fija ahí el escritorio interactivo
+    (`OpenInputDesktop` + `SetThreadDesktop`, con el nombre del escritorio
+    en el log).
+  - El DC de pantalla se adquiere **fresco en cada frame** y se libera al
+    terminar — inmune a cambios de escritorio activo (UAC, bloqueo), el
+    mismo motivo por el que MeshCentral re-adquiere el DC por captura.
+  - `BitBlt` registra en el fallo los handles y la geometría (vx/vy/wxh)
+    para diagnóstico inmediato.
+
 ## [0.16.2] — 2026-11-22
 
 ### Añadido

@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -61,6 +62,15 @@ func logLine(f *os.File, format string, args ...any) {
 func RunScreenHelper(stdin io.Reader, stdout io.Writer) error {
 	logFile := screenHelperLog()
 	logLine(logFile, "screenhelper iniciado (pid %d, version %s)", os.Getpid(), versionString())
+
+	// REGLA GDI/Go: los DC de GetDC y el binding de escritorio son estado
+	// POR HILO y las goroutines migran — bloquea este goroutine a su hilo
+	// para TODO el ciclo de captura, y fija el escritorio interactivo.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	bindInteractiveDesktop(func(format string, args ...any) {
+		logLine(logFile, format, args...)
+	})
 
 	defer func() {
 		if r := recover(); r != nil {
