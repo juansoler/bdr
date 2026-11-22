@@ -2,6 +2,17 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.15] — 2026-11-22
+
+### Mejorado
+
+- **SQL Server: el error 262 de `RESTORE VERIFYONLY` se traduce a la acción
+  concreta** (hallazgo del lab P-25): VERIFYONLY crea internamente una
+  base temporal y exige el rol de servidor `dbcreator` para el login del
+  agente. Cuando falta, el mensaje del job explica el permiso requerido y
+  la sentencia exacta `ALTER SERVER ROLE dbcreator ADD MEMBER [...]`
+  en vez del error T-SQL crudo.
+
 ## [0.16.14] — 2026-11-22
 
 ### Corregido
