@@ -2,6 +2,17 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.17] — 2026-11-22
+
+### Corregido
+
+- **Panel: el asistente de restauración SQL fallaba con 400** (hallazgo
+  del lab): el checkbox de confirmación recogía el visto bueno del
+  operador pero el cuerpo del POST no incluía `confirm: true`, que la API
+  exige para el restore destructivo. Ahora se envía.
+- **Panel: tamaños menores de 1 GiB se mostraban como «0 GiB»** — ahora
+  en MB con un decimal.
+
 ## [0.16.16] — 2026-11-22
 
 ### Añadido
