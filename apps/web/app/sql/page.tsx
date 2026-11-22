@@ -123,8 +123,14 @@ export default function SQLPage() {
   const dbReqId = useRef(0);
 
   // Asistente de restauración (RF-42): cadena calculada desde el catálogo.
+  // El destino puede ser OTRA instancia (p. ej. un motor limpio): agente,
+  // servidor e instancia destino propios; la cadena se calcula siempre
+  // sobre los puntos del origen.
   const [restoreFor, setRestoreFor] = useState<string | null>(null);
   const [destName, setDestName] = useState("");
+  const [dstAgentId, setDstAgentId] = useState("");
+  const [dstServer, setDstServer] = useState("");
+  const [dstInstance, setDstInstance] = useState("");
   const [stopAt, setStopAt] = useState("");
   const [chain, setChain] = useState<SQLChainView | null>(null);
   const [chainBusy, setChainBusy] = useState(false);
@@ -257,6 +263,11 @@ export default function SQLPage() {
     const reqId = ++chainReqId.current;
     setRestoreFor(database);
     setDestName(database);
+    // Destino por defecto: la propia instancia de origen. Cambiando el
+    // agente se restaura en otra máquina (p. ej. motor limpio).
+    setDstAgentId(agentId);
+    setDstServer(server);
+    setDstInstance(instance);
     setStopAt("");
     setRestoreConfirm(false);
     setError(null);
@@ -275,6 +286,10 @@ export default function SQLPage() {
         setError("La cadena no es válida o está vacía.");
         return;
       }
+      if (!dstAgentId || !dstServer) {
+        setError("Elige el agente y el servidor de destino.");
+        return;
+      }
       if (!restoreConfirm) {
         setError("Confirma la restauración: es destructiva sobre la base destino.");
         return;
@@ -282,9 +297,9 @@ export default function SQLPage() {
       const res = await api<{ job_id: string }>("/api/v1/admin/sql/restore", token, {
         method: "POST",
         body: JSON.stringify({
-          agent_id: agentId,
-          server,
-          instance,
+          agent_id: dstAgentId,
+          server: dstServer,
+          instance: dstInstance,
           database: destName,
           files: chain.files,
           ...(stopAt ? { stop_at: new Date(stopAt).toISOString() } : {}),
@@ -656,7 +671,31 @@ export default function SQLPage() {
               <Field label="Punto en el tiempo (opcional)" hint="vacío = el más reciente del catálogo">
                 <Input type="datetime-local" value={stopAt} onChange={(e) => changeStopAt(e.target.value)} />
               </Field>
+              <Field label="Agente destino" hint="cámbialo para restaurar en otra máquina (motor limpio: el nombre puede coincidir)">
+                <select
+                  value={dstAgentId}
+                  onChange={(e) => setDstAgentId(e.target.value)}
+                  className="w-full border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slate-200 focus:border-signal focus:outline-none"
+                >
+                  <option value="">— elige agente —</option>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>{a.hostname}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Servidor destino" hint="host o host\\instancia del motor donde restaurar">
+                <Input value={dstServer} onChange={(e) => setDstServer(e.target.value)} />
+              </Field>
+              <Field label="Instancia destino (opcional)">
+                <Input value={dstInstance} onChange={(e) => setDstInstance(e.target.value)} />
+              </Field>
             </div>
+            {dstAgentId && dstAgentId !== agentId ? (
+              <p className="font-mono text-[10px] text-ice">
+                Restauración cruzada: la cadena proviene del catálogo del origen y se aplica en {dstServer || "el destino"}.
+                En un motor limpio no hace falta MOVE; si el destino ya tiene la base, se reemplaza (WITH REPLACE).
+              </p>
+            ) : null}
 
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.28em] text-slate-500">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { Check, Modal } from "@/components/Modal";
 import {
   Button,
@@ -250,9 +251,18 @@ export default function RestorePointsPage() {
                                 navegación no disponible
                               </span>
                             )}
-                            <Button size="sm" variant="primary" onClick={() => setRestore(rp)}>
-                              Restaurar
-                            </Button>
+                            {rp.kind === "sql" ? (
+                              <Link
+                                href="/sql"
+                                className="font-mono text-[10px] uppercase tracking-widest2 text-signal hover:text-slate-200"
+                              >
+                                restaurar en SQL Server →
+                              </Link>
+                            ) : (
+                              <Button size="sm" variant="primary" onClick={() => setRestore(rp)}>
+                                Restaurar
+                              </Button>
+                            )}
                             <Button size="sm" variant="danger" onClick={() => setDeleting(rp)}>
                               Eliminar
                             </Button>
