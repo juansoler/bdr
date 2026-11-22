@@ -2,6 +2,31 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.21] — 2026-11-22
+
+### Corregido
+
+- **Windows: la entrada del operador no se inyectaba** (pantalla visible,
+  sin control) — SendInput corría en la goroutine del stdin, sin el hilo
+  bloqueado ni el binding de escritorio de la captura. Ahora la inyección
+  la hace el **mismo hilo bloqueado que captura**: el goroutine de stdin
+  solo encola los eventos y el bucle de captura los drena antes de cada
+  frame (mismo patrón que el mainloop de MeshCentral).
+- **DPI-awareness del helper**: sin `SetProcessDPIAware`, Windows
+  virtualiza las métricas en pantallas escaladas (125/150 %) — la captura
+  salía reescalada y las coordenadas de entrada no coincidían. Ahora el
+  helper es DPI-aware y captura a resolución física.
+
+### Añadido
+
+- **Windows Server Core / Nano Server detectados y rechazados con error
+  claro**: no tienen escritorio gráfico que compartir — el fallo GDI
+  («BitBlt: handle invalid») solo confundía. Detección por
+  `InstallationType` del registro; el visor muestra el mensaje honesto.
+- El helper registra en su log los fallos de `SendInput` (con código) y
+  la primera entrada inyectada con éxito — separa «la entrada no llega»
+  de «SendInput la rechaza».
+
 ## [0.16.20] — 2026-11-22
 
 ### Añadido

@@ -4,16 +4,24 @@
 //
 // Teclas: dos vías, como en MeshCentral (KEY vs KEY_UNICODE):
 //   - Teclas "especiales" (flechas, F1-12, modificadores…) → tabla
-//     keysym→VK + scan codes.
+//     keysym→VK.
 //   - Caracteres imprimibles → KEYEVENTF_UNICODE (independiente del layout).
+//
+// La inyección DEBE ejecutarse en el mismo hilo bloqueado que la captura
+// (los escritorios y el estado de entrada son por hilo): el helper pasa
+// los eventos del visor al bucle de captura, que los drena antes de cada
+// frame — mismo patrón que el mainloop de MeshCentral.
 package remoteaccess
 
 import (
 	"encoding/binary"
+	"fmt"
+	"sync"
 	"unsafe"
 )
 
-var procSendInput = user32DLL.NewProc("SendInput")
+// procSendInput vive en user32 (declarado junto al resto de procs GDI en
+// capture_windows.go); este fichero solo lo usa.
 
 // Flags de MOUSEINPUT.
 const (
@@ -49,13 +57,9 @@ const (
 	offMiDY        = offUnion + 4
 	offMiMouseData = offUnion + 8
 	offMiFlags     = offUnion + 12
-	offMiTime      = offUnion + 16
-	offMiExtra     = offUnion + 24 // alineación de ULONG_PTR
 	offKiVK        = offUnion + 0
 	offKiScan      = offUnion + 2
 	offKiFlags     = offUnion + 4
-	offKiTime      = offUnion + 8
-	offKiExtra     = offUnion + 16
 )
 
 // keysymVK mapea keysyms X11 de teclas especiales a Virtual Keys de Windows.
@@ -97,26 +101,48 @@ var keysymVK = map[uint32]uint16{
 	0xFFEC: 0x5C, // Super_R
 }
 
-// sendInputInjector inyecta entrada con SendInput. El helper corre dentro de
-// la sesión interactiva: SendInput llega al escritorio real.
+// sendInputInjector inyecta entrada con SendInput en el hilo de captura.
 type sendInputInjector struct {
 	prevButtons byte
+
+	logf    func(string, ...any) // nil = sin logs
+	firstIn bool
+	failN   int
+	mu      sync.Mutex
 }
 
-// newSendInputInjector crea el inyector.
-func newSendInputInjector() *sendInputInjector { return &sendInputInjector{} }
+// newSendInputInjector crea el inyector. logf puede ser nil.
+func newSendInputInjector(logf func(string, ...any)) *sendInputInjector {
+	return &sendInputInjector{logf: logf, firstIn: true}
+}
 
 // sendOne envía un INPUT ya construido en buf (40 bytes).
-func sendOne(buf []byte) error {
+func (s *sendInputInjector) sendOne(buf []byte, what string) error {
 	r1, _, err := procSendInput.Call(uintptr(unsafe.Pointer(&buf[0])), 1, sizeofInput)
 	if r1 != 1 {
-		return err
+		s.mu.Lock()
+		s.failN++
+		if s.logf != nil && s.failN <= 5 {
+			s.logf("SendInput falló (%s, rc=%d): %v", what, r1, err)
+		}
+		s.mu.Unlock()
+		return fmt.Errorf("SendInput %s: %v", what, err)
+	}
+	if s.logf != nil {
+		s.mu.Lock()
+		first := s.firstIn
+		s.firstIn = false
+		s.mu.Unlock()
+		if first {
+			s.logf("primera entrada inyectada con éxito (%s)", what)
+		}
 	}
 	return nil
 }
 
 // Mouse inyecta movimiento (absoluto sobre el escritorio virtual) y el diff
-// de botones respecto al estado anterior.
+// de botones respecto al estado anterior. DEBE llamarse desde el hilo de
+// captura (mismo binding de escritorio que la captura).
 func (s *sendInputInjector) Mouse(action, buttons byte, x, y uint16) error {
 	_ = action // el estado de botones gobierna el diff (el visor manda ambos)
 	vx, _, _ := procGetSystemMetrics.Call(smXVirtualScreen)
@@ -137,12 +163,11 @@ func (s *sendInputInjector) Mouse(action, buttons byte, x, y uint16) error {
 	binary.LittleEndian.PutUint32(buf[offMiDX:], uint32(nx))
 	binary.LittleEndian.PutUint32(buf[offMiDY:], uint32(ny))
 	binary.LittleEndian.PutUint32(buf[offMiFlags:], mouseeventfMove|mouseeventfAbsolute)
-	if err := sendOne(buf); err != nil {
+	if err := s.sendOne(buf, "mouse-move"); err != nil {
 		return err
 	}
 
 	// Diff de botones (bit0 izq, bit1 centro, bit2 der).
-	var pairs [][2]uint32
 	prev := s.prevButtons
 	for bit := byte(0); bit < 3; bit++ {
 		mask := byte(1 << bit)
@@ -151,21 +176,20 @@ func (s *sendInputInjector) Mouse(action, buttons byte, x, y uint16) error {
 		}
 		downFlag := [3]uint32{mouseeventfLeftDown, mouseeventfMiddleDown, mouseeventfRightDown}[bit]
 		upFlag := [3]uint32{mouseeventfLeftUp, mouseeventfMiddleUp, mouseeventfRightUp}[bit]
+		flag := upFlag
+		what := "mouse-up"
 		if buttons&mask != 0 {
-			pairs = append(pairs, [2]uint32{downFlag, 0})
-		} else {
-			pairs = append(pairs, [2]uint32{upFlag, 0})
+			flag = downFlag
+			what = "mouse-down"
 		}
-	}
-	s.prevButtons = buttons
-	for _, p := range pairs {
 		buf := make([]byte, sizeofInput)
 		buf[0] = inputMouse
-		binary.LittleEndian.PutUint32(buf[offMiFlags:], p[0])
-		if err := sendOne(buf); err != nil {
+		binary.LittleEndian.PutUint32(buf[offMiFlags:], flag)
+		if err := s.sendOne(buf, what); err != nil {
 			return err
 		}
 	}
+	s.prevButtons = buttons
 	return nil
 }
 
@@ -192,5 +216,9 @@ func (s *sendInputInjector) Key(down bool, keysym uint32) error {
 		binary.LittleEndian.PutUint16(buf[offKiScan:], uint16(ch))
 		binary.LittleEndian.PutUint32(buf[offKiFlags:], flags|keyeventfUnicode)
 	}
-	return sendOne(buf)
+	what := "key-down"
+	if !down {
+		what = "key-up"
+	}
+	return s.sendOne(buf, what)
 }

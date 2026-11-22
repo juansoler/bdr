@@ -388,7 +388,10 @@ X11 nativa (fallback automático a x11vnc solo-loopback si X11 no es accesible);
 macOS — bridge contra el «Compartir pantalla» integrado del sistema.
 Requisito en todas: **sesión gráfica activa** — un equipo headless (Proxmox,
 servidor solo-TTY) no tiene escritorio que compartir y falla con error claro.
-Diagnóstico Windows: `%ProgramData%\bdr\screenhelper.log`.
+En Windows, las ediciones **Server Core / Nano Server** se detectan y se
+rechazan con mensaje explícito (sin escritorio gráfico). El usuario debe
+estar logado en la sesión activa (consola o RDP — se elige la sesión WTS
+activa con usuario). Diagnóstico Windows: `%ProgramData%\bdr\screenhelper.log`.
 
 ---
 

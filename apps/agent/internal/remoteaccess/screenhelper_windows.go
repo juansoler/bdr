@@ -21,9 +21,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"golang.org/x/sys/windows/registry"
 
 	"github.com/juansoler/bdr/packages/version"
 )
@@ -102,6 +105,23 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 		logLine(logFile, format, args...)
 	})
 
+	// DPI-aware desde el primer GDI: sin esto, Windows virtualiza las
+	// métricas en pantallas escaladas (125/150 %) — la captura sale
+	// reescalada y las coordenadas de SendInput no coinciden con lo que el
+	// visor envía. Debe llamarse antes de cualquier GetDC.
+	if r1, _, _ := procSetProcessDPIAware.Call(); r1 != 0 {
+		logLine(logFile, "paso 2b: SetProcessDPIAware aplicado (métricas físicas)")
+	} else {
+		logLine(logFile, "paso 2b: SetProcessDPIAware no aplicado (¿ya aware?)")
+	}
+
+	// Ediciones sin escritorio gráfico (Server Core, Nano): la captura no
+	// puede funcionar — error honesto en vez de un «BitBlt handle invalid».
+	if reason := desktopUnavailableReason(); reason != "" {
+		logLine(logFile, "ERROR: %s", reason)
+		return fmt.Errorf("%s", reason)
+	}
+
 	engine := NewTileEngine()
 	logLine(logFile, "paso 3: inicializando captura GDI")
 	source, err := newGDICapture()
@@ -112,17 +132,21 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 	logLine(logFile, "paso 4: captura GDI lista (GetDC por frame)")
 	defer source.Close()
 
-	inj := newSendInputInjector()
+	inj := newSendInputInjector(func(format string, args ...any) {
+		logLine(logFile, format, args...)
+	})
 	var intervalMs atomic.Int64
 	intervalMs.Store(int64(defaultFrameEvery / time.Millisecond))
 	firstFrame := atomic.Bool{}
 	firstFrame.Store(true)
 
-	// Entrada del visor: stdin (mensajes enmarcados). Al cerrarse el canal,
-	// se para el bucle de captura (sin visor no hay sesión).
+	// Entrada del visor: stdin (mensajes enframedos → encolados). La
+	// INYECCIÓN la hace el hilo de captura (drena la cola antes de cada
+	// frame): SendInput y GDI comparten hilo y binding de escritorio.
 	stop := make(chan struct{})
 	var stopOnce sync.Once
 	stopNow := func() { stopOnce.Do(func() { close(stop) }) }
+	inputCh := make(chan []byte, 128)
 	go func() {
 		for {
 			msg, err := nextStreamFrame(stdin)
@@ -135,13 +159,11 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 				continue
 			}
 			switch msg[0] {
-			case msgMouse:
-				if ev, ok := decodeMouse(msg[1:]); ok {
-					_ = inj.Mouse(ev.Action, ev.Buttons, ev.X, ev.Y)
-				}
-			case msgKey:
-				if ev, ok := decodeKey(msg[1:]); ok {
-					_ = inj.Key(ev.Down, ev.Keysym)
+			case msgMouse, msgKey:
+				select {
+				case inputCh <- msg:
+				default:
+					// Saturado: se descarta (el visor genera eventos muy rápido).
 				}
 			case msgQuality:
 				if q, interval, ok := decodeQuality(msg[1:]); ok {
@@ -154,7 +176,8 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 		}
 	}()
 
-	err = captureLoop(engine, source, func() time.Duration {
+	src := &inputDrainSource{inner: source, ch: inputCh, inj: inj}
+	err = captureLoop(engine, src, func() time.Duration {
 		return time.Duration(intervalMs.Load()) * time.Millisecond
 	}, func(m []byte) error {
 		if firstFrame.CompareAndSwap(true, false) {
@@ -173,4 +196,59 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 		logLine(logFile, "bucle de captura terminó ordenadamente")
 	}
 	return err
+}
+
+// inputDrainSource envuelve el TileSource de captura: drena la entrada del
+// visor ANTES de cada frame. Así la inyección (SendInput) corre en el MISMO
+// hilo bloqueado que la captura (GDI) — mismo escritorio, mismo binding.
+type inputDrainSource struct {
+	inner TileSource
+	ch    chan []byte
+	inj   *sendInputInjector
+}
+
+// Frame drena la entrada pendiente y captura un frame.
+func (s *inputDrainSource) Frame() ([]byte, int, int, error) {
+	for {
+		select {
+		case msg := <-s.ch:
+			switch msg[0] {
+			case msgMouse:
+				if ev, ok := decodeMouse(msg[1:]); ok {
+					_ = s.inj.Mouse(ev.Action, ev.Buttons, ev.X, ev.Y) // fallos logueados por el inyector
+				}
+			case msgKey:
+				if ev, ok := decodeKey(msg[1:]); ok {
+					_ = s.inj.Key(ev.Down, ev.Keysym)
+				}
+			}
+			continue
+		default:
+		}
+		return s.inner.Frame()
+	}
+}
+
+// Close libera el origen interno.
+func (s *inputDrainSource) Close() error { return s.inner.Close() }
+
+// desktopUnavailableReason detecta ediciones de Windows SIN escritorio
+// gráfico (Server Core, Nano Server): «Ver pantalla» no puede funcionar y
+// el fallo GDI posterior solo confundiría. "" = edición con escritorio.
+func desktopUnavailableReason() string {
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SOFTWARE\Microsoft\Windows NT\CurrentVersion`, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer k.Close()
+	val, _, err := k.GetStringValue("InstallationType")
+	if err != nil || val == "" {
+		return ""
+	}
+	if strings.Contains(val, "Core") || strings.EqualFold(val, "Nano Server") {
+		return fmt.Sprintf(
+			"esta edición de Windows (%s) no tiene escritorio gráfico que compartir: «Ver pantalla» no está disponible en ella", val)
+	}
+	return ""
 }

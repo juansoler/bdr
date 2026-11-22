@@ -37,6 +37,8 @@ var (
 	procSetThreadDesktop         = user32DLL.NewProc("SetThreadDesktop") // escritorios = objetos USER: user32
 	procGetThreadDesktop         = user32DLL.NewProc("GetThreadDesktop") // (el panic de 0.16.4 lo probó)
 	procGetProcessWindowStation  = user32DLL.NewProc("GetProcessWindowStation")
+	procSetProcessDPIAware       = user32DLL.NewProc("SetProcessDPIAware")
+	procSendInput                = user32DLL.NewProc("SendInput")
 	procCreateCompatibleDC       = gdi32DLL.NewProc("CreateCompatibleDC")
 	procCreateDIBSection         = gdi32DLL.NewProc("CreateDIBSection")
 	procSelectObject             = gdi32DLL.NewProc("SelectObject")
