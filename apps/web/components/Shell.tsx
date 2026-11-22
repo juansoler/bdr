@@ -197,10 +197,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="relative z-10 flex min-h-screen">
-      {update?.update_available ? <UpdateBanner update={update} /> : null}      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-ink-700 bg-ink-950/80 px-4 py-6 lg:flex">
+      {update?.update_available ? <UpdateBanner update={update} /> : null}
+      {/* La barra queda fija pero si su contenido no cabe en la pantalla se
+          desplaza dentro de sí misma (scroll fino): sin esto, en ventanas
+          bajas los últimos enlaces y el pie quedan inalcanzables porque el
+          scroll de la página no mueve un elemento sticky. */}
+      <aside className="scroll-thin sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-y-auto border-r border-ink-700 bg-ink-950/80 px-4 py-5 lg:flex">
         <Brand />
 
-        <nav className="mt-12 flex flex-col gap-1">
+        <nav className="mt-6 flex flex-none flex-col gap-1">
           {NAV.map((item) => {
             const active =
               item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -209,7 +214,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={cx(
-                  "group flex items-center gap-3 border-l-2 px-3 py-3 transition",
+                  "group flex items-center gap-3 border-l-2 px-3 py-2 transition",
                   active
                     ? "border-signal bg-signal/5 text-signal"
                     : "border-transparent text-slate-400 hover:border-ink-600 hover:bg-white/[0.03] hover:text-slate-200",
@@ -232,7 +237,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="mt-auto space-y-4 border-t border-ink-700 pt-5">
+        <div className="mt-auto flex-none space-y-3 border-t border-ink-700 pt-4">
           <div className="flex items-center justify-between font-mono text-[9px] uppercase tracking-[0.18em]">
             <span className="flex items-center gap-2 text-slate-500">
               <Dot tone={health ? "signal" : "danger"} live={Boolean(health)} />

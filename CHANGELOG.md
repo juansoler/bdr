@@ -2,6 +2,29 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.25] — 2026-11-22
+
+### Añadido
+
+- **Información de red en los equipos**: la barra lateral ya recoge interfaces
+  del inventario del agente, pero el panel no las mostraba.
+  - Tabla de «Equipos»: nueva columna «Red» con la IP primaria y cuántas
+    interfaces están activas; la búsqueda también filtra por IP o MAC.
+  - Ficha del equipo: IP primaria e interfaces en «Contacto», nuevas
+    baldosas «IP primaria» e «Interfaces» y sección «Interfaces de red» con
+    nombre, estado (up/down), MAC y direcciones de cada interfaz (la IP
+    primaria resaltada).
+
+### Corregido
+
+- **Barra lateral inalcanzable en pantallas bajas**: el contenido del menú
+  (~950 px con 10 secciones y pie) desborda los `h-screen` del elemento
+  sticky, y al estar fijado el scroll de la página nunca lo revela — los
+  últimos enlaces y el pie (estado de API, «Comprobar», «Salir») quedaban
+  fuera del alcance. Ahora la barra se desplaza dentro de sí misma con el
+  scrollbar fino y su contenido se compacta (menos paddings) para caber en
+  las resoluciones habituales.
+
 ## [0.16.24] — 2026-11-22
 
 ### Añadido

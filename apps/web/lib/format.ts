@@ -1,4 +1,4 @@
-import type { Retention } from "./api";
+import type { Inventory, NetInterface, Retention } from "./api";
 
 const dateFmt = new Intl.DateTimeFormat("es-ES", {
   day: "2-digit",
@@ -48,6 +48,61 @@ export function formatBytes(bytes?: number): string {
 export function formatPercent(value?: number): string {
   if (value === undefined || value === null) return "—";
   return `${Math.max(0, Math.min(100, value))}%`;
+}
+
+// Dirección sin el prefijo de red («192.168.1.10/24» → «192.168.1.10»).
+function addrHost(address: string): string {
+  return address.split("/")[0] ?? address;
+}
+
+function isGlobalV4(ip: string): boolean {
+  return (
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) &&
+    ip !== "127.0.0.1" &&
+    !ip.startsWith("169.254.")
+  );
+}
+
+function isLoopback(ip: string): boolean {
+  return ip === "127.0.0.1" || ip === "::1" || ip.startsWith("fe80");
+}
+
+// IP primaria del inventario: la primera IPv4 global (no loopback ni
+// link-local) de una interfaz activa; si no la hay, la primera IPv4 global
+// de cualquier interfaz; y como último recurso, cualquier dirección no local.
+export function primaryIP(inv?: Inventory): string {
+  if (!inv?.network?.length) return "—";
+  const passes: Array<(ip: string, up: boolean) => boolean> = [
+    (ip, up) => up && isGlobalV4(ip),
+    (ip) => isGlobalV4(ip),
+    (ip) => !isLoopback(ip),
+  ];
+  for (const accept of passes) {
+    for (const iface of inv.network) {
+      for (const raw of iface.addresses ?? []) {
+        const ip = addrHost(raw);
+        if (accept(ip, iface.up)) return ip;
+      }
+    }
+  }
+  return "—";
+}
+
+// Resumen de interfaces: cuántas están activas sobre el total («2/4»).
+export function interfaceSummary(inv?: Inventory): string {
+  const list = inv?.network ?? [];
+  if (list.length === 0) return "—";
+  const up = list.filter((n) => n.up).length;
+  return `${up}/${list.length}`;
+}
+
+// Texto plano de las interfaces para tooltips y búsqueda: «eth0 192.168.1.10 · lo 127.0.0.1».
+export function networkSummary(inv?: Inventory): string {
+  const list = inv?.network ?? [];
+  if (list.length === 0) return "";
+  return list
+    .map((n: NetInterface) => `${n.name} ${(n.addresses ?? []).join(" ")}`.trim())
+    .join(" · ");
 }
 
 // Resumen de retención tipo "7L/7D/4S/6M" (L=latest, H=horas, D=días, S=semanas, M=meses, A=años).

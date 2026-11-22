@@ -29,7 +29,7 @@ import {
   type JobList,
   type PlanList,
 } from "@/lib/api";
-import { formatDateTime, shortId, timeAgo } from "@/lib/format";
+import { formatDateTime, interfaceSummary, networkSummary, primaryIP, shortId, timeAgo } from "@/lib/format";
 
 function AgentsList() {
   const { token } = useAuth();
@@ -78,6 +78,7 @@ function AgentsList() {
         a.hostname.toLowerCase().includes(q) ||
         a.os_version.toLowerCase().includes(q) ||
         a.id.toLowerCase().includes(q) ||
+        networkSummary(a.inventory).toLowerCase().includes(q) ||
         (a.groups ?? []).some((g) => g.name.toLowerCase().includes(q)),
     );
   }, [agents, query]);
@@ -142,7 +143,7 @@ function AgentsList() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar por hostname, grupo, SO o ID…"
+              placeholder="Buscar por hostname, IP, grupo, SO o ID…"
               className="py-2 text-xs"
             />
           </div>
@@ -167,13 +168,14 @@ function AgentsList() {
           </div>
         ) : (
           <div className="scroll-thin overflow-x-auto">
-            <table className="w-full min-w-[1080px] border-collapse text-left">
+            <table className="w-full min-w-[1200px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-ink-700 font-mono text-[9px] uppercase tracking-[0.16em] text-slate-500">
                   <th className="px-4 py-3 font-normal">Equipo</th>
                   <th className="px-4 py-3 font-normal">Estado</th>
                   <th className="px-4 py-3 font-normal">Sistema</th>
                   <th className="px-4 py-3 font-normal">Hardware</th>
+                  <th className="px-4 py-3 font-normal">Red</th>
                   <th className="px-4 py-3 font-normal">Grupos</th>
                   <th className="px-4 py-3 font-normal">Copias</th>
                   <th className="px-4 py-3 font-normal">Último job</th>
@@ -228,6 +230,20 @@ function AgentsList() {
                         <p className="mt-0.5 text-slate-600">
                           {inv?.ram_mb ? `${Math.round(inv.ram_mb / 1024)} GB RAM` : "sin inventario"}
                         </p>
+                      </td>
+                      <td className="px-4 py-4 font-mono text-[11px]">
+                        {inv?.network?.length ? (
+                          <>
+                            <p className="text-slate-200" title={networkSummary(inv)}>
+                              {primaryIP(inv)}
+                            </p>
+                            <p className="mt-0.5 text-slate-600">
+                              {interfaceSummary(inv)} interfaces activas
+                            </p>
+                          </>
+                        ) : (
+                          <span className="text-slate-600">sin inventario</span>
+                        )}
                       </td>
                       <td className="max-w-[160px] px-4 py-4">
                         {groups.length > 0 ? (

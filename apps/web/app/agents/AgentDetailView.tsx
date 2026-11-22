@@ -17,6 +17,7 @@ import {
   Progress,
   StatusBadge,
   VerifyBadge,
+  cx,
   severityLabel,
   severityTone,
 } from "@/components/ui";
@@ -26,8 +27,17 @@ import {
   api,
   type AgentDetail,
   type BlockDevice,
+  type NetInterface,
 } from "@/lib/api";
-import { formatBytes, formatDateTime, retentionSummary, shortId, timeAgo } from "@/lib/format";
+import {
+  formatBytes,
+  formatDateTime,
+  interfaceSummary,
+  primaryIP,
+  retentionSummary,
+  shortId,
+  timeAgo,
+} from "@/lib/format";
 
 export function AgentDetailView({ id }: { id: string }) {
   const { token } = useAuth();
@@ -411,6 +421,12 @@ export function AgentDetailView({ id }: { id: string }) {
               </Row>
               <Row label="Certificado">{formatDateTime(agent.cert_expires_at)}</Row>
               <Row label="Usuario repo">{agent.repository_username || "—"}</Row>
+              <Row label="IP primaria">{primaryIP(inv)}</Row>
+              <Row label="Interfaces">
+                {inv?.network?.length
+                  ? `${interfaceSummary(inv)} activas de ${inv.network.length}`
+                  : "—"}
+              </Row>
               <Row label="Job actual">{shortId(agent.current_job_id)}</Row>
               {agent.upgrade_requested_at ? (
                 <Row label="Actualización forzada">
@@ -451,6 +467,15 @@ export function AgentDetailView({ id }: { id: string }) {
                   <Tile label="RAM" value={`${Math.round(inv.ram_mb / 1024)} GB`} />
                   <Tile label="Sistema" value={inv.os_version || inv.os_family} />
                   <Tile label="Arquitectura" value={inv.arch} />
+                  <Tile label="IP primaria" value={primaryIP(inv)} />
+                  <Tile
+                    label="Interfaces"
+                    value={
+                      inv.network?.length
+                        ? `${interfaceSummary(inv)} de ${inv.network.length}`
+                        : "—"
+                    }
+                  />
                 </div>
                 <p className="font-mono text-[9px] uppercase tracking-widest2 text-slate-600">
                   Recogido {timeAgo(inv.collected_at)}
@@ -511,6 +536,19 @@ export function AgentDetailView({ id }: { id: string }) {
                           <BlockRows devices={inv.block_devices} depth={0} />
                         </tbody>
                       </table>
+                    </div>
+                  </div>
+                ) : null}
+
+                {inv.network && inv.network.length > 0 ? (
+                  <div>
+                    <p className="mb-2 font-mono text-[9px] uppercase tracking-widest2 text-slate-500">
+                      Interfaces de red
+                    </p>
+                    <div className="space-y-2">
+                      {inv.network.map((n) => (
+                        <NetRow key={n.name} iface={n} primary={primaryIP(inv)} />
+                      ))}
                     </div>
                   </div>
                 ) : null}
@@ -648,6 +686,37 @@ function Tile({ label, value }: { label: string; value: string }) {
       <p className="mt-0.5 truncate font-display text-lg uppercase text-slate-200" title={value}>
         {value}
       </p>
+    </div>
+  );
+}
+
+// NetRow pinta una interfaz del inventario: nombre y estado, MAC y sus
+// direcciones (la IP primaria del equipo se resalta).
+function NetRow({ iface, primary }: { iface: NetInterface; primary: string }) {
+  const addresses = iface.addresses ?? [];
+  return (
+    <div className="border border-ink-700 px-3 py-2">
+      <div className="flex items-center justify-between gap-2 font-mono text-[10px]">
+        <span className="flex items-center gap-2 text-slate-200">
+          <span className={cx("h-1.5 w-1.5 shrink-0", iface.up ? "bg-signal" : "bg-slate-600")} />
+          {iface.name}
+        </span>
+        <span className={iface.up ? "text-slate-600" : "text-slate-700"}>
+          {iface.up ? "up" : "down"}
+        </span>
+      </div>
+      {iface.mac ? <p className="mt-1 font-mono text-[9px] text-slate-600">{iface.mac}</p> : null}
+      {addresses.length > 0 ? (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {addresses.map((a) => (
+            <Badge key={a} tone={a.split("/")[0] === primary ? "ice" : "neutral"}>
+              {a}
+            </Badge>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 font-mono text-[9px] text-slate-700">sin direcciones</p>
+      )}
     </div>
   );
 }
