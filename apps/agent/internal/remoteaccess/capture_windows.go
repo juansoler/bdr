@@ -25,9 +25,8 @@ import (
 )
 
 var (
-	user32DLL   = windows.NewLazySystemDLL("user32.dll")
-	gdi32DLL    = windows.NewLazySystemDLL("gdi32.dll")
-	kernel32DLL = windows.NewLazySystemDLL("kernel32.dll")
+	user32DLL = windows.NewLazySystemDLL("user32.dll")
+	gdi32DLL  = windows.NewLazySystemDLL("gdi32.dll")
 
 	procGetDC                    = user32DLL.NewProc("GetDC")
 	procReleaseDC                = user32DLL.NewProc("ReleaseDC")
@@ -35,14 +34,14 @@ var (
 	procOpenInputDesktop         = user32DLL.NewProc("OpenInputDesktop")
 	procCloseDesktop             = user32DLL.NewProc("CloseDesktop")
 	procGetUserObjectInformation = user32DLL.NewProc("GetUserObjectInformationW")
+	procSetThreadDesktop         = user32DLL.NewProc("SetThreadDesktop") // escritorios = objetos USER: user32
+	procGetThreadDesktop         = user32DLL.NewProc("GetThreadDesktop") // (el panic de 0.16.4 lo probó)
 	procCreateCompatibleDC       = gdi32DLL.NewProc("CreateCompatibleDC")
 	procCreateDIBSection         = gdi32DLL.NewProc("CreateDIBSection")
 	procSelectObject             = gdi32DLL.NewProc("SelectObject")
 	procDeleteDC                 = gdi32DLL.NewProc("DeleteDC")
 	procDeleteObject             = gdi32DLL.NewProc("DeleteObject")
 	procBitBlt                   = gdi32DLL.NewProc("BitBlt")
-	procSetThreadDesktop         = kernel32DLL.NewProc("SetThreadDesktop")
-	procGetThreadDesktop         = kernel32DLL.NewProc("GetThreadDesktop")
 )
 
 // Índices de GetSystemMetrics para el escritorio virtual (multi-monitor).

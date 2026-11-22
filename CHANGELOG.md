@@ -2,6 +2,17 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.5] — 2026-11-22
+
+### Corregido
+
+- **Windows: panic del helper 0.16.4 en el binding de escritorio** —
+  `GetThreadDesktop` y `SetThreadDesktop` son funciones de **user32.dll**
+  (los escritorios son objetos USER), no de kernel32. El log de
+  diagnóstico de la 0.16.4 lo localizó con stack exacto
+  («Failed to find GetThreadDesktop procedure in kernel32.dll»); se
+  corrige la DLL y el helper continúa hasta la captura real.
+
 ## [0.16.4] — 2026-11-22
 
 ### Corregido
