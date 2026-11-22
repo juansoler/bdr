@@ -4,7 +4,7 @@
 
 **Plataforma self-hosted de copias de seguridad y recuperación ante desastres**
 
-Imágenes completas · archivos · VMs de Proxmox · P2V · cifrado en cliente · verificación de recuperabilidad
+Imágenes completas · archivos · VMs de Proxmox · SQL Server · PostgreSQL · P2V · cifrado en cliente · verificación de recuperabilidad
 
 [![CI](https://github.com/juansoler/bdr/actions/workflows/ci.yml/badge.svg)](https://github.com/juansoler/bdr/actions/workflows/ci.yml)
 [![Release](https://github.com/juansoler/bdr/actions/workflows/release.yml/badge.svg)](https://github.com/juansoler/bdr/releases)
@@ -59,6 +59,9 @@ diferencias de diseño: **código 100 % auditable**, **estándares abiertos** y
 | **Servidor** | Binario único con API REST, panel web embebido, mTLS y logs JSON | ✅ |
 | **Backup de archivos** | Kopia real: incremental, dedup por contenido, compresión zstd, cifrado en cliente | ✅ |
 | **Restore points** | Verificación de recuperabilidad nivel 1–2, explorador de archivos y restauración | ✅ |
+| **SQL Server** | Backups nativos FULL/DIFF/LOG/COPY_ONLY con COMPRESSION+CHECKSUM, VERIFYONLY, DBCC CHECKDB, planes con `verify_cron`, cadenas por LSN con PITR (`STOPAT`), cifrado nativo con custodia de certificados, runbook de `master`, detección automática de instancias | ✅ |
+| **PostgreSQL** | `pg_dump` custom comprimido con verificación `pg_restore --list`, restauración con `createdb`/`--clean`, inventario y detección automática de instancias | ✅ |
+| **Acceso por pantalla** | Consola remota en el navegador (tiles JPEG estilo MeshCentral, helper nativo en Windows) | ✅ |
 | **Agentes** | Enrolamiento con token de un solo uso, inventario (discos, TPM, BitLocker/LUKS), auto-actualización verificada | ✅ |
 | **Programación** | Planes con cron, ventanas de horario, retención GFS, grupos con jerarquía | ✅ |
 | **Seguridad** | mTLS obligatorio de agentes, RBAC + sesiones + TOTP, auditoría encadenada, secretos cifrados AES-256-GCM | ✅ |
@@ -66,6 +69,7 @@ diferencias de diseño: **código 100 % auditable**, **estándares abiertos** y
 | **Actualizaciones** | Canal de releases firmado (Ed25519): el servidor **notifica** y tú decides | ✅ |
 | **Persistencia** | PostgreSQL opcional con migraciones y auditoría duradera | ✅ |
 | Backup de imagen / VSS / P2V / ISO | Fase 2 del roadmap | 🚧 |
+| PITR físico de PostgreSQL (`pg_basebackup` + WAL) | Fase 2 del roadmap | 🚧 |
 | Réplica 3-2-1 a S3 con Object Lock | Fase 3 | 🚧 |
 
 ## 🚀 Inicio rápido
@@ -169,6 +173,103 @@ embebida en el binario) y te **notifica** en el panel: nada se instala sin
 tu confirmación. Los agentes se actualizan solos cuando están ociosos,
 verificando el SHA-256 del binario.
 
+## 🗄️ Bases de datos: SQL Server y PostgreSQL
+
+El motor corre **dentro del agente instalado en el host de la base de datos**
+y los jobs se orquestan desde el plano de control: backup nativo →
+transferencia al destino (S3/SMB/local, con Object Lock GOVERNANCE
+opcional) → catálogo con metadatos para la restauración. Al elegir el
+agente en el panel, **las instancias se detectan automáticamente** y el
+selector de bases se rellena solo.
+
+### SQL Server (panel → SQL Server)
+
+Requisitos en el host (Windows):
+
+1. **Agente BDR** instalado (corre como LocalSystem → SSPI como
+   `NT AUTHORITY\SYSTEM`).
+2. **Login y permisos** en SQL Server — el conjunto mínimo validado:
+
+   ```sql
+   CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS;  -- si no existe ya
+   ALTER SERVER ROLE dbcreator     ADD MEMBER [NT AUTHORITY\SYSTEM]; -- VERIFYONLY/RESTORE
+   -- por base: db_backupoperator (o sysadmin en laboratorio)
+   ```
+
+3. **Staging**: automático — el agente consulta el `BackupDirectory` de la
+   instancia (`xp_instance_regread`). Sobreescribe con la variable de
+   entorno del servicio:
+
+   ```powershell
+   reg add "HKLM\SYSTEM\CurrentControlSet\Services\bdr-agent" /v Environment /t REG_MULTI_SZ /d "BDR_SQL_STAGING=C:\bdr-sql-staging" /f
+   ```
+
+   (la carpeta debe ser escribible por la cuenta del servicio de SQL:
+   `icacls C:\bdr-sql-staging /grant "NT Service\MSSQLSERVER:(OI)(CI)M" /t`)
+
+Flujo en el panel: elige agente → **autodetección de instancias** →
+elige base del selector → **Backup** (FULL/DIFF/LOG/COPY_ONLY, destino,
+retención, VERIFYONLY) → planes programados con cron y `verify_cron` →
+**CheckDB** (DBCC con alerta si hay corrupción) → **Restaurar** con
+cadena calculada FULL→DIFF→LOG por continuidad de LSN, PITR con punto en
+el tiempo y destino en otra instancia (WITH REPLACE / MOVE).
+
+Extras: **cifrado nativo** (`WITH ENCRYPTION` por certificado custodiado —
+la custodia `.cer/.pvk` se sella en el control y alerta si falta),
+**runbook de master** con `bdr-sql runbook-master` (la restauración de
+`master` exige single-user manual y el motor la rechaza a propósito), y
+**CLI de laboratorio** `bdr-sql` (discover/inventory/backup/chain/restore/
+health) publicado como asset de cada release.
+
+### PostgreSQL (panel → PostgreSQL)
+
+Requisitos en el host:
+
+1. **Agente BDR** + **cliente PostgreSQL** en el PATH del servicio
+   (`pg_dump`, `pg_restore`, `createdb` — paquete `postgresql-client`).
+2. **Credenciales de conexión** — nunca viajan por la API; el agente usa
+   su entorno (o `.pgpass`):
+
+   ```bash
+   # Linux (systemd):
+   systemctl edit bdr-agent    # [Service] Environment=BDR_PG_PASSWORD=...
+   systemctl restart bdr-agent
+   ```
+
+   ```powershell
+   # Windows:
+   reg add "HKLM\SYSTEM\CurrentControlSet\Services\bdr-agent" /v Environment /t REG_MULTI_SZ /d "BDR_PG_PASSWORD=..." /f
+   Restart-Service bdr-agent
+   ```
+
+   Y un rol con permisos de lectura (p. ej. `GRANT pg_read_all_data TO
+   bdr_backup;` — superusuario solo en laboratorio).
+
+Flujo en el panel: elige agente → **autodetección** del puerto (servicios
+`postgresql-*` en Windows, `pg_lsclusters`/`systemctl` en Linux) →
+Inventario → Dump (`--format=custom`, comprimido, verificado con
+`pg_restore --list` tras cada dump) → Restaurar con `createdb` (motor
+limpio) o `--clean --if-exists` (reemplazo), destino en otra máquina
+incluido.
+
+### Variables de entorno del agente (motores de bases de datos)
+
+| Variable | Motor | Uso |
+|---|---|---|
+| `BDR_SQL_STAGING` | SQL Server | Carpeta staging donde SQL Server escribe los `.bak` (default: `BackupDirectory` de la instancia) |
+| `BDR_PG_PASSWORD` | PostgreSQL | Contraseña para pg_dump/pg_restore/inventario |
+| `BDR_PG_STAGING` | PostgreSQL | Carpeta de dumps (default: temp del agente) |
+
+### API de motores (resumen)
+
+| Endpoint | Operación |
+|---|---|
+| `POST /api/v1/admin/sql/{backup,restore,verify,checkdb,inventory,discover}` | Operaciones SQL Server (el restore exige `confirm: true`) |
+| `GET /api/v1/admin/sql/restore-points` · `POST /api/v1/admin/sql/restore-chain` | Catálogo SQL y cadena calculada por LSN |
+| `POST /api/v1/admin/sql/{plans}` + `PUT/DELETE …/plans/{id}` | Planes SQL programados (cron + `verify_cron`) |
+| `POST /api/v1/admin/sql/certbackup` | Custodia de certificados (cifrado nativo) |
+| `POST /api/v1/admin/pg/{dump,restore,verify,inventory,discover}` · `GET …/restore-points` | Operaciones PostgreSQL |
+
 ## 🧩 Arquitectura técnica
 
 | Componente | Elección |
@@ -177,6 +278,8 @@ verificando el SHA-256 del binario.
 | Panel | Next.js 15 (export estático embebido con `go:embed`) |
 | Base de datos | PostgreSQL (alternativa: `state.json` con cifrado en reposo) |
 | Motor de archivos | Kopia (Apache-2.0), fijado por versión |
+| SQL Server | T-SQL nativo vía `go-mssqldb` (SSPI), msdb para cadenas y LSNs |
+| PostgreSQL | `pg_dump`/`pg_restore`/`createdb` (cliente oficial, formato custom) |
 | VMs de Proxmox | Proxmox Backup Server orquestado por API |
 | Repositorio | Kopia Repository Server: los agentes nunca reciben la clave maestra |
 | Seguridad | mTLS, TOTP, PBKDF2, auditoría encadenada, canales firmados |
@@ -190,6 +293,7 @@ verificando el SHA-256 del binario.
 | [`docs/13-seguridad.md`](docs/13-seguridad.md) | Modelo de amenazas y controles |
 | [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md) | Runbook de producción (PostgreSQL, mTLS, KRS, Caddy) |
 | [`docs/19-roadmap.md`](docs/19-roadmap.md) | Fases y puertas de salida |
+| [`docs/24-motor-sql-server.md`](docs/24-motor-sql-server.md) | Especificación del motor SQL Server (RF-40–46) |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Cómo contribuir (DCO, tests, estilo) |
 | [`SECURITY.md`](SECURITY.md) | Política de seguridad y cómo reportar vulnerabilidades |
 
@@ -213,6 +317,7 @@ para los smoke tests.
 | 1 | MVP de archivos: agentes, planes, Kopia, panel, alertas | ✅ completa |
 | 0.5 | PostgreSQL, mTLS estricto, Kopia Repository Server | ✅ completa |
 | 2 | Imagen completa, VSS/LVM/Btrfs, restauración P2V a Proxmox, ISO de rescate | 🚧 |
+| 2b | Motores de bases de datos: SQL Server (RF-40–46) y PostgreSQL | ✅ núcleo completo — lab y PITR-PG en curso |
 | 3 | Réplica 3-2-1 a S3 con Object Lock, verificación de arranque, HA | ⏳ |
 | 4 | CBT, instant restore, multitenancia | ⏳ |
 
