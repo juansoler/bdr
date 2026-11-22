@@ -76,7 +76,9 @@ type screenBackend interface {
 // tiles con el motor y los emite. Termina cuando stop se cierra o la captura
 // falla de forma persistente (p. ej. sesión gráfica cerrada). El intervalo se
 // lee en cada vuelta (el visor puede cambiarlo en caliente con msgQuality).
-func captureLoop(engine *TileEngine, source TileSource, intervalFn func() time.Duration, emit func([]byte) error, stop <-chan struct{}) error {
+// perFrame (opcional, puede ser nil) corre una vez por frame ANTES de
+// capturar — el helper lo usa para emitir la posición del cursor remoto.
+func captureLoop(engine *TileEngine, source TileSource, intervalFn func() time.Duration, emit func([]byte) error, perFrame func() error, stop <-chan struct{}) error {
 	const maxConsecutiveErrors = 30
 	consecutive := 0
 	force := true
@@ -100,6 +102,11 @@ func captureLoop(engine *TileEngine, source TileSource, intervalFn func() time.D
 			continue
 		}
 		consecutive = 0
+		if perFrame != nil {
+			if err := perFrame(); err != nil {
+				return err
+			}
+		}
 		for _, m := range engine.EncodeScreen(pix, w, h, force) {
 			if emitErr := emit(m); emitErr != nil {
 				return emitErr

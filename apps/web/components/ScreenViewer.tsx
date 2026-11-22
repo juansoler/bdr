@@ -10,6 +10,7 @@ type ScreenStatus = "connecting" | "open" | "error";
 // Tipos de mensaje del protocolo de tiles (primer byte del frame binario).
 const MSG_SCREEN_INFO = 0x01;
 const MSG_TILE = 0x02;
+const MSG_CURSOR = 0x04;
 const MSG_MOUSE = 0x10;
 const MSG_KEY = 0x11;
 const MSG_QUALITY = 0x12;
@@ -33,6 +34,7 @@ export function ScreenViewer({
   const { token } = useAuth();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cursorRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<ScreenStatus>("connecting");
   const [errorMsg, setErrorMsg] = useState("");
@@ -255,6 +257,20 @@ export function ScreenViewer({
             case MSG_TILE:
               drawTile(dv, bytes);
               break;
+            case MSG_CURSOR: {
+              // Cursor remoto: BitBlt no captura el cursor, así que lo
+              // dibuja el visor (posición del agente, escala del canvas).
+              const cx = dv.getUint16(1);
+              const cy = dv.getUint16(3);
+              if (cursorRef.current && canvas.width > 0) {
+                const scaleX = canvas.clientWidth / canvas.width;
+                const scaleY = canvas.clientHeight / canvas.height;
+                cursorRef.current.style.left = `${canvas.offsetLeft + cx * scaleX}px`;
+                cursorRef.current.style.top = `${canvas.offsetTop + cy * scaleY}px`;
+                cursorRef.current.style.display = "block";
+              }
+              break;
+            }
           }
         };
 
@@ -375,11 +391,28 @@ export function ScreenViewer({
       <div ref={containerRef} className="relative min-h-0 flex-1 w-full bg-[#282a36] overflow-hidden">
         {/* Canvas SIEMPRE montado; se centra y escala manteniendo el aspecto. */}
         <div className="flex h-full w-full items-center justify-center">
-          <canvas
-            ref={canvasRef}
-            className="border border-ink-700"
-            style={{ cursor: status === "open" ? "crosshair" : "default" }}
-          />
+          <div className="relative">
+            <canvas
+              ref={canvasRef}
+              className="border border-ink-700"
+              style={{ cursor: status === "open" ? "crosshair" : "default" }}
+            />
+            {/* Cursor remoto (BitBlt no lo captura): SVG flecha posicionado. */}
+            <div
+              ref={cursorRef}
+              className="pointer-events-none absolute z-10 hidden"
+              style={{ width: 18, height: 24 }}
+            >
+              <svg width="18" height="24" viewBox="0 0 18 24" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M2 1 L2 19 L6.5 14.5 L9.5 21 L12.5 19.5 L9.5 13.5 L15 13.5 Z"
+                  fill="#ffffff"
+                  stroke="#000000"
+                  strokeWidth="1.2"
+                />
+              </svg>
+            </div>
+          </div>
         </div>
 
         {status === "connecting" ? (

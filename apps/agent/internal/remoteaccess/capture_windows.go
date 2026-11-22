@@ -39,6 +39,7 @@ var (
 	procGetProcessWindowStation  = user32DLL.NewProc("GetProcessWindowStation")
 	procSetProcessDPIAware       = user32DLL.NewProc("SetProcessDPIAware")
 	procSendInput                = user32DLL.NewProc("SendInput")
+	procGetCursorPos             = user32DLL.NewProc("GetCursorPos")
 	procCreateCompatibleDC       = gdi32DLL.NewProc("CreateCompatibleDC")
 	procCreateDIBSection         = gdi32DLL.NewProc("CreateDIBSection")
 	procSelectObject             = gdi32DLL.NewProc("SelectObject")
@@ -240,6 +241,31 @@ func userObjectName(h uintptr) string {
 		return ""
 	}
 	return syscall.UTF16ToString(buf)
+}
+
+// cursorTracker emite la posición del cursor remoto solo cuando cambia.
+// GetCursorPos devuelve coordenadas del escritorio del hilo actual: correr
+// en el hilo bloqueado de captura.
+type cursorTracker struct {
+	lastX, lastY int32
+	init         bool
+}
+
+// point es POINT de Win32 (GetCursorPos).
+type point struct{ X, Y int32 }
+
+// poll devuelve (mensaje, changed): el msgCursor solo si la posición varió.
+func (c *cursorTracker) poll() ([]byte, bool) {
+	var pt point
+	r1, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+	if r1 == 0 {
+		return nil, false
+	}
+	if c.init && pt.X == c.lastX && pt.Y == c.lastY {
+		return nil, false
+	}
+	c.lastX, c.lastY, c.init = pt.X, pt.Y, true
+	return cursorMsg(uint16(pt.X), uint16(pt.Y)), true
 }
 
 // bindInteractiveDesktop fija el escritorio interactivo ACTIVO al hilo

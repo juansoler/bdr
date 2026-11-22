@@ -130,7 +130,7 @@ func (b *x11Backend) run() {
 		case <-b.stop:
 			return errStopped
 		}
-	}, b.stop)
+	}, nil, b.stop)
 	if err != nil && err != errStopped {
 		// Fallo persistente de captura: el motivo llega al visor.
 		b.failf("la captura X11 falló de forma persistente: %v", err)

@@ -30,6 +30,10 @@ const (
 	// Windows; el backend lo captura como motivo de terminación y NUNCA lo
 	// reenvía al navegador).
 	msgHelperError byte = 0x03 // [texto UTF-8 del fallo]
+	// Agente → navegador: posición del cursor remoto (BitBlt no captura el
+	// cursor — la pipeline de vídeo lo dibuja aparte, como MeshCentral con
+	// MNG_KVM_MOUSE_CURSOR). Solo se envía cuando cambia.
+	msgCursor byte = 0x04 // [u16 x][u16 y]
 	// Navegador → agente.
 	msgMouse   byte = 0x10 // [u8 acción][u8 botones][u16 x][u16 y]
 	msgKey     byte = 0x11 // [u8 acción][u32 keysym]
@@ -262,6 +266,15 @@ func decodeQuality(payload []byte) (quality int, interval time.Duration, ok bool
 		interval = maxFrameEvery
 	}
 	return quality, interval, true
+}
+
+// cursorMsg codifica la posición del cursor remoto para el visor.
+func cursorMsg(x, y uint16) []byte {
+	m := make([]byte, 5)
+	m[0] = msgCursor
+	binary.BigEndian.PutUint16(m[1:3], x)
+	binary.BigEndian.PutUint16(m[3:5], y)
+	return m
 }
 
 // mouseMsg codifica el mensaje de ratón que el visor envía.

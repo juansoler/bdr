@@ -2,6 +2,19 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.24] — 2026-11-22
+
+### Añadido
+
+- **Cursor remoto visible en el panel** (Windows): `BitBlt` nunca captura el
+  cursor — lo dibuja la pipeline de vídeo por encima del escritorio. Con la
+  0.16.22 la entrada YA se inyectaba con éxito (`primera entrada inyectada
+  con éxito` en el log del helper), pero el operador no veía dónde apuntaba
+  y percibía «no responde». El helper envía ahora la posición del cursor
+  (`GetCursorPos`, solo cuando cambia; mensaje `msgCursor` del protocolo de
+  tiles — el mismo truco que MeshCentral con `MNG_KVM_MOUSE_CURSOR`) y el
+  visor la dibuja como flecha SVG escalada sobre el canvas.
+
 ## [0.16.23] — 2026-11-22
 
 ### Añadido

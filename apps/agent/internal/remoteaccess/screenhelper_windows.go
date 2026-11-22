@@ -177,9 +177,13 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 	}()
 
 	src := &inputDrainSource{inner: source, ch: inputCh, inj: inj}
-	err = captureLoop(engine, src, func() time.Duration {
-		return time.Duration(intervalMs.Load()) * time.Millisecond
-	}, func(m []byte) error {
+
+	// Posición del cursor remoto: BitBlt no captura el cursor (lo dibuja la
+	// pipeline de vídeo) — sin esto, el operador no ve dónde apunta. Se
+	// emite solo cuando cambia. GetCursorPos es del escritorio del hilo:
+	// corremos en el hilo bloqueado de captura ✓.
+	cursor := cursorTracker{}
+	emitFn := func(m []byte) error {
 		if firstFrame.CompareAndSwap(true, false) {
 			if m[0] == msgScreenInfo {
 				w := int(m[1])<<8 | int(m[2])
@@ -189,6 +193,14 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 		}
 		_, werr := stdout.Write(frameStream(m))
 		return werr
+	}
+	err = captureLoop(engine, src, func() time.Duration {
+		return time.Duration(intervalMs.Load()) * time.Millisecond
+	}, emitFn, func() error {
+		if msg, changed := cursor.poll(); changed {
+			return emitFn(msg)
+		}
+		return nil
 	}, stop)
 	if err != nil {
 		logLine(logFile, "bucle de captura terminó con error: %v", err)
