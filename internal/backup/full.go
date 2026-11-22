@@ -197,9 +197,20 @@ func execute(ctx context.Context, db *connector.DB, database string, t Type, cop
 	}, nil
 }
 
+// Verify ejecuta RESTORE VERIFYONLY WITH CHECKSUM sobre un medio.
+// VERIFYONLY crea internamente una base temporal, por lo que exige permiso
+// de CREATE DATABASE (rol de servidor dbcreator para el login del agente):
+// si llega el error 262, el mensaje lo traduce a la acción concreta
+// (hallazgo del lab P-25 — permisos mínimos).
 func Verify(ctx context.Context, db *connector.DB, path string) error {
 	q := fmt.Sprintf("RESTORE VERIFYONLY FROM DISK = %s WITH CHECKSUM", quoteTSQL(path))
 	if err := db.ExecContext(ctx, q); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "(262)") || strings.Contains(msg, "CREATE DATABASE permission denied") {
+			return fmt.Errorf("RESTORE VERIFYONLY %s: el login del agente carece del rol de servidor dbcreator "+
+				"(VERIFYONLY crea una base temporal y exige CREATE DATABASE). Añádelo con: "+
+				"ALTER SERVER ROLE dbcreator ADD MEMBER [<login del agente>]; — error original: %s", path, msg)
+		}
 		return fmt.Errorf("RESTORE VERIFYONLY %s: %w", path, err)
 	}
 	return nil
