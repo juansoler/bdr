@@ -27,15 +27,44 @@ type helperProcess struct {
 	closeOnce sync.Once
 }
 
+// sessionIDForUserToken devuelve la sesión interactiva donde lanzar el
+// helper: la primera sesión WTS ACTIVA con usuario (cubre RDP, donde la
+// sesión de consola puede estar desconectada o ser de otro), con fallback a
+// la de consola física. Devuelve (sessionId, token Ya-Duplicado-Preparado).
+func pickInteractiveSession() (uint32, error) {
+	var p *windows.WTS_SESSION_INFO
+	var count uint32
+	if err := windows.WTSEnumerateSessions(0, 0, 1, &p, &count); err == nil && count > 0 {
+		defer windows.WTSFreeMemory(uintptr(unsafe.Pointer(p)))
+		infos := unsafe.Slice(p, count)
+		for i := range infos {
+			s := infos[i]
+			if s.State != windows.WTSActive || s.SessionID == 0 {
+				continue
+			}
+			var t windows.Token
+			if err := windows.WTSQueryUserToken(s.SessionID, &t); err == nil {
+				_ = t.Close() // solo verifica que hay usuario; el token lo toma el llamador
+				return s.SessionID, nil
+			}
+		}
+	}
+	console := windows.WTSGetActiveConsoleSessionId()
+	if console == 0xFFFFFFFF || console == 0 {
+		return 0, fmt.Errorf("no hay sesión interactiva activa (¿equipo sin usuario logado?)")
+	}
+	return console, nil
+}
+
 // spawnScreenHelper crea el proceso helper en la sesión interactiva.
 func spawnScreenHelper() (*helperProcess, error) {
-	sessionID := windows.WTSGetActiveConsoleSessionId()
-	if sessionID == 0xFFFFFFFF || sessionID == 0 {
-		return nil, fmt.Errorf("no hay sesión de consola activa (equipo sin usuario logado)")
+	sessionID, err := pickInteractiveSession()
+	if err != nil {
+		return nil, err
 	}
 	var token windows.Token
 	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
-		return nil, fmt.Errorf("no se pudo obtener el token del usuario de consola: %w", err)
+		return nil, fmt.Errorf("no se pudo obtener el token del usuario de la sesión %d: %w", sessionID, err)
 	}
 	defer token.Close()
 

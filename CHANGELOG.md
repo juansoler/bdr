@@ -2,6 +2,23 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.8] — 2026-11-22
+
+### Corregido
+
+- **Windows: selección de sesión interactiva** — se enumeran las sesiones
+  WTS y se elige la primera ACTIVA con usuario, con fallback a la de consola
+  física. Cubre el caso RDP: `WTSGetActiveConsoleSessionId` solo mira la
+  consola física, y en un equipo gestionado por RDP la sesión activa (la que
+  tiene el escritorio) es otra — el helper nacía en la sesión equivocada y
+  GDI fallaba con «handle invalid».
+- **Motivo del fallo del helper sin etiquetas canned**: nuevo mensaje
+  `msgHelperError` del protocolo interno — el helper envía por el pipe el
+  texto real del fallo antes de salir (su stderr va a NUL) y el agente lo
+  muestra verbatim en el panel y en su log. Los mensajes por exit code
+  quedan solo como fallback; el falso «captura GDI no disponible» que
+  ocultaba el error concreto desaparece.
+
 ## [0.16.7] — 2026-11-22
 
 ### Corregido

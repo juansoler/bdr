@@ -26,6 +26,10 @@ const (
 	// Agente → navegador.
 	msgScreenInfo byte = 0x01 // [u16 w][u16 h]
 	msgTile       byte = 0x02 // [u16 x][u16 y][u16 w][u16 h][JPEG…]
+	// Helper → agente (solo en el flujo interno del helper de sesión
+	// Windows; el backend lo captura como motivo de terminación y NUNCA lo
+	// reenvía al navegador).
+	msgHelperError byte = 0x03 // [texto UTF-8 del fallo]
 	// Navegador → agente.
 	msgMouse   byte = 0x10 // [u8 acción][u8 botones][u16 x][u16 y]
 	msgKey     byte = 0x11 // [u8 acción][u32 keysym]

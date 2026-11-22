@@ -6,6 +6,7 @@
 package remoteaccess
 
 import (
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,26 @@ type helperBackend struct {
 	done    chan struct{}
 	stop    chan struct{}
 	termErr // motivo de terminación para el visor
+
+	helperReasonMu sync.Mutex
+	helperReason   string // motivo enviado por el helper vía msgHelperError
+}
+
+// helperError anota el motivo estructurado enviado por el helper (el más
+// fiable: describe el fallo concreto, no el exit code).
+func (b *helperBackend) helperError(text string) {
+	b.helperReasonMu.Lock()
+	if b.helperReason == "" {
+		b.helperReason = text
+	}
+	b.helperReasonMu.Unlock()
+}
+
+// helperReasonIfAny devuelve el motivo estructurado ("" si no llegó).
+func (b *helperBackend) helperReasonIfAny() string {
+	b.helperReasonMu.Lock()
+	defer b.helperReasonMu.Unlock()
+	return b.helperReason
 }
 
 // newScreenBackend crea el backend Windows: lanza el helper de sesión.
@@ -47,25 +68,36 @@ func (b *helperBackend) readLoop() {
 	for {
 		msg, err := nextStreamFrame(b.helper.stdout)
 		if err != nil {
-			// El helper terminó (o dejó de emitir): distingue fallo real de
-			// cierre ordenado (stop nuestro). Espera acotada al exit code:
-			// el EOF del pipe llega ANTES de que WaitForSingleObject
-			// publique el código — sin esta espera, el motivo se pierde y
-			// el visor ve un «finalizó (código 0)» falso.
+			// El helper terminó (o dejó de emitir). Prioridad del motivo: el
+			// texto estructurado msgHelperError (describe el fallo real);
+			// fallback al exit code. Espera acotada al código: el EOF del
+			// pipe llega ANTES de que WaitForSingleObject lo publique.
 			select {
 			case <-b.stop:
 			default:
-				select {
-				case <-b.helper.done:
-				case <-time.After(3 * time.Second):
+				if reason := b.helperReasonIfAny(); reason != "" {
+					b.failAnnotate(reason)
+				} else {
+					select {
+					case <-b.helper.done:
+					case <-time.After(3 * time.Second):
+					}
+					reason := b.helper.terminationReason()
+					if log := screenBackendLogger(); log != nil {
+						log.Warn("pantalla: helper terminó", "reason", reason)
+					}
+					b.failAnnotate(reason)
 				}
-				reason := b.helper.terminationReason()
-				if log := screenBackendLogger(); log != nil {
-					log.Warn("pantalla: helper terminó", "reason", reason)
-				}
-				b.failAnnotate(reason)
 			}
 			return
+		}
+		if len(msg) > 0 && msg[0] == msgHelperError {
+			reason := string(msg[1:])
+			if log := screenBackendLogger(); log != nil {
+				log.Warn("pantalla: helper reporta fallo", "reason", reason)
+			}
+			b.helperError(reason)
+			continue // NUNCA reenviar al navegador: no es parte del protocolo
 		}
 		select {
 		case b.events <- msg:

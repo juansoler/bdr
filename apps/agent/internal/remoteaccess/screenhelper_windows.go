@@ -59,7 +59,11 @@ func logLine(f *os.File, format string, args ...any) {
 // RunScreenHelper ejecuta el helper: lee mensajes del visor por stdin,
 // emite tiles por stdout, hasta que el canal se cierre o la captura falle.
 // Lo llama cmd/bdr-agent con `screenhelper`; no está pensado para uso manual.
-func RunScreenHelper(stdin io.Reader, stdout io.Writer) error {
+//
+// Si termina con error, avisa al agente por stdout (frame msgHelperError con
+// el texto del fallo) antes de salir: el stderr del helper va a NUL para no
+// contaminar el stream de tiles, así que este es el único canal del motivo.
+func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 	logFile := screenHelperLog()
 	logLine(logFile, "screenhelper iniciado (pid %d, version %s)", os.Getpid(), versionString())
 
@@ -67,7 +71,19 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) error {
 	// un panic del helper debe dejar huella en el log, no un silencio.
 	defer func() {
 		if r := recover(); r != nil {
+			err = fmt.Errorf("panic interno del helper (ver screenhelper.log): %v", r)
 			logLine(logFile, "PANIC: %v\n%s", r, debug.Stack())
+		}
+		// Motivo estructurado por el pipe: el agente lo muestra verbatim en
+		// el panel, sin depender del exit code.
+		if err != nil {
+			text := err.Error()
+			if len(text) > 400 {
+				text = text[:400]
+			}
+			frame := frameStream(append([]byte{msgHelperError}, []byte(text)...))
+			_, _ = stdout.Write(frame)
+			logLine(logFile, "helper terminó con error: %v", err)
 		}
 	}()
 
