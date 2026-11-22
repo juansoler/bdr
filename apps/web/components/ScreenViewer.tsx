@@ -243,11 +243,17 @@ export function ScreenViewer({
             case MSG_SCREEN_INFO: {
               const w = dv.getUint16(1);
               const h = dv.getUint16(3);
-              canvas.width = w;
-              canvas.height = h;
-              ctx.fillStyle = "#282a36";
-              ctx.fillRect(0, 0, w, h);
-              fitCanvas();
+              // SOLO redimensiona/limpia cuando el tamaño cambia: el agente
+              // envía screen_info en cada frame con cambios, y
+              // `canvas.width = w` borra el bitmap completo — limpiar aquí
+              // provocaba el parpadeo por zonas al refrescar.
+              if (canvas.width !== w || canvas.height !== h) {
+                canvas.width = w;
+                canvas.height = h;
+                ctx.fillStyle = "#282a36";
+                ctx.fillRect(0, 0, w, h);
+                fitCanvas();
+              }
               if (current !== "open") {
                 current = "open";
                 setStatus("open");

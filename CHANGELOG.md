@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.26] — 2026-11-22
+
+### Corregido
+
+- **Windows: las ventanas elevadas (admin) bloqueaban el control en
+  silencio** — el token de `WTSQueryUserToken` es el **filtrado de UAC**
+  (integridad media): UIPI descarta la entrada de SendInput hacia ventanas
+  de integridad superior *sin fallar*. Ahora el helper usa el **token
+  completo del usuario** (TokenLinkedToken cuando existe): mismo usuario,
+  sin escalar privilegios (el servicio ya es SYSTEM), pero con integridad
+  suficiente para controlar también ventanas de administrador. Si el
+  usuario es estándar (sin token partido), sigue como antes.
+- **Panel: parpadeo por zonas en el refresco** — el handler de
+  `screen_info` borraba el canvas entero en CADA frame (`canvas.width = w`
+  reinicia el bitmap) antes de que llegaran los tiles: cuadros que se
+  apagaban y encendían. Ahora solo redimensiona y limpia cuando el tamaño
+  del escritorio cambia de verdad.
+
 ## [0.16.25] — 2026-11-22
 
 ### Añadido

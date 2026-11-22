@@ -66,6 +66,24 @@ func spawnScreenHelper() (*helperProcess, error) {
 	if err := windows.WTSQueryUserToken(sessionID, &token); err != nil {
 		return nil, fmt.Errorf("no se pudo obtener el token del usuario de la sesión %d: %w", sessionID, err)
 	}
+	// El token de WTSQueryUserToken es el FILTRADO de UAC (integridad media):
+	// con él, UIPI descarta en silencio la entrada de SendInput hacia
+	// ventanas elevadas (admin) — control imposible si hay una abierta en
+	// primer plano. El TokenLinkedToken es el token COMPLETO del mismo
+	// usuario: mismo privilegio efectivo (el servicio ya es SYSTEM), pero
+	// integridad suficiente para controlar ventanas de administrador.
+	// Si el usuario es estándar (sin token partido), no hay linked y sigue
+	// como estaba.
+	var linked windows.Token
+	var linkedLen uint32
+	if err := windows.GetTokenInformation(token, windows.TokenLinkedToken,
+		(*byte)(unsafe.Pointer(&linked)), uint32(unsafe.Sizeof(linked)), &linkedLen); err == nil {
+		token.Close()
+		token = linked
+		if log := screenBackendLogger(); log != nil {
+			log.Info("pantalla: helper con el token completo del usuario (control de ventanas elevadas habilitado)")
+		}
+	}
 	defer token.Close()
 
 	// Patrón canónico de «iniciar proceso interactivo desde un servicio»:
