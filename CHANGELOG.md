@@ -2,6 +2,44 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.9] — 2026-11-22
+
+### Añadido
+
+- **SQL Server: verificación programada y DBCC CHECKDB (RF-44)**: campo
+  `verify_cron` opcional en los planes SQL — VERIFYONLY periódico del
+  último backup del plan contra el destino, con deduplicación y
+  reprogramación automática. Job nuevo `SQL_CHECKDB` que ejecuta
+  `DBCC CHECKDB (…) WITH NO_INFOMSGS, ALL_ERRORMSGS`: base sana → OK;
+  corrupción → el job falla con los mensajes de DBCC y el control plane
+  levanta alerta. Endpoint `POST /api/v1/admin/sql/checkdb` y botón en el
+  panel.
+- **SQL Server: cifrado nativo y custodia de certificados (RF-45)**:
+  `WITH ENCRYPTION` (AES_128/192/256 por certificado de master) en
+  backups y planes (`encrypt_cert`, con validación dura: cifrar sin
+  custodia → rechazado). Job `SQL_CERTBACKUP` custodia el `.cer` y el
+  `.pvk` (cifrado con contraseña generada por el control y guardada
+  sellada) en el destino de almacenamiento. Alerta crítica
+  `sql_cert_missing` cuando un backup llega cifrado sin custodia
+  registrada (medio irrecuperable); se resuelve sola al custodiar.
+- **SQL Server: runbook de master (RF-46)**: `bdr-sql runbook-master`
+  genera el procedimiento single-user exacto (NET STOP, sqlservr -m,
+  RESTORE, arranque) con el orden de restauración de instancia completa.
+- **Panel: inventario de bases automático**: al elegir agente+servidor en
+  la pestaña SQL Server, el panel consulta la caché del control plane
+  (`GET /api/v1/admin/sql/databases`) y si no existe dispara el job de
+  inventario y espera el resultado para poblar el selector de bases
+  (recovery model, estado, bases de sistema).
+
+### Corregido
+
+- **SQL Server: `MSSQLSERVER` es la instancia por defecto y no se nombra**
+  (hallazgo del lab P-24): conectar a `host\MSSQLSERVER` falla con error
+  87 del ODBC. El conector normaliza ahora la instancia por defecto fuera
+  del DSN y también acepta `host\instancia` escrito en el campo servidor.
+- Los puntos de restauración SQL heredan el `PlanID` del job (necesario
+  para la verificación programada y la correlación en el panel).
+
 ## [0.16.8] — 2026-11-22
 
 ### Corregido
