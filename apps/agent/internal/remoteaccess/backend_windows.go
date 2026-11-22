@@ -5,7 +5,11 @@
 // servidor) se enmarca hacia el stdin del helper.
 package remoteaccess
 
-// helperBackend implementa screenBackend sobre el helper de sesión.
+import (
+	"time"
+)
+
+// helperBackend implements screenBackend sobre el helper de sesión.
 type helperBackend struct {
 	helper  *helperProcess
 	events  chan []byte
@@ -21,6 +25,10 @@ func newScreenBackend() (screenBackend, error) {
 	h, err := spawnScreenHelper()
 	if err != nil {
 		return nil, err
+	}
+	log := screenBackendLogger()
+	if log != nil {
+		log.Info("pantalla: helper de sesión lanzado")
 	}
 	b := &helperBackend{
 		helper: h,
@@ -39,12 +47,23 @@ func (b *helperBackend) readLoop() {
 	for {
 		msg, err := nextStreamFrame(b.helper.stdout)
 		if err != nil {
-			// El helper terminó: distingue fallo del propio helper (exit
-			// code) de un cierre ordenado (stop nuestro).
+			// El helper terminó (o dejó de emitir): distingue fallo real de
+			// cierre ordenado (stop nuestro). Espera acotada al exit code:
+			// el EOF del pipe llega ANTES de que WaitForSingleObject
+			// publique el código — sin esta espera, el motivo se pierde y
+			// el visor ve un «finalizó (código 0)» falso.
 			select {
 			case <-b.stop:
 			default:
-				b.failAnnotate(b.helper.terminationReason())
+				select {
+				case <-b.helper.done:
+				case <-time.After(3 * time.Second):
+				}
+				reason := b.helper.terminationReason()
+				if log := screenBackendLogger(); log != nil {
+					log.Warn("pantalla: helper terminó", "reason", reason)
+				}
+				b.failAnnotate(reason)
 			}
 			return
 		}

@@ -117,12 +117,12 @@ func (h *helperProcess) terminationReason() string {
 		case 1:
 			return "el helper falló: captura GDI no disponible (¿sesión sin escritorio?)"
 		case 2:
-			return "el helper terminó por uso inválido"
+			return "el helper terminó de forma anómala (pánico): revisa %ProgramData%\\bdr\\screenhelper.log"
 		default:
 			return fmt.Sprintf("el helper de sesión terminó con código %d", h.exitCode)
 		}
 	default:
-		return ""
+		return "el helper dejó de emitir datos y sigue vivo (posible bloqueo interno): revisa %ProgramData%\\bdr\\screenhelper.log"
 	}
 }
 

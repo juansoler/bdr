@@ -11,7 +11,18 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/juansoler/bdr/packages/logging"
 )
+
+// helperBackendLog es el logger del agente para el ciclo de los backends de
+// pantalla (spawn/terminación del helper). Se inyecta desde el runtime; nil
+// = sin logs.
+var helperBackendLog *logging.Logger
+
+func screenBackendLogger() *logging.Logger { return helperBackendLog }
+
+func setScreenBackendLogger(l *logging.Logger) { helperBackendLog = l }
 
 // termErr registra el motivo de terminación de un backend para que el
 // runtime lo informe al servidor (y llegue legible al visor del panel).

@@ -63,28 +63,34 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) error {
 	logFile := screenHelperLog()
 	logLine(logFile, "screenhelper iniciado (pid %d, version %s)", os.Getpid(), versionString())
 
-	// REGLA GDI/Go: los DC de GetDC y el binding de escritorio son estado
-	// POR HILO y las goroutines migran — bloquea este goroutine a su hilo
-	// para TODO el ciclo de captura, y fija el escritorio interactivo.
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	bindInteractiveDesktop(func(format string, args ...any) {
-		logLine(logFile, format, args...)
-	})
-
+	// El recover cubre TODO el cuerpo (incluido el binding de escritorio):
+	// un panic del helper debe dejar huella en el log, no un silencio.
 	defer func() {
 		if r := recover(); r != nil {
 			logLine(logFile, "PANIC: %v\n%s", r, debug.Stack())
 		}
 	}()
 
+	// REGLA GDI/Go: los DC de GetDC y el binding de escritorio son estado
+	// POR HILO y las goroutines migran — bloquea este goroutine a su hilo
+	// para TODO el ciclo de captura, y fija el escritorio interactivo.
+	logLine(logFile, "paso 1: bloqueando hilo de captura (LockOSThread)")
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	logLine(logFile, "paso 2: fijando escritorio interactivo del hilo")
+	bindInteractiveDesktop(func(format string, args ...any) {
+		logLine(logFile, format, args...)
+	})
+
 	engine := NewTileEngine()
+	logLine(logFile, "paso 3: inicializando captura GDI")
 	source, err := newGDICapture()
 	if err != nil {
 		logLine(logFile, "ERROR: captura GDI no disponible: %v", err)
 		return fmt.Errorf("helper: captura GDI no disponible: %w", err)
 	}
-	logLine(logFile, "captura GDI inicializada")
+	logLine(logFile, "paso 4: captura GDI lista (GetDC por frame)")
 	defer source.Close()
 
 	inj := newSendInputInjector()

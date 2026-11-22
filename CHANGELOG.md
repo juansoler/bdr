@@ -2,6 +2,27 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.4] — 2026-11-22
+
+### Corregido
+
+- **Windows: el helper 0.16.3 moría en silencio y el motivo se perdía por
+  dos vías a la vez**:
+  - El `recover` del helper estaba instalado DESPUÉS del binding de
+    escritorio: un panic en esa fase (stderr→NUL) mataba el proceso sin
+    dejar rastro — el log solo tenía «iniciado». Ahora el recover cubre
+    todo el cuerpo y cada paso registra línea en
+    `%ProgramData%\bdr\screenhelper.log` (LockOSThread, binding, GDI,
+    primer frame, stdin).
+  - **Carrera exit-code**: el EOF del pipe del helper llega antes de que
+    `WaitForSingleObject` publique el código de salida — el agente leía
+    «aún vivo» y reportaba un falso «finalizó (código 0)». Ahora espera
+    acotada (3 s) al exit code antes de componer el motivo, y los motivos
+    por código distinguen pánico (2) de fallo GDI (1) de canal cerrado (0).
+- El agente registra ahora en su propio log el ciclo del helper
+  («helper de sesión lanzado» / «helper terminó, reason=…») además del
+  fichero del helper: dos fuentes independientes para diagnosticar.
+
 ## [0.16.3] — 2026-11-22
 
 ### Corregido

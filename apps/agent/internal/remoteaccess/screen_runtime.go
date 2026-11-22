@@ -35,6 +35,7 @@ type ScreenRuntime struct {
 // El logger es opcional (nil = sin logs).
 func NewScreenRuntime(ctx context.Context, log *logging.Logger) *ScreenRuntime {
 	ctx, cancel := context.WithCancel(ctx)
+	setScreenBackendLogger(log)
 	return &ScreenRuntime{
 		ctx:     ctx,
 		cancel:  cancel,
