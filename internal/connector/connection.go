@@ -205,6 +205,33 @@ ORDER BY backup_start_date ASC`
 	return result, rows.Err()
 }
 
+// BackupDirectory devuelve el directorio de backups configurado de la
+// instancia. Se pregunta A LA PROPIA INSTANCIA (xp_instance_regread sobre
+// BackupDirectory, que resuelve la clave de registro correcta sea cual sea
+// la versión/nombre de instancia — el acceso directo por registro falló en
+// el lab P-24) con fallback a la ruta de datos por defecto. El agente lo
+// usa como staging: SQL Server escribe ahí por definición, lo que evita el
+// error 3201/OS 5 cuando su cuenta no puede escribir en el temp del agente.
+func (d *DB) BackupDirectory(ctx context.Context) (string, error) {
+	const q = `
+DECLARE @d nvarchar(512), @p nvarchar(512);
+BEGIN TRY
+    EXEC master.dbo.xp_instance_regread N'HKEY_LOCAL_MACHINE',
+        N'SOFTWARE\Microsoft\MSSQLServer\MSSQLServer',
+        N'BackupDirectory', @d OUTPUT;
+END TRY
+BEGIN CATCH
+    SET @d = NULL;
+END CATCH
+SET @p = CONVERT(nvarchar(512), SERVERPROPERTY('InstanceDefaultDataPath'));
+SELECT COALESCE(NULLIF(LTRIM(RTRIM(@d)), ''), NULLIF(@p, '')) AS staging;`
+	var dir sql.NullString
+	if err := d.QueryRowContext(ctx, q).Scan(&dir); err != nil {
+		return "", fmt.Errorf("consultar directorio de backups: %w", err)
+	}
+	return dir.String, nil
+}
+
 // LastBackupLSNs devuelve los LSN del backup más reciente registrado en
 // msdb.dbo.backupset para la base indicada (cualquier tipo: D, I o L).
 // Se ejecuta tras cada BACKUP para capturar los LSN reales del catálogo.

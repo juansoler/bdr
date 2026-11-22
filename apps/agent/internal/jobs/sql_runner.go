@@ -32,8 +32,21 @@ func NewSQLMotor() *SQLMotor { return &SQLMotor{} }
 
 var _ SQLRunner = (*SQLMotor)(nil)
 
-// sqlStagingRoot vive en sql_staging.go (con default por plataforma:
-// en Windows, el BackupDirectory de SQL Server según registro).
+// resolveSQLStaging resuelve la carpeta de staging del motor SQL:
+// BDR_SQL_STAGING (env) > BackupDirectory reportado por la propia
+// instancia (SQL escribe ahí por definición) > temp del proceso.
+// db puede ser nil en tests.
+func resolveSQLStaging(ctx context.Context, db *connector.DB) string {
+	if p := os.Getenv("BDR_SQL_STAGING"); p != "" {
+		return p
+	}
+	if db != nil {
+		if dir, err := db.BackupDirectory(ctx); err == nil && dir != "" {
+			return dir
+		}
+	}
+	return sqlStagingDefault()
+}
 
 func sqlOpen(ctx context.Context, server, instance string) (*connector.DB, error) {
 	db, err := connector.Open(ctx, connector.ConnectionParams{Server: server, Instance: instance})
@@ -91,8 +104,9 @@ func (m *SQLMotor) Backup(ctx context.Context, creds *contracts.RepositoryCreden
 	}
 	defer db.Close()
 
-	progress(10, "preparando staging y destino (staging: "+sqlStagingRoot()+")", 0)
-	sm, err := backup.NewStagingManager(sqlStagingRoot())
+	stagingDir := resolveSQLStaging(ctx, db)
+	progress(10, "preparando staging y destino (staging: "+stagingDir+")", 0)
+	sm, err := backup.NewStagingManager(stagingDir)
 	if err != nil {
 		return nil, &CodeError{Code: "E_INTERNAL", Message: err.Error()}
 	}
@@ -186,7 +200,7 @@ func (m *SQLMotor) Restore(ctx context.Context, creds *contracts.RepositoryCrede
 	var staged []string
 	for i, uri := range payload.Files {
 		name := filepath.Base(strings.ReplaceAll(strings.ReplaceAll(uri, `\`, "/"), "//", "/"))
-		dest := filepath.Join(sqlStagingRoot(), "restore_"+name)
+		dest := filepath.Join(resolveSQLStaging(ctx, db), "restore_"+name)
 		progress(10+(60*(i+1))/len(payload.Files), fmt.Sprintf("descargando %s (%d/%d)", name, i+1, len(payload.Files)), 0)
 		if err := tr.Fetch(ctx, uri, dest); err != nil {
 			return nil, &CodeError{Code: "E_STORAGE", Message: err.Error()}
@@ -257,7 +271,7 @@ func (m *SQLMotor) Verify(ctx context.Context, creds *contracts.RepositoryCreden
 	}
 	defer tr.Close()
 
-	dest := filepath.Join(sqlStagingRoot(), "verify_"+filepath.Base(strings.ReplaceAll(strings.ReplaceAll(payload.RepoURI, `\`, "/"), "//", "/")))
+	dest := filepath.Join(resolveSQLStaging(ctx, db), "verify_"+filepath.Base(strings.ReplaceAll(strings.ReplaceAll(payload.RepoURI, `\`, "/"), "//", "/")))
 	defer func() { _ = os.Remove(dest) }()
 
 	progress(30, "descargando "+filepath.Base(payload.RepoURI), 0)
@@ -350,8 +364,8 @@ func (m *SQLMotor) CertBackup(ctx context.Context, creds *contracts.RepositoryCr
 	defer tr.Close()
 
 	stamp := time.Now().Format("20060102_150405")
-	cerPath := filepath.Join(sqlStagingRoot(), fmt.Sprintf("%s_%s.cer", payload.CertName, stamp))
-	pvkPath := filepath.Join(sqlStagingRoot(), fmt.Sprintf("%s_%s.pvk", payload.CertName, stamp))
+	cerPath := filepath.Join(resolveSQLStaging(ctx, db), fmt.Sprintf("%s_%s.cer", payload.CertName, stamp))
+	pvkPath := filepath.Join(resolveSQLStaging(ctx, db), fmt.Sprintf("%s_%s.pvk", payload.CertName, stamp))
 	defer func() {
 		_ = os.Remove(cerPath)
 		_ = os.Remove(pvkPath)

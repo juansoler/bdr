@@ -1,64 +1,24 @@
 // Staging del motor SQL: la carpeta donde SQL Server escribe los .bak/.trn
 // y de la que el agente lee para transferir. Debe ser accesible por AMBAS
 // cuentas: la del servicio SQL (escritura) y la del agente (lectura).
+//
+// Orden de resolución (resolveSQLStaging, en sql_runner.go):
+//  1. BDR_SQL_STAGING (elección explícita; recomendada en producción para
+//     separar el I/O de backups del disco del sistema).
+//  2. El BackupDirectory que reporta la PROPIA instancia vía
+//     connector.DB.BackupDirectory (xp_instance_regread + ruta de datos
+//     como fallback): SQL escribe ahí por definición.
+//  3. Temp del proceso (último recurso; en Windows puede no ser escribible
+//     por la cuenta del servicio SQL — hallazgo del lab P-24).
 package jobs
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
-// sqlStagingRoot devuelve la carpeta de staging: la variable
-// BDR_SQL_STAGING si está definida, o el valor por defecto de la
-// plataforma (sqlStagingDefault).
-func sqlStagingRoot() string {
-	if p := os.Getenv("BDR_SQL_STAGING"); p != "" {
-		return p
-	}
-	return sqlStagingDefault()
-}
-
-// pickSQLKey elige de una lista de claves de registro "MSSQL<n>.<instancia>"
-// la que corresponde a la instancia pedida ("" = MSSQLSERVER). Si no está,
-// devuelve la única disponible (host de una instancia). Función portable
-// para poder testearla en cualquier plataforma.
-func pickSQLKey(keys []string, instance string) string {
-	want := instance
-	if want == "" {
-		want = "MSSQLSERVER"
-	}
-	for _, k := range keys {
-		if i := lastIndexByte(k, '.'); i >= 0 && equalFoldASCII(k[i+1:], want) {
-			return k
-		}
-	}
-	if len(keys) == 1 {
-		return keys[0]
-	}
-	return ""
-}
-
-func lastIndexByte(s string, b byte) int {
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == b {
-			return i
-		}
-	}
-	return -1
-}
-
-func equalFoldASCII(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		ca, cb := a[i], b[i]
-		if 'A' <= ca && ca <= 'Z' {
-			ca += 32
-		}
-		if 'A' <= cb && cb <= 'Z' {
-			cb += 32
-		}
-		if ca != cb {
-			return false
-		}
-	}
-	return true
+// sqlStagingDefault es el último recurso cuando ni la env BDR_SQL_STAGING
+// ni la instancia reportan un directorio: el temp del proceso.
+func sqlStagingDefault() string {
+	return filepath.Join(os.TempDir(), "bdr-sql-staging")
 }
