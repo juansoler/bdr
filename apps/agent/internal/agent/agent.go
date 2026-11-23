@@ -550,13 +550,19 @@ func (a *Agent) executeJob(ctx context.Context, job *contracts.JobView) {
 				State:        contracts.JobCanceled,
 				ErrorCode:    "E_CANCELED",
 				ErrorMessage: "cancelado a petición del administrador",
+				Result:       jobs.FailureResult(execErr),
 			})
 			a.log.Info("job cancelado", "job_id", job.ID)
 			return
 		}
 		code := jobs.ErrorCode(execErr)
 		batcher.Add("error", "job fallido: "+execErr.Error())
-		a.completeWithError(ctx, job.ID, code, execErr.Error())
+		a.complete(ctx, job.ID, contracts.JobCompleteRequest{
+			State:        contracts.JobFailed,
+			ErrorCode:    code,
+			ErrorMessage: execErr.Error(),
+			Result:       jobs.FailureResult(execErr),
+		})
 		a.log.Error("job fallido", "job_id", job.ID, "code", code, "error", execErr.Error())
 		return
 	}

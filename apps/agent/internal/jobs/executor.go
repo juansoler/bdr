@@ -20,9 +20,29 @@ import (
 type CodeError struct {
 	Code    string
 	Message string
+	// CleanupPrefix es el prefijo de claves del destino donde el backup
+	// quedó a medias (solo en fallos posteriores a crear el destino): el
+	// agente lo reporta en el resultado del job fallido y el panel ofrece
+	// limpiar esos objetos en vez de acumularlos.
+	CleanupPrefix string
 }
 
 func (e *CodeError) Error() string { return e.Message }
+
+// FailureResult serializa el resultado de un fallo de backup: el prefijo de
+// destino donde quedaron los objetos a medias, para que el panel ofrezca
+// limpiarlos. nil si no aplica (fallos previos a crear el destino).
+func FailureResult(err error) json.RawMessage {
+	ce, ok := err.(*CodeError)
+	if !ok || ce == nil || ce.CleanupPrefix == "" {
+		return nil
+	}
+	out, jerr := json.Marshal(map[string]any{"dest_prefix": ce.CleanupPrefix})
+	if jerr != nil {
+		return nil
+	}
+	return out
+}
 
 // ErrorCode devuelve el código de un CodeError o E_JOB_FAILED.
 func ErrorCode(err error) string {

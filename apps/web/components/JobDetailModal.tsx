@@ -120,6 +120,7 @@ export function JobDetailModal({
                   {job.error_code}: {job.error_message ?? "sin detalle"}
                 </p>
               ) : null}
+              <IncompleteCleanup token={token} jobId={jobId} job={job} onDone={() => load(true)} />
               {job.result?.snapshots && job.result.snapshots.length > 0 ? (
                 <div className="mt-3 space-y-1 border border-ink-700 bg-ink-950/60 p-3">
                   {job.result.snapshots.map((s) => (
@@ -197,6 +198,99 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <span className="truncate text-slate-300" title={value}>
         {value}
       </span>
+    </div>
+  );
+}
+
+// Tarjeta de limpieza para jobs de backup fallidos/cancelados que dejaron
+// objetos a medias en el destino (result.dest_prefix). Dos pasos: consulta
+// el tamaño y pide confirmación antes de borrar.
+function IncompleteCleanup({
+  token,
+  jobId,
+  job,
+  onDone,
+}: {
+  token: string;
+  jobId: string;
+  job: Job;
+  onDone: () => void;
+}) {
+  const prefix = job.result?.dest_prefix;
+  const cleaned = job.result?.cleaned;
+  const [preview, setPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const showCard =
+    (job.state === "failed" || job.state === "canceled") && !!prefix && !cleaned;
+  if (!showCard) {
+    return cleaned ? (
+      <p className="font-mono text-[10px] text-slate-500">
+        Objetos incompletos limpiados del destino.
+      </p>
+    ) : null;
+  }
+
+  const previewCleanup = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const out = await api<{ detail: string }>(
+        `/api/v1/admin/jobs/${jobId}/cleanup-incomplete`,
+        token,
+      );
+      setPreview(out.detail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo consultar el destino.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runCleanup = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/v1/admin/jobs/${jobId}/cleanup-incomplete`, token, { method: "POST" });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo limpiar el destino.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 space-y-2 border border-alert/40 bg-alert/5 p-3">
+      <p className="font-mono text-[11px] text-alert">
+        El backup quedó a medias y dejó objetos sin referenciar en el destino:
+      </p>
+      <p className="truncate font-mono text-[10px] text-slate-400" title={prefix}>
+        {prefix}
+      </p>
+      {preview ? (
+        <p className="font-mono text-[11px] text-slate-300">{preview}</p>
+      ) : null}
+      {error ? <ErrorBox message={error} onRetry={() => setError(null)} /> : null}
+      <div className="flex flex-wrap items-center gap-2">
+        {!preview ? (
+          <Button variant="secondary" size="sm" disabled={busy} onClick={previewCleanup}>
+            {busy ? "Consultando…" : "Comprobar cuánto ocupa"}
+          </Button>
+        ) : (
+          <>
+            <Button variant="danger" size="sm" disabled={busy} onClick={runCleanup}>
+              {busy ? "Limpiando…" : "Confirmar limpieza"}
+            </Button>
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => setPreview(null)}>
+              Cancelar
+            </Button>
+          </>
+        )}
+        <span className="font-mono text-[10px] text-slate-500">
+          Si vas a reintentar el backup, no limpies: el reintento reutiliza estos objetos.
+        </span>
+      </div>
     </div>
   );
 }

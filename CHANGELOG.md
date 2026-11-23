@@ -2,6 +2,23 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.35] — 2026-11-23
+
+### Añadido
+
+- **Limpieza de backups incompletos desde el panel** — cuando un backup de
+  VM/LXC/imagen falla (o se cancela) después de haber subido objetos, el
+  agente reporta en el resultado del fallo la carpeta del destino donde
+  quedaron a medias (`dest_prefix`). El detalle del job en el panel
+  muestra una tarjeta de limpieza: «Comprobar cuánto ocupa» (lista los
+  objetos y su tamaño en S3, ruta física o SMB) y «Confirmar limpieza»
+  (borra los objetos con respeto a Object Lock, con bypass si las
+  credenciales lo permiten). El botón desaparece al limpiar y avisa de
+  que **no conviene limpiar si se va a reintentar** (el reintento
+  reutiliza esos objetos). La limpieza se audita.
+- Depuración de dumps de restauración LXC abandonados de más de 48 h en
+  el agente (solo reanudan los recientes).
+
 ## [0.16.34] — 2026-11-23
 
 ### Añadido

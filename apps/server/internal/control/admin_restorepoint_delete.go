@@ -164,18 +164,9 @@ func (s *Server) deleteObjectsRestorePoint(ctx context.Context, target *store.St
 		if err != nil {
 			return "", fmt.Errorf("no se pudo descifrar el secreto del destino")
 		}
-		region := target.Region
-		if region == "" {
-			region = contracts.DetectS3Region(target.Endpoint)
-		}
-		mc, err := minio.New(target.Endpoint, &minio.Options{
-			Creds:        credentials.NewStaticV4(target.AccessKey, sk, ""),
-			Secure:       !target.NoTLS,
-			Region:       region,
-			BucketLookup: minio.BucketLookupPath,
-		})
+		mc, err := minioClientFor(ctx, target, sk)
 		if err != nil {
-			return "", fmt.Errorf("endpoint del destino inválido")
+			return "", err
 		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
@@ -244,6 +235,25 @@ func validObjectKey(key string) bool {
 		}
 	}
 	return true
+}
+
+// minioClientFor construye el cliente S3 de un destino con el secreto ya
+// descifrado (región autodetectada del endpoint si no viene).
+func minioClientFor(ctx context.Context, t *store.StorageTarget, secret string) (*minio.Client, error) {
+	region := t.Region
+	if region == "" {
+		region = contracts.DetectS3Region(t.Endpoint)
+	}
+	mc, err := minio.New(t.Endpoint, &minio.Options{
+		Creds:        credentials.NewStaticV4(t.AccessKey, secret, ""),
+		Secure:       !t.NoTLS,
+		Region:       region,
+		BucketLookup: minio.BucketLookupPath,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("endpoint del destino inválido")
+	}
+	return mc, nil
 }
 
 // lockHint añade contexto si los fallos parecen debidos a Object Lock.

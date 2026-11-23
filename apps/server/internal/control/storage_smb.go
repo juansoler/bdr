@@ -157,3 +157,54 @@ func (s *Server) storageCheckSMB(ctx context.Context, t *store.StorageTarget) st
 	}
 	return fmt.Sprintf("ok: recurso SMB accesible y escribible (//%s/%s)", t.SMBPath().Host, t.SMBPath().Share)
 }
+
+// smbListUnder lista recursivamente los objetos de un destino SMB bajo un
+// prefijo y devuelve (claves relativas al root del destino, tamaño por
+// clave) — la misma convención que smbDeleteObjects.
+func smbListUnder(share *smb2.Share, t *store.StorageTarget, prefix string) ([]string, map[string]int64, error) {
+	root := t.SMBRoot()
+	base := strings.TrimPrefix(strings.Trim(root, "/")+"/"+strings.Trim(prefix, "/"), "/")
+	keys := map[string]int64{}
+	var walk func(dir, rel string) error
+	walk = func(dir, rel string) error {
+		entries, err := share.ReadDir(dir)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if name == "." || name == ".." {
+				continue
+			}
+			abs := name
+			if dir != "" {
+				abs = dir + "/" + name
+			}
+			relPath := name
+			if rel != "" {
+				relPath = rel + "/" + name
+			}
+			if e.IsDir() {
+				if err := walk(abs, relPath); err != nil {
+					return err
+				}
+				continue
+			}
+			if validObjectKey(relPath) {
+				keys[relPath] = e.Size()
+			}
+		}
+		return nil
+	}
+	if err := walk(base, strings.Trim(prefix, "/")); err != nil {
+		return nil, nil, err
+	}
+	out := make([]string, 0, len(keys))
+	for k := range keys {
+		out = append(out, k)
+	}
+	return out, keys, nil
+}

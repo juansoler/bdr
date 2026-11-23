@@ -54,7 +54,7 @@ func NewImageRunner(dataDir string, log *logging.Logger, kopiaBinary, kopiaConfi
 // Los objetos se agrupan en el destino como
 // backup/<plan>/<fecha>/image/<segmentos y manifiesto>.
 func (r *ImageRunner) Capture(ctx context.Context, creds *contracts.RepositoryCredentials,
-	payload contracts.ImageJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
+	payload contracts.ImageJobPayload, progress func(percent int, msg string, bytesDone int64)) (res json.RawMessage, err error) {
 
 	machine := sanitizeMachine(payload.PlanName)
 	if machine == "" {
@@ -68,6 +68,7 @@ func (r *ImageRunner) Capture(ctx context.Context, creds *contracts.RepositoryCr
 	if err != nil {
 		return nil, err
 	}
+	defer func() { attachCleanupPrefix(err, dest) }()
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 

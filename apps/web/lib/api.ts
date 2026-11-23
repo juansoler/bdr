@@ -263,6 +263,9 @@ export interface JobResult {
   kopia_version?: string;
   retention_note?: string;
   restored?: RestoredItem[];
+  // Fallo de backup (0.16.33+): prefijo del destino con objetos a medias.
+  dest_prefix?: string;
+  cleaned?: boolean;
 }
 
 export interface Job {

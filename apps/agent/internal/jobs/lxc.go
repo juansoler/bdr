@@ -37,8 +37,16 @@ import (
 )
 
 // BackupLXC archiva el contenedor al destino de almacenamiento.
+// attachCleanupPrefix adjunta el prefijo del destino a un error de backup
+// para que el panel ofrezca limpiar los objetos incompletos.
+func attachCleanupPrefix(err error, dest uploadDest) {
+	if ce, ok := err.(*CodeError); ok && ce != nil && ce.CleanupPrefix == "" && dest != nil {
+		ce.CleanupPrefix = dest.Prefix()
+	}
+}
+
 func (r *VMRunner) BackupLXC(ctx context.Context, creds *contracts.RepositoryCredentials,
-	payload contracts.BackupLXCJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
+	payload contracts.BackupLXCJobPayload, progress func(percent int, msg string, bytesDone int64)) (res json.RawMessage, err error) {
 
 	cfgOut, err := runProbe(60, "pct", "config", strconv.Itoa(payload.VMID))
 	if err != nil {
@@ -61,6 +69,7 @@ func (r *VMRunner) BackupLXC(ctx context.Context, creds *contracts.RepositoryCre
 	if err != nil {
 		return nil, err
 	}
+	defer func() { attachCleanupPrefix(err, dest) }()
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 	start := time.Now()
@@ -520,6 +529,18 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 	}
 	tmpPath := filepath.Join(tmpDir, fmt.Sprintf("bdr-lxc-restore-%s.tar.zst",
 		restoreFingerprint(payload.ManifestKey)))
+	// Depura dumps de restauraciones abandonadas de más de 48 h (el
+	// reintento solo reutiliza los recientes).
+	if old, err := filepath.Glob(filepath.Join(tmpDir, "bdr-lxc-restore-*.tar.zst")); err == nil {
+		for _, p := range old {
+			if p == tmpPath {
+				continue
+			}
+			if fi, ierr := os.Stat(p); ierr == nil && fi.ModTime().Before(time.Now().Add(-48*time.Hour)) {
+				_ = os.Remove(p)
+			}
+		}
+	}
 
 	resume := loadRestoreState(r.DataDir, payload.ManifestKey)
 	restoreFailed := true

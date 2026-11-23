@@ -233,7 +233,7 @@ func waitNBDSize(ctx context.Context, dev string, min int64) int64 {
 
 // BackupVM captura los discos de la VM al bucket del destino.
 func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCredentials,
-	payload contracts.BackupVMJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
+	payload contracts.BackupVMJobPayload, progress func(percent int, msg string, bytesDone int64)) (res json.RawMessage, err error) {
 
 	cfgOut, err := runProbe(60, "qm", "config", strconv.Itoa(payload.VMID))
 	if err != nil {
@@ -256,6 +256,7 @@ func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCred
 	if err != nil {
 		return nil, err
 	}
+	defer func() { attachCleanupPrefix(err, dest) }()
 	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
 	defer cancel()
 	start := time.Now()
