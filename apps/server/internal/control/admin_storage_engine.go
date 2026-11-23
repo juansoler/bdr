@@ -17,6 +17,7 @@ import (
 	"github.com/juansoler/bdr/apps/server/internal/auth"
 	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/packages/contracts"
+	"github.com/juansoler/bdr/packages/kopiacli"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -166,7 +167,7 @@ func (s *Server) storageRunSync(ctx context.Context, t *store.StorageTarget) (st
 		if t.NoTLS {
 			args = append(args, "--disable-tls")
 		}
-		args = append(args, "--no-use-keychain", "--no-persist-credentials")
+		args = append(args, kopiacli.CredentialFlags()...)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
 	defer cancel()
@@ -302,7 +303,7 @@ func (s *Server) storageEnsureRepo(ctx context.Context, t *store.StorageTarget) 
 			connect = append(connect, "--disable-tls")
 		}
 	}
-	connect = append(connect, "--no-use-keychain", "--no-persist-credentials")
+	connect = append(connect, kopiacli.CredentialFlags()...)
 	if _, err := s.Kopia.RunRepoOp(ctx, 2*time.Minute, cfgFile, pw, connect...); err != nil {
 		// Una conexión fallida puede dejar un archivo a medias; se limpia
 		// antes de intentar el create.

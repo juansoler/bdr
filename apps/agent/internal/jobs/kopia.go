@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/juansoler/bdr/packages/contracts"
+	"github.com/juansoler/bdr/packages/kopiacli"
 	"github.com/juansoler/bdr/packages/logging"
 )
 
@@ -255,7 +256,7 @@ func ConnectArgs(creds contracts.RepositoryCredentials, configFile, cacheDir str
 	if cacheDir != "" {
 		args = append(args, "--cache-directory="+cacheDir)
 	}
-	args = append(args, "--no-use-keychain", "--no-persist-credentials")
+	args = append(args, kopiacli.CredentialFlags()...)
 	return args, nil
 }
 
@@ -401,7 +402,7 @@ func (r *KopiaRunner) commandArgs(creds *contracts.RepositoryCredentials) []stri
 	if cfg := r.activeConfigFile(creds); cfg != "" {
 		args = append(args, "--config-file="+cfg)
 	}
-	args = append(args, "--no-use-keychain")
+	args = append(args, kopiacli.CredentialFlags()...)
 	return args
 }
 

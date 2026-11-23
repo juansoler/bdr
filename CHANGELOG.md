@@ -2,6 +2,22 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.30] — 2026-11-23
+
+### Corregido
+
+- **Servidores Linux no podían aprovisionar el repo Kopia de un destino S3**
+  (`E_REPO_PROVISION: kopia: error: unknown long flag '--no-use-keychain'`)
+  — el CLI de kopia registra las flags del keychain únicamente en builds de
+  macOS (`setupOSSpecificKeychainFlags` en `cli/app.go`), y bdr las pasaba
+  incondicionalmente desde la 0.11.4. Ahora un helper compartido
+  (`packages/kopiacli.CredentialFlags`) añade `--no-use-keychain` solo en
+  darwin y deja `--no-persist-credentials` (global) en todos los sistemas.
+  Afecta a: aprovisionamiento/conexión de repositorios de destinos
+  (servidor, `storageEnsureRepo`), réplica `repository sync-to s3` y las
+  conexiones kopia del agente. Hetzner Object Storage vuelve a funcionar
+  sin pasos manuales tras actualizar el servidor.
+
 ## [0.16.29] — 2026-11-23
 
 ### Añadido
