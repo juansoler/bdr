@@ -286,7 +286,7 @@ func TestPutObjectErrorConDiagnostico(t *testing.T) {
 		t.Fatal("putRaw debía fallar")
 	}
 	msg := err.Error()
-	for _, quiero := range []string{"manifest.json", "put:", "put-sin-firma:", "put-md5:", "multipart:", "InvalidRequest", "respuesta="} {
+	for _, quiero := range []string{"manifest.json", "respuesta del backend:", "→ 400", "respuesta=", "put, put-sin-firma, put-md5, multipart"} {
 		if !strings.Contains(msg, quiero) {
 			t.Errorf("error sin %q: %s", quiero, msg)
 		}

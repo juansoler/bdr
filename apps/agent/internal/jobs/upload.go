@@ -478,7 +478,7 @@ func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, n
 	if len(data) <= int(multipartPartSize) {
 		start = s3ModeSingle
 	}
-	var intentos []string
+	var probados []string
 	for mode := start; mode <= s3ModeMultipart; mode++ {
 		err := u.putObjectRetries(ctx, key, data, now, mode)
 		if err == nil {
@@ -488,21 +488,24 @@ func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, n
 			return nil
 		}
 		if !esInvalidRequest(err) {
-			return u.uploadErr(key, data, s3ErrDetail(err))
+			return u.uploadErr(key, data, s3ModeNames[mode]+": "+s3ErrDetail(err))
 		}
-		intentos = append(intentos, s3ModeNames[mode]+": "+s3ErrDetail(err))
+		probados = append(probados, s3ModeNames[mode])
 	}
-	return u.uploadErr(key, data, strings.Join(intentos, " | "))
+	return u.uploadErr(key, data,
+		"ningún camino aceptado ("+strings.Join(probados, ", ")+")")
 }
 
-// uploadErr compone el mensaje de error de una subida: objeto, tamaño, qué
-// caminos fallaron y la última respuesta del backend (cuerpo XML incluido).
+// uploadErr compone el mensaje de error de una subida: objeto, tamaño, la
+// última respuesta del backend (cuerpo XML y headers, lo que de verdad
+// explica el rechazo) y qué caminos se probaron. La respuesta va primero
+// porque el panel recorta los errores largos por el final.
 func (u *s3UploadDest) uploadErr(key string, data []byte, causa string) error {
 	detalle := ""
 	if d := u.rec.get(); d != "" {
-		detalle = " [" + d + "]"
+		detalle = "respuesta del backend: " + d + "; "
 	}
-	return fmt.Errorf("%s (%s): %s%s", s3KeyName(key), humanBytes(int64(len(data))), causa, detalle)
+	return fmt.Errorf("%s (%s): %s%s", s3KeyName(key), humanBytes(int64(len(data))), detalle, causa)
 }
 
 // putObjectRetries ejecuta la subida en el modo indicado con reintentos y

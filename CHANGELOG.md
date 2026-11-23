@@ -2,6 +2,16 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.48] — 2026-11-23
+
+### Corregido
+
+- **El diagnóstico del backend cabía fuera del panel**: el panel recorta los
+  errores de job a 1000 caracteres, y con cuatro caminos probados el detalle
+  del proveedor quedaba al final, cortado. Ahora el error abre con la
+  respuesta del backend (cuerpo XML, headers enviados y `request-id`) y
+  cierra con la lista compacta de caminos probados.
+
 ## [0.16.47] — 2026-11-23
 
 ### Corregido
