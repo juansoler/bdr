@@ -86,6 +86,7 @@ jobs:
             dist/bdr-control-*
             dist/bdr-agent-*
             dist/bdr-sql-*
+            dist/uninstall-*
             dist/latest.json
             dist/latest.json.sig
             dist/SHA256SUMS
@@ -98,6 +99,7 @@ jobs:
             dist/bdr-control-*
             dist/bdr-agent-*
             dist/bdr-sql-*
+            dist/uninstall-*
             dist/install-*
             dist/SHA256SUMS
             dist/latest.json

@@ -2,6 +2,20 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.41] — 2026-11-23
+
+### Corregido
+
+- **Los desinstaladores no se publicaban como assets de la release** — el
+  paso «Publicar release» de `release.yml` usa una lista fija de globs y
+  `dist/uninstall-*` no figuraba en ella: `make-release.sh` copiaba los
+  scripts a `dist/` y los sumaba a `SHA256SUMS`, pero la subida los
+  saltaba. Resultado en 0.16.40: `curl …/uninstall-agent.sh` devolvía 404
+  y su `SHA256SUMS` referenciaba 4 ficheros inexistentes. Se añade el glob
+  `dist/uninstall-*` a la subida y a las attestations de procedencia.
+- Workaround mientras sale 0.16.41: los scripts están en el repositorio —
+  `curl -fsSL https://raw.githubusercontent.com/juansoler/bdr/main/deploy/uninstall/uninstall-agent.sh -o /tmp/uninstall-agent.sh`.
+
 ## [0.16.40] — 2026-11-23
 
 ### Añadido
