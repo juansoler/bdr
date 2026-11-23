@@ -235,7 +235,13 @@ start_service() {
   if [[ $PLATFORM_OS = linux ]]; then
     sed -e "s|BDR_PUBLIC_HOST|$PUBLIC_HOST|g" "$TMP/bdr-control.service" > "$SVC_DIR/bdr-control.service"
     systemctl daemon-reload
-    systemctl enable --now bdr-control
+    # Upgrade: si el servicio ya corre, hay que REINICIARLO para que el
+    # binario nuevo entre en marcha (enable --now no toca un servicio activo).
+    if systemctl is-active --quiet bdr-control; then
+      systemctl restart bdr-control
+    else
+      systemctl enable --now bdr-control
+    fi
     sleep 2; systemctl --no-pager --lines=5 status bdr-control || true
   else
     cat > /Library/LaunchDaemons/local.bdr.control.plist <<PLIST

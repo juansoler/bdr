@@ -2,6 +2,17 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.38] — 2026-11-23
+
+### Corregido
+
+- **El instalador Linux no reiniciaba el servicio al actualizar** —
+  `systemctl enable --now` no toca un servicio ya activo: tras una
+  actualización, el control seguía corriendo el binario viejo aunque
+  `/opt/bdr/bin` ya tuviera el nuevo (y el panel seguía pidiendo la
+  actualización que ya estaba instalada). Ahora, si el servicio está
+  activo, el instalador lo reinicia; si no, lo arranca como siempre.
+
 ## [0.16.37] — 2026-11-23
 
 ### Corregido
