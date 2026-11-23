@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/juansoler/bdr/packages/contracts"
+	"github.com/juansoler/bdr/packages/kopiacli"
 )
 
 // TestIntegracionKopiaReal valida el runner contra el binario real y un
@@ -51,8 +52,9 @@ func TestIntegracionKopiaReal(t *testing.T) {
 	defer cancel()
 
 	// Crear el repositorio con una configuración aislada.
-	create := exec.CommandContext(ctx, kopia, "repository", "create", "filesystem",
-		"--path="+repoPath, "--config-file="+repoConfig, "--no-use-keychain")
+	createArgs := []string{"repository", "create", "filesystem",
+		"--path=" + repoPath, "--config-file=" + repoConfig}
+	create := exec.CommandContext(ctx, kopia, append(createArgs, kopiacli.CredentialFlags()...)...)
 	create.Env = append(os.Environ(), "KOPIA_PASSWORD="+password, "KOPIA_CHECK_FOR_UPDATES=false")
 	if out, err := create.CombinedOutput(); err != nil {
 		t.Fatalf("crear repositorio: %v\n%s", err, sanitizeKopia(out, password))

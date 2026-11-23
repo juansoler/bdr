@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/juansoler/bdr/packages/contracts"
+	"github.com/juansoler/bdr/packages/kopiacli"
 )
 
 const snapshotFixture = `{
@@ -82,9 +83,12 @@ func TestConnectArgsNoExponenPassword(t *testing.T) {
 		"--override-hostname=bdr",
 		"--config-file=/var/lib/bdr-agent/kopia/kopia.config",
 		"--cache-directory=/var/lib/bdr-agent/kopia/cache",
-		"--no-use-keychain",
-		"--no-persist-credentials",
 	} {
+		for _, f := range kopiacli.CredentialFlags() {
+			if !strings.Contains(joined, f) {
+				t.Errorf("falta argumento %q en %v", f, args)
+			}
+		}
 		if !strings.Contains(joined, want) {
 			t.Errorf("faltan argumentos %q en %v", want, args)
 		}
@@ -141,9 +145,12 @@ func TestConnectArgsS3(t *testing.T) {
 		"--region=fsn1",
 		"--access-key=AKIA-TEST",
 		"--secret-access-key=SK-TEST",
-		"--no-use-keychain",
-		"--no-persist-credentials",
 	} {
+		for _, f := range kopiacli.CredentialFlags() {
+			if !strings.Contains(joined, f) {
+				t.Errorf("falta argumento %q en %v", f, args)
+			}
+		}
 		if !strings.Contains(joined, want) {
 			t.Errorf("falta argumento %q en %v", want, args)
 		}
