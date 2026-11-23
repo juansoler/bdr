@@ -48,11 +48,13 @@ func (r *VMRunner) BackupLXC(ctx context.Context, creds *contracts.RepositoryCre
 	if name == "" {
 		name = cfg["hostname"]
 	}
-	// Los objetos se agrupan como backup/<ct>/<fecha>/lxc/<segmentos y manifiesto>.
-	machine := sanitizeMachine(name)
-	if machine == "" {
-		machine = fmt.Sprintf("ct%d", payload.VMID)
+	// Los objetos se agrupan como
+	// backup/<nodo-proxmox>/<ct>/<fecha>/lxc/<segmentos y manifiesto>.
+	guest := name
+	if guest == "" {
+		guest = fmt.Sprintf("ct%d", payload.VMID)
 	}
+	machine := guestMachine(payload.Node, guest)
 	date := time.Now().UTC().Format(dateFormat)
 	dest, err := newUploadDest(ctx, creds, "lxc", machine, date, payload.RetentionDays)
 	if err != nil {

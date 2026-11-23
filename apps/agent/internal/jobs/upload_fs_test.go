@@ -101,19 +101,20 @@ func TestFSUploadDest(t *testing.T) {
 }
 
 // TestFSUploadDestEstructuraBackup verifica la estructura de backups por
-// máquina y fecha: el destino filesystem escribe los objetos como
-// <ruta>/backup/<máquina>/<fecha>/<namespace>/..., respeta el prefijo del
-// destino (creds.Prefix) y reanuda dentro de la misma carpeta.
+// nodo/máquina y fecha: el destino filesystem escribe los objetos como
+// <ruta>/backup/<máquina>/<fecha>/<namespace>/... — con máquina compuesta
+// <nodo-proxmox>/<guest> para VMs y LXC —, respeta el prefijo del destino
+// (creds.Prefix) y reanuda dentro de la misma carpeta.
 func TestFSUploadDestEstructuraBackup(t *testing.T) {
 	root := t.TempDir()
 	creds := &contracts.RepositoryCredentials{
 		Kind: contracts.RepoKindFilesystem, Path: root, Prefix: "cliente-a",
 	}
-	dest, err := newFSUploadDest(creds, "vm", "servidor-01", "2026-11-23")
+	dest, err := newFSUploadDest(creds, "vm", "pve1/servidor-01", "2026-11-23")
 	if err != nil {
 		t.Fatalf("newFSUploadDest: %v", err)
 	}
-	wantPrefix := "cliente-a/backup/servidor-01/2026-11-23/vm/"
+	wantPrefix := "cliente-a/backup/pve1/servidor-01/2026-11-23/vm/"
 	if dest.Prefix() != wantPrefix {
 		t.Fatalf("prefix: %q ≠ %q", dest.Prefix(), wantPrefix)
 	}
@@ -121,7 +122,7 @@ func TestFSUploadDestEstructuraBackup(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	// Segmento: la clave completa hereda el prefijo máquina/fecha.
+	// Segmento: la clave completa hereda el prefijo nodo/máquina/fecha.
 	key, err := dest.putSegment(ctx, dest.Prefix()+"disk0-seg0000-abc123", []byte("datos"), now)
 	if err != nil {
 		t.Fatalf("putSegment: %v", err)
@@ -130,13 +131,13 @@ func TestFSUploadDestEstructuraBackup(t *testing.T) {
 		t.Fatalf("key: %q", key)
 	}
 	data, err := os.ReadFile(filepath.Join(root, "cliente-a", "backup",
-		"servidor-01", "2026-11-23", "vm", "disk0-seg0000-abc123"))
+		"pve1", "servidor-01", "2026-11-23", "vm", "disk0-seg0000-abc123"))
 	if err != nil || string(data) != "datos" {
 		t.Fatalf("fichero del segmento: %v %q", err, data)
 	}
 
 	// Reanudación el mismo día: mismo prefijo → salta el segmento.
-	resumed, err := newFSUploadDest(creds, "vm", "servidor-01", "2026-11-23")
+	resumed, err := newFSUploadDest(creds, "vm", "pve1/servidor-01", "2026-11-23")
 	if err != nil {
 		t.Fatalf("reanudación: %v", err)
 	}
@@ -148,17 +149,17 @@ func TestFSUploadDestEstructuraBackup(t *testing.T) {
 		t.Fatalf("key reanudada: %q", key2)
 	}
 	data, _ = os.ReadFile(filepath.Join(root, "cliente-a", "backup",
-		"servidor-01", "2026-11-23", "vm", "disk0-seg0000-abc123"))
+		"pve1", "servidor-01", "2026-11-23", "vm", "disk0-seg0000-abc123"))
 	if string(data) != "datos" {
 		t.Fatalf("la reanudación reescribió el segmento: %q", data)
 	}
 
 	// Otro día: carpeta distinta, no colisiona con la anterior.
-	otroDia, err := newFSUploadDest(creds, "vm", "servidor-01", "2026-11-24")
+	otroDia, err := newFSUploadDest(creds, "vm", "pve1/servidor-01", "2026-11-24")
 	if err != nil {
 		t.Fatalf("otro día: %v", err)
 	}
-	if otroDia.Prefix() != "cliente-a/backup/servidor-01/2026-11-24/vm/" {
+	if otroDia.Prefix() != "cliente-a/backup/pve1/servidor-01/2026-11-24/vm/" {
 		t.Fatalf("prefix otro día: %q", otroDia.Prefix())
 	}
 
@@ -186,6 +187,23 @@ func TestSanitizeMachine(t *testing.T) {
 	for in, want := range cases {
 		if got := sanitizeMachine(in); got != want {
 			t.Errorf("sanitizeMachine(%q) = %q; quiero %q", in, got, want)
+		}
+	}
+}
+
+// TestGuestMachine cubre la composición <nodo-proxmox>/<guest> para la
+// estructura de backups de VM y LXC.
+func TestGuestMachine(t *testing.T) {
+	cases := map[[2]string]string{
+		{"pve1", "web-105"}:  "pve1/web-105",
+		{"pve 1", "web 105"}: "pve_1/web_105",
+		{"", "web-105"}:      "web-105",
+		{"pve1", ""}:         "pve1",
+		{"", ""}:             "",
+	}
+	for in, want := range cases {
+		if got := guestMachine(in[0], in[1]); got != want {
+			t.Errorf("guestMachine(%q, %q) = %q; quiero %q", in[0], in[1], got, want)
 		}
 	}
 }

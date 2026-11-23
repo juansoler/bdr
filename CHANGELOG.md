@@ -2,6 +2,23 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.31] — 2026-11-23
+
+### Cambiado
+
+- **Estructura de backups de VM y LXC con nivel de nodo Proxmox** — los
+  objetos se organizan ahora como
+  `backup/<nodo-proxmox>/<vm-o-ct>/<fecha>/<namespace>/` (p. ej.
+  `backup/pve1/web-105/2026-11-23/lxc/ct105-seg0000-abc123`), agrupando por
+  servidor Proxmox y por guest dentro de él. El nodo lo aporta el servidor
+  al despachar el job (inventario de Proxmox); si no viniera, la ruta
+  conserva solo el nivel del guest. Los backups de imagen (máquinas físicas,
+  sin Proxmox) siguen como `backup/<plan>/<fecha>/image/`.
+- La reanudación incremental sigue apuntando exactamente a la carpeta del
+  día del guest; restauración y borrado usan las claves completas del
+  catálogo, por lo que los puntos creados con la estructura anterior
+  siguen restaurándose y borrándose sin cambios.
+
 ## [0.16.30] — 2026-11-23
 
 ### Corregido

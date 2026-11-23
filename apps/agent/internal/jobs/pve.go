@@ -244,11 +244,13 @@ func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCred
 	if name == "" {
 		name = cfg["name"]
 	}
-	// Los objetos se agrupan como backup/<vm>/<fecha>/vm/<segmentos y manifiesto>.
-	machine := sanitizeMachine(name)
-	if machine == "" {
-		machine = fmt.Sprintf("vm%d", payload.VMID)
+	// Los objetos se agrupan como
+	// backup/<nodo-proxmox>/<vm>/<fecha>/vm/<segmentos y manifiesto>.
+	guest := name
+	if guest == "" {
+		guest = fmt.Sprintf("vm%d", payload.VMID)
 	}
+	machine := guestMachine(payload.Node, guest)
 	date := time.Now().UTC().Format(dateFormat)
 	dest, err := newUploadDest(ctx, creds, "vm", machine, date, payload.RetentionDays)
 	if err != nil {

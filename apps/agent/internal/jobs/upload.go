@@ -535,6 +535,23 @@ const backupRoot = "backup"
 // dateFormat es el formato de fecha usado para agrupar backups por día.
 const dateFormat = "2006-01-02"
 
+// guestMachine construye el componente de máquina para un guest de Proxmox
+// como <nodo>/<guest>: el primer nivel identifica el servidor Proxmox donde
+// vive la VM/CT y el segundo el propio guest, dando la estructura
+// backup/<nodo>/<guest>/<fecha>/<namespace>/. Si el payload no trae nodo
+// (o sanitiza a vacío) la ruta queda solo con el guest.
+func guestMachine(node, guest string) string {
+	n, g := sanitizeMachine(node), sanitizeMachine(guest)
+	switch {
+	case n != "" && g != "":
+		return n + "/" + g
+	case g != "":
+		return g
+	default:
+		return n
+	}
+}
+
 // sanitizeMachine normaliza el nombre de la máquina para usarlo como
 // componente de ruta en el destino (S3, ruta física o SMB): sustituye todo
 // lo que no sea letra, dígito, punto, guion o guion bajo por "_", colapsa
