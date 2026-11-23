@@ -40,6 +40,7 @@ var (
 	procSetProcessDPIAware       = user32DLL.NewProc("SetProcessDPIAware")
 	procSendInput                = user32DLL.NewProc("SendInput")
 	procGetCursorPos             = user32DLL.NewProc("GetCursorPos")
+	procMapVirtualKeyW           = user32DLL.NewProc("MapVirtualKeyW")
 	procCreateCompatibleDC       = gdi32DLL.NewProc("CreateCompatibleDC")
 	procCreateDIBSection         = gdi32DLL.NewProc("CreateDIBSection")
 	procSelectObject             = gdi32DLL.NewProc("SelectObject")
@@ -266,6 +267,13 @@ func (c *cursorTracker) poll() ([]byte, bool) {
 	}
 	c.lastX, c.lastY, c.init = pt.X, pt.Y, true
 	return cursorMsg(uint16(pt.X), uint16(pt.Y)), true
+}
+
+// mapVirtualKey convierte VK → scancode (MAPVK_VK_TO_VSC). Los consolas
+// necesitan el scancode real en los eventos de teclado inyectados.
+func mapVirtualKey(vk uint32) uint32 {
+	r, _, _ := procMapVirtualKeyW.Call(uintptr(vk), 0) // MAPVK_VK_TO_VSC
+	return uint32(r)
 }
 
 // bindInteractiveDesktop fija el escritorio interactivo ACTIVO al hilo

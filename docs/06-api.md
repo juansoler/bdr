@@ -391,7 +391,11 @@ servidor solo-TTY) no tiene escritorio que compartir y falla con error claro.
 En Windows, las ediciones **Server Core / Nano Server** se detectan y se
 rechazan con mensaje explícito (sin escritorio gráfico). El usuario debe
 estar logado en la sesión activa (consola o RDP — se elige la sesión WTS
-activa con usuario). Diagnóstico Windows: `%ProgramData%\bdr\screenhelper.log`.
+activa con usuario). El helper usa el token completo del usuario cuando
+existe (control de ventanas elevadas; UIPI impide solo la ventana segura
+de UAC en curso). El portapapeles es bidireccional (cajón «Portapapeles»
+del visor; texto acotado a 400 KB). Diagnóstico Windows:
+`%ProgramData%\bdr\screenhelper.log`.
 
 ---
 

@@ -2,6 +2,34 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.27] — 2026-11-23
+
+### Corregido
+
+- **Windows: el teclado no llegaba a los consolas (cmd/PowerShell elevados)**
+  — las teclas iban por `KEYEVENTF_UNICODE` (VK_PACKET), que los consolas
+  no procesan de forma fiable, y las teclas especiales viajaban con
+  scancode 0. Ahora el teclado es **híbrido**: teclas especiales y ASCII
+  imprimible (letras, dígitos, espacio) se inyectan como **VK real +
+  scancode** (`MapVirtualKeyW`); el resto de caracteres (acentos, símbolos)
+  sigue por UNICODE — independiente del layout. Los consolas reciben el
+  teclado con el mismo camino que el teclado físico.
+
+### Añadido
+
+- **Portapapeles bidireccional con el equipo remoto** (Windows):
+  - Local → equipo: cajón «Portapapeles» en el visor — pegas el texto
+    (Ctrl+V nativo del navegador, funciona incluso por HTTP), botón
+    «→ Enviar al equipo» y Ctrl+V en la app remota lo pega.
+  - Equipo → local: el helper vigila el portapapeles remoto
+    (`GetClipboardSequenceNumber`) y publica el texto al visor cuando
+    cambia; se muestra en el cajón y se intenta copiar al portapapeles
+    local (`navigator.clipboard` si el contexto es seguro; si no, botón
+    «← Copiar» con selección).
+  - Protocolo de tiles: `msgClipboardText` (0x05, equipo→visor) y
+    `msgClipboardSet` (0x14, visor→equipo), texto UTF-8 acotado a 400 KB,
+    sin eco del cambio que produce el propio helper.
+
 ## [0.16.26] — 2026-11-22
 
 ### Corregido

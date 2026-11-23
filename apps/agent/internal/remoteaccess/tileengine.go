@@ -33,12 +33,17 @@ const (
 	// Agente → navegador: posición del cursor remoto (BitBlt no captura el
 	// cursor — la pipeline de vídeo lo dibuja aparte, como MeshCentral con
 	// MNG_KVM_MOUSE_CURSOR). Solo se envía cuando cambia.
-	msgCursor byte = 0x04 // [u16 x][u16 y]
+	msgCursor byte = 0x04
+	// Helper → navegador: texto del portapapeles REMOTO (enviado cuando
+	// cambia; el visor lo muestra para copiarlo al equipo local).
+	msgClipboardText byte = 0x05 // [u32 BE len][utf8…]
 	// Navegador → agente.
 	msgMouse   byte = 0x10 // [u8 acción][u8 botones][u16 x][u16 y]
 	msgKey     byte = 0x11 // [u8 acción][u32 keysym]
 	msgQuality byte = 0x12 // [u8 calidad JPEG][u16 intervalo_ms]
 	msgRefresh byte = 0x13 // sin payload
+	// Navegador → helper: fijar el portapapeles REMOTO (pegar del local).
+	msgClipboardSet byte = 0x14 // [u32 BE len][utf8…]
 
 	// Acciones de ratón.
 	mouseMove byte = 0
@@ -276,6 +281,45 @@ func cursorMsg(x, y uint16) []byte {
 	binary.BigEndian.PutUint16(m[3:5], y)
 	return m
 }
+
+// clipboardTextMsg codifica el texto de portapapeles (helper → visor).
+func clipboardTextMsg(text string) []byte {
+	return clipboardMsg(msgClipboardText, text)
+}
+
+// clipboardSetMsg codifica la orden de fijar el portapapeles remoto.
+func clipboardSetMsg(text string) []byte {
+	return clipboardMsg(msgClipboardSet, text)
+}
+
+// clipboardMsg codifica [tipo][u32 BE len][utf8].
+func clipboardMsg(t byte, text string) []byte {
+	b := []byte(text)
+	if len(b) > maxClipboardBytes {
+		b = b[:maxClipboardBytes]
+	}
+	m := make([]byte, 5+len(b))
+	m[0] = t
+	binary.BigEndian.PutUint32(m[1:5], uint32(len(b)))
+	copy(m[5:], b)
+	return m
+}
+
+// decodeClipboard decodifica el payload de los mensajes de portapapeles.
+func decodeClipboard(payload []byte) (string, bool) {
+	if len(payload) < 4 {
+		return "", false
+	}
+	n := binary.BigEndian.Uint32(payload[:4])
+	if int(n) > len(payload)-4 {
+		return "", false
+	}
+	return string(payload[4 : 4+n]), true
+}
+
+// maxClipboardBytes acota el texto de portapapeles por mensaje (los frames
+// del canal tienen techo de 1 MiB y UTF-16 duplica el tamaño).
+const maxClipboardBytes = 400 << 10
 
 // mouseMsg codifica el mensaje de ratón que el visor envía.
 func mouseMsg(action, buttons byte, x, y uint16) []byte {

@@ -11,10 +11,12 @@ type ScreenStatus = "connecting" | "open" | "error";
 const MSG_SCREEN_INFO = 0x01;
 const MSG_TILE = 0x02;
 const MSG_CURSOR = 0x04;
+const MSG_CLIPBOARD_TEXT = 0x05;
 const MSG_MOUSE = 0x10;
 const MSG_KEY = 0x11;
 const MSG_QUALITY = 0x12;
 const MSG_REFRESH = 0x13;
+const MSG_CLIPBOARD_SET = 0x14;
 
 const DEFAULT_QUALITY = 60;
 const DEFAULT_INTERVAL_MS = 120;
@@ -35,9 +37,14 @@ export function ScreenViewer({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const cursorRef = useRef<HTMLDivElement | null>(null);
+  const remoteRef = useRef<HTMLTextAreaElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const [status, setStatus] = useState<ScreenStatus>("connecting");
   const [errorMsg, setErrorMsg] = useState("");
+  const [showClip, setShowClip] = useState(false);
+  const [localClip, setLocalClip] = useState("");
+  const [remoteClip, setRemoteClip] = useState("");
+  const [clipNote, setClipNote] = useState("");
 
   useEffect(() => {
     const canvasEl = canvasRef.current;
@@ -124,6 +131,10 @@ export function ScreenViewer({
     // Teclado: capturado a nivel de documento mientras el visor está abierto.
     const onKeyDown = (ev: KeyboardEvent) => {
       if (current !== "open") return;
+      // Teclado LOCAL en las cajas del portapapeles: no se inyecta ni se
+      // bloquea (sin esto no se podría escribir en el cajón).
+      const t = ev.target as HTMLElement | null;
+      if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
       const keysym = keysymFromEvent(ev);
       if (keysym === null) return;
       ev.preventDefault();
@@ -131,6 +142,8 @@ export function ScreenViewer({
     };
     const onKeyUp = (ev: KeyboardEvent) => {
       if (current !== "open") return;
+      const t = ev.target as HTMLElement | null;
+      if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
       const keysym = keysymFromEvent(ev);
       if (keysym === null) return;
       ev.preventDefault();
@@ -140,6 +153,21 @@ export function ScreenViewer({
     const onBlur = () => {
       for (const keysym of [...heldKeys]) {
         if (modifierKeysyms.includes(keysym)) sendKey(false, keysym);
+      }
+    };
+
+    // Portapapeles remoto → visor: el agente publica el texto cuando cambia.
+    const onClipboardText = (bytes: Uint8Array) => {
+      const len = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1);
+      const text = new TextDecoder().decode(bytes.slice(5, 5 + len));
+      if (disposed) return;
+      setRemoteClip(text);
+      // Intento de copia directa (solo contextos seguros; si no, queda en
+      // la caja del cajón para copiarla con el botón).
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {
+          /* contexto no seguro o permiso denegado: sin acción */
+        });
       }
     };
 
@@ -277,6 +305,9 @@ export function ScreenViewer({
               }
               break;
             }
+            case MSG_CLIPBOARD_TEXT:
+              onClipboardText(bytes);
+              break;
           }
         };
 
@@ -361,6 +392,43 @@ export function ScreenViewer({
     }
   }, []);
 
+  // Portapapeles local → equipo remoto: el usuario pega en el cajón (el
+  // navegador lo hace nativamente sin API) y lo enviamos al helper, que lo
+  // fija en el portapapeles del equipo; luego Ctrl+V allí pega eso.
+  const sendClipboard = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !localClip) return;
+    const payload = new TextEncoder().encode(localClip.slice(0, 400000));
+    const buf = new Uint8Array(5 + payload.length);
+    const dv = new DataView(buf.buffer);
+    buf[0] = MSG_CLIPBOARD_SET;
+    dv.setUint32(1, payload.length);
+    buf.set(payload, 5);
+    ws.send(buf);
+    setClipNote("Enviado: ya puedes pegarlo en el equipo con Ctrl+V");
+    setTimeout(() => setClipNote(""), 4000);
+  }, [localClip]);
+
+  // Portapapeles del equipo → local. navigator.clipboard solo existe en
+  // contextos seguros (https/localhost); en http queda seleccionado el
+  // texto del cajón para copiarlo a mano.
+  const copyRemote = useCallback(async () => {
+    if (!remoteClip) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(remoteClip);
+        setClipNote("Copiado al portapapeles local");
+      } else {
+        remoteRef.current?.select();
+        document.execCommand("copy");
+        setClipNote("Texto seleccionado: cópialo con Ctrl+C si tu navegador bloquea la copia");
+      }
+    } catch {
+      setClipNote("Tu navegador bloqueó la copia: selecciona el texto a mano");
+    }
+    setTimeout(() => setClipNote(""), 5000);
+  }, [remoteClip]);
+
   return (
     <div className="flex h-full w-full flex-col">
       <div className="flex items-center justify-between border-b border-ink-700 px-3 py-2">
@@ -384,6 +452,14 @@ export function ScreenViewer({
           <Button
             variant="quiet"
             size="sm"
+            onClick={() => setShowClip((v) => !v)}
+            disabled={status !== "open"}
+          >
+            Portapapeles
+          </Button>
+          <Button
+            variant="quiet"
+            size="sm"
             onClick={fullscreen}
             disabled={status !== "open"}
           >
@@ -394,6 +470,45 @@ export function ScreenViewer({
           Solo visible durante la sesión · se cierra al cerrar este visor
         </span>
       </div>
+      {showClip ? (
+        <div className="grid grid-cols-2 gap-3 border-b border-ink-700 bg-ink-900/60 px-3 py-2">
+          <div>
+            <p className="font-mono text-[9px] uppercase tracking-widest2 text-slate-600">
+              Local → equipo (pega aquí y envía)
+            </p>
+            <textarea
+              value={localClip}
+              onChange={(e) => setLocalClip(e.target.value)}
+              rows={2}
+              className="mt-1 w-full resize-none border border-ink-700 bg-ink-950 px-2 py-1 font-mono text-xs text-slate-200"
+              placeholder="Ctrl+V aquí el texto del equipo local"
+            />
+            <Button variant="quiet" size="sm" onClick={sendClipboard} disabled={!localClip}>
+              → Enviar al equipo
+            </Button>
+          </div>
+          <div>
+            <p className="font-mono text-[9px] uppercase tracking-widest2 text-slate-600">
+              Equipo → local (cambia cuando copias allí)
+            </p>
+            <textarea
+              ref={remoteRef}
+              value={remoteClip}
+              onChange={() => undefined}
+              rows={2}
+              readOnly
+              className="mt-1 w-full resize-none border border-ink-700 bg-ink-950 px-2 py-1 font-mono text-xs text-slate-200"
+              placeholder="(sin texto del equipo remoto todavía)"
+            />
+            <Button variant="quiet" size="sm" onClick={copyRemote} disabled={!remoteClip}>
+              ← Copiar al local
+            </Button>
+          </div>
+          {clipNote ? (
+            <p className="col-span-2 font-mono text-[9px] text-signal/80">{clipNote}</p>
+          ) : null}
+        </div>
+      ) : null}
       <div ref={containerRef} className="relative min-h-0 flex-1 w-full bg-[#282a36] overflow-hidden">
         {/* Canvas SIEMPRE montado; se centra y escala manteniendo el aspecto. */}
         <div className="flex h-full w-full items-center justify-center">

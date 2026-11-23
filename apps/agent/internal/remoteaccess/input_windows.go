@@ -196,19 +196,25 @@ func (s *sendInputInjector) Mouse(action, buttons byte, x, y uint16) error {
 	return nil
 }
 
-// Key inyecta una tecla: especiales por VK, imprimibles por UNICODE.
+// Key inyecta una tecla con la vía más compatible según el keysym:
+//   - Teclas especiales (tabla keysymVK) y ASCII imprimible → **VK real +
+//     scancode** (MapVirtualKeyW): los consolas (cmd/PowerShell) requieren
+//     VK/scancode — el path UNICODE (VK_PACKET) no llega a su editor de
+//     línea. El estado de Shift lo lleva el propio flujo de teclas Shift
+//     que el visor inyecta al mantenerla pulsada.
+//   - Resto de caracteres (acentos, símbolos no mapeados) →
+//     KEYEVENTF_UNICODE: independiente del layout del equipo remoto.
 func (s *sendInputInjector) Key(down bool, keysym uint32) error {
-	buf := make([]byte, sizeofInput)
-	buf[0] = inputKeyboard
-	flags := uint32(0)
-	if !down {
-		flags = keyeventfKeyup
-	}
-	if vk, ok := keysymVK[keysym]; ok {
-		binary.LittleEndian.PutUint16(buf[offKiVK:], vk)
-		binary.LittleEndian.PutUint32(buf[offKiFlags:], flags)
+	var vk, scan uint16
+	unicode := false
+	if vk32, ok := keysymVK[keysym]; ok {
+		vk = vk32
+		scan = uint16(mapVirtualKey(uint32(vk)))
+	} else if ks := asciiVK(keysym); ks != 0 {
+		vk = ks
+		scan = uint16(mapVirtualKey(uint32(vk)))
 	} else {
-		// Imprimibles: Latin-1 directo; keysyms unicode (0x01000000+cp).
+		// Unicode: Latin-1 directo; keysyms unicode (0x01000000+cp).
 		ch := keysym
 		if ch >= 0x01000000 {
 			ch -= 0x01000000
@@ -216,12 +222,44 @@ func (s *sendInputInjector) Key(down bool, keysym uint32) error {
 		if ch < 0x20 || ch > 0xFFFF {
 			return nil // keysym desconocido fuera de rango: ignorar
 		}
-		binary.LittleEndian.PutUint16(buf[offKiScan:], uint16(ch))
+		unicode = true
+		scan = uint16(ch)
+	}
+
+	buf := make([]byte, sizeofInput)
+	buf[0] = inputKeyboard
+	flags := uint32(0)
+	if !down {
+		flags = keyeventfKeyup
+	}
+	if unicode {
+		binary.LittleEndian.PutUint16(buf[offKiScan:], scan)
 		binary.LittleEndian.PutUint32(buf[offKiFlags:], flags|keyeventfUnicode)
+	} else {
+		binary.LittleEndian.PutUint16(buf[offKiVK:], vk)
+		binary.LittleEndian.PutUint16(buf[offKiScan:], scan)
+		binary.LittleEndian.PutUint32(buf[offKiFlags:], flags)
 	}
 	what := "key-down"
 	if !down {
 		what = "key-up"
 	}
 	return s.sendOne(buf, what)
+}
+
+// asciiVK mapea keysyms ASCII imprimibles a Virtual Keys (mayúsculas y
+// minúsculas comparten VK; el estado de Shift va en el flujo de teclas).
+// 0 = sin VK directo (usar la vía UNICODE).
+func asciiVK(ks uint32) uint16 {
+	switch {
+	case ks >= 'a' && ks <= 'z':
+		return uint16(ks - 'a' + 'A') // VK_A..VK_Z
+	case ks >= 'A' && ks <= 'Z':
+		return uint16(ks)
+	case ks >= '0' && ks <= '9':
+		return uint16(ks)
+	case ks == 0x20:
+		return 0x20 // VK_SPACE
+	}
+	return 0
 }

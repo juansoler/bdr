@@ -159,7 +159,7 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 				continue
 			}
 			switch msg[0] {
-			case msgMouse, msgKey:
+			case msgMouse, msgKey, msgClipboardSet:
 				select {
 				case inputCh <- msg:
 				default:
@@ -177,6 +177,9 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 	}()
 
 	src := &inputDrainSource{inner: source, ch: inputCh, inj: inj}
+	clip := &clipboardTracker{logf: func(format string, args ...any) {
+		logLine(logFile, format, args...)
+	}}
 
 	// Posición del cursor remoto: BitBlt no captura el cursor (lo dibuja la
 	// pipeline de vídeo) — sin esto, el operador no ve dónde apunta. Se
@@ -198,7 +201,15 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 		return time.Duration(intervalMs.Load()) * time.Millisecond
 	}, emitFn, func() error {
 		if msg, changed := cursor.poll(); changed {
-			return emitFn(msg)
+			if err := emitFn(msg); err != nil {
+				return err
+			}
+		}
+		// Portapapeles remoto → visor (solo cuando cambia).
+		if text, changed := clip.readNew(); changed && text != "" {
+			if err := emitFn(clipboardTextMsg(text)); err != nil {
+				return err
+			}
 		}
 		return nil
 	}, stop)
@@ -213,10 +224,12 @@ func RunScreenHelper(stdin io.Reader, stdout io.Writer) (err error) {
 // inputDrainSource envuelve el TileSource de captura: drena la entrada del
 // visor ANTES de cada frame. Así la inyección (SendInput) corre en el MISMO
 // hilo bloqueado que la captura (GDI) — mismo escritorio, mismo binding.
+// También atiende msgClipboardSet (fijar el portapapeles remoto).
 type inputDrainSource struct {
 	inner TileSource
 	ch    chan []byte
 	inj   *sendInputInjector
+	clip  *clipboardTracker
 }
 
 // Frame drena la entrada pendiente y captura un frame.
@@ -232,6 +245,14 @@ func (s *inputDrainSource) Frame() ([]byte, int, int, error) {
 			case msgKey:
 				if ev, ok := decodeKey(msg[1:]); ok {
 					_ = s.inj.Key(ev.Down, ev.Keysym)
+				}
+			case msgClipboardSet:
+				if text, ok := decodeClipboard(msg[1:]); ok {
+					if err := s.clip.set(text); err != nil {
+						if s.inj.logf != nil {
+							s.inj.logf("portapapeles remoto: %v", err)
+						}
+					}
 				}
 			}
 			continue
