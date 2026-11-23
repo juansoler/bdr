@@ -67,3 +67,28 @@ func TestS3KeyName(t *testing.T) {
 		t.Fatalf("s3KeyName sin barra = %q", got)
 	}
 }
+
+// La firma de rechazo del PUT único en Hetzner/Ceph es 400 InvalidRequest
+// (con o sin mensaje): dispara el fallback a multipart.
+func TestEsInvalidRequest(t *testing.T) {
+	si := []error{
+		minio.ErrorResponse{Code: "InvalidRequest", StatusCode: 400},
+		minio.ErrorResponse{Code: "InvalidRequest", Message: "", RequestID: "tx1", StatusCode: 400},
+		fmt.Errorf("%w (HTTP 400)", minio.ErrorResponse{Code: "InvalidRequest", StatusCode: 400}),
+	}
+	for i, err := range si {
+		if !esInvalidRequest(err) {
+			t.Errorf("caso %d: esInvalidRequest = false; quiero true", i)
+		}
+	}
+	no := []error{
+		nil,
+		minio.ErrorResponse{Code: "InvalidArgument", Message: "mal", StatusCode: 400},
+		minio.ErrorResponse{Code: "InternalError", StatusCode: 500},
+	}
+	for i, err := range no {
+		if esInvalidRequest(err) {
+			t.Errorf("caso no-%d: esInvalidRequest = true; quiero false", i)
+		}
+	}
+}

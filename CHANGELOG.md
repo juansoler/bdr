@@ -2,6 +2,19 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.46] — 2026-11-23
+
+### Corregido
+
+- **Hetzner Object Storage rechaza los PUT directos grandes**: con el PUT
+  único de 0.16.45 el primer segmento de 64 MiB fallaba al instante con
+  `400 InvalidRequest`, mientras el backend sí había aceptado partes
+  multipart de 16 MiB. Los segmentos pasan a **16 MiB** (cada uno en un PUT
+  único) y, si el backend rechaza el PUT único de un objeto, la subida cae
+  automáticamente a **multipart con partes de 8 MiB** para el resto del
+  backup.
+- Aplica a backups LXC, VM e imagen completa (misma tubería de segmentos).
+
 ## [0.16.45] — 2026-11-23
 
 ### Corregido

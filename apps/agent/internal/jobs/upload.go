@@ -234,7 +234,17 @@ type s3UploadDest struct {
 	// newClient crea un cliente S3 nuevo (misma configuración): los
 	// reintentos lo usan para descartar conexiones keep-alive envenenadas.
 	newClient func() (*minio.Client, error)
+	// preferMultipart se activa cuando el backend rechaza el PUT único
+	// (Hetzner/Ceph devuelve 400 InvalidRequest): a partir de ahí todos los
+	// objetos del backup van por multipart con partes de 8 MiB. Las subidas
+	// son secuenciales, así que no necesita sincronización.
+	preferMultipart bool
 }
+
+// multipartPartSize es el tamaño de parte cuando hay que usar multipart:
+// 8 MiB está por debajo de cualquier límite de PUT observado en los
+// backends Ceph de proveedor.
+const multipartPartSize = 8 << 20
 
 func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string,
 	machine, date string, retentionDays int) (*s3UploadDest, error) {
@@ -284,12 +294,9 @@ func listKeys(ctx context.Context, mc *minio.Client, bucket, prefix string) (map
 
 func (u *s3UploadDest) Prefix() string { return u.prefix }
 
-// putOpts aplica Object Lock GOVERNANCE si el destino lo pide y fuerza un
-// PUT único (sin multipart). Hetzner Object Storage/Ceph RGW rechaza de
-// forma determinista el ciclo multipart a partir de ~1,3 GB de un backup
-// (400 InvalidRequest con mensaje vacío, incluso con cliente y conexión
-// nuevos), mientras los mismos bytes en un PUT único pasan sin problema:
-// cada segmento son 64 MiB, muy por debajo del límite de 5 GiB por PUT.
+// putOpts aplica Object Lock GOVERNANCE si el destino lo pide y parte de
+// un PUT único (sin multipart). putObjectMode ajusta DisableMultipart y
+// PartSize según el camino elegido.
 func (u *s3UploadDest) putOpts(now time.Time) minio.PutObjectOptions {
 	opts := minio.PutObjectOptions{DisableMultipart: true}
 	if u.retain {
@@ -332,7 +339,30 @@ func esRetryableS3(err error) bool {
 // CLIENTE S3 NUEVO: una conexión keep-alive envenenada (NAT, proxy o front
 // sobrecargado) falla siempre con el mismo 400, y reintentar sobre la misma
 // conexión hereda el fallo.
+//
+// El primer intento es un PUT único (sin multipart): es más simple y evita
+// el ciclo multipart de Ceph RGW, que en Hetzner Object Storage rechaza de
+// forma determinista con 400 InvalidRequest a mitad de un backup. Si el
+// backend rechaza el PUT único, se pasa a multipart (partes de 8 MiB) para
+// el resto del backup: 400 InvalidRequest sin mensaje es la firma de que el
+// objeto no entra por el camino directo.
 func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, now time.Time) error {
+	if !u.preferMultipart {
+		err := u.putObjectMode(ctx, key, data, now, false)
+		if err == nil {
+			return nil
+		}
+		if !esInvalidRequest(err) {
+			return err
+		}
+		u.preferMultipart = true
+	}
+	return u.putObjectMode(ctx, key, data, now, true)
+}
+
+// putObjectMode ejecuta el PUT con reintentos. Con multipart=true usa el
+// camino multipart con partes pequeñas; con multipart=false un PUT único.
+func (u *s3UploadDest) putObjectMode(ctx context.Context, key string, data []byte, now time.Time, multipart bool) error {
 	var lastErr error
 	for intento := 0; intento < 4; intento++ {
 		if intento > 0 {
@@ -347,8 +377,13 @@ func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, n
 			case <-time.After(time.Duration(intento) * 3 * time.Second):
 			}
 		}
+		opts := u.putOpts(now)
+		opts.DisableMultipart = !multipart
+		if multipart {
+			opts.PartSize = multipartPartSize
+		}
 		_, err := u.mc.PutObject(ctx, u.bucket, key, bytes.NewReader(data),
-			int64(len(data)), u.putOpts(now))
+			int64(len(data)), opts)
 		if err == nil {
 			return nil
 		}
@@ -358,6 +393,16 @@ func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, n
 		lastErr = err
 	}
 	return fmt.Errorf("%s (%s): %w", s3KeyName(key), humanBytes(int64(len(data))), s3ErrDetail(lastErr))
+}
+
+// esInvalidRequest indica si el error es un 400 InvalidRequest del backend
+// (con o sin mensaje): el PUT único no es aceptado por este destino.
+func esInvalidRequest(err error) bool {
+	var resp minio.ErrorResponse
+	if !errors.As(err, &resp) {
+		return false
+	}
+	return resp.StatusCode == 400 && resp.Code == "InvalidRequest"
 }
 
 // s3KeyName devuelve el nombre final de una clave (sin el prefijo), para

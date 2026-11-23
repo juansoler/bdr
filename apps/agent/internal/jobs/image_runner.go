@@ -28,8 +28,11 @@ import (
 )
 
 // imageSegmentSize es el tamaño de segmento para capturas de disco. Es
-// variable para que los tests puedan encogerlo; en producción vale 64 MiB.
-var imageSegmentSize = int64(64 << 20)
+// variable para que los tests puedan encogerlo. En producción vale 16 MiB:
+// Hetzner Object Storage rechaza con 400 InvalidRequest los PUT directos
+// grandes (64 MiB falla al instante) aunque acepte partes multipart de
+// 16 MiB; con segmentos de 16 MiB cada segmento va en un único PUT.
+var imageSegmentSize = int64(16 << 20)
 
 // captureRunSize es el tamaño de run dentro de un segmento disperso: los
 // trozos no nulos se suben con este tamaño en lugar de arrastrar el

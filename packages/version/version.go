@@ -5,4 +5,4 @@
 package version
 
 // Version es la versión del servidor y del agente.
-var Version = "0.16.45"
+var Version = "0.16.46"
