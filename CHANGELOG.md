@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.44] — 2026-11-23
+
+### Corregido
+
+- **El instalador Linux endurecido no dejaba escritura para el auto-update** —
+  el unit del servicio (`ProtectSystem=strict` + `ReadWritePaths=/var/lib/bdr`)
+  ponía en solo lectura del namespace de systemd los directorios donde el
+  auto-updater opera (`/tmp` y, con el fix de la v0.16.37, el propio
+  `/opt/bdr/bin`). El unit del instalador ahora permite escritura en
+  `/opt/bdr` además del directorio de datos (`ReadWritePaths=/var/lib/bdr
+  /opt/bdr`).
+- **La colocación de agentes del auto-update fallaba con permission denied** —
+  el destino (`/opt/bdr/agents/<binario>`) podía existir con un dueño previo
+  ajeno al usuario del servicio (p. ej. ficheros root de una instalación
+  previa); truncar un fichero existente exige permiso de escritura sobre el
+  propio fichero y falla, así que ahora se elimina el destino antes de escribir
+  el binario nuevo.
+
 ## [0.16.43] — 2026-11-23
 
 ### Corregido

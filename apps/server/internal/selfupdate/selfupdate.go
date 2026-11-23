@@ -333,6 +333,14 @@ func Apply(ctx context.Context, client *http.Client, manifest *Manifest, exePath
 				name += ".exe"
 			}
 			dst := filepath.Join(agentsDir, name)
+			// El destino puede existir con un dueño previo ajeno al usuario del
+			// servicio (p. ej. ficheros root de una instalación previa): truncar
+			// un fichero existente exige permiso de escritura sobre el propio
+			// fichero y falla con permission denied, así que se elimina antes de
+			// escribir el binario nuevo.
+			if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+				return "", fmt.Errorf("colocación del agente %s: %w", name, err)
+			}
 			if err := copyFile(src, dst); err != nil {
 				return "", fmt.Errorf("colocación del agente %s: %w", name, err)
 			}
