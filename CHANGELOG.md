@@ -2,6 +2,16 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.36] — 2026-11-23
+
+### Corregido
+
+- **El staging de backups LXC fallaba en la primera ejecución** —
+  `E_LXC_BACKUP: crear el archivo local de staging: … no such file or
+  directory`: el directorio `DataDir/lxc-staging/` no se creaba antes de
+  escribir el temporal. Ahora se crea antes de generar el archivo (y con
+  test de regresión que cubre el fallo de arranque de vzdump).
+
 ## [0.16.35] — 2026-11-23
 
 ### Añadido

@@ -224,6 +224,12 @@ func (r *VMRunner) cleanStaleStaging() {
 // de archivo es error (nunca se renombra un archivo truncado).
 func (r *VMRunner) buildLXCStaging(ctx context.Context, vmid int, stagingPath string,
 	estimated int64, progress func(percent int, msg string, bytesDone int64)) (string, error) {
+	// El directorio de staging puede no existir (primera ejecución tras
+	// instalar o actualizar el agente).
+	if err := os.MkdirAll(filepath.Dir(stagingPath), 0o700); err != nil {
+		return "", &CodeError{Code: "E_LXC_BACKUP",
+			Message: "crear el directorio de staging: " + err.Error()}
+	}
 	tmpPath := stagingPath + ".bdr-tmp"
 	var lastErr error
 	for _, mode := range []string{"snapshot", "stop"} {

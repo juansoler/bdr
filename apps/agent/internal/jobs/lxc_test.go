@@ -226,3 +226,18 @@ func TestRestoreLXCSegmentOrder(t *testing.T) {
 	}
 	_ = time.Now()
 }
+
+// TestBuildLXCStagingCreaDirectorio: el directorio de staging se crea antes
+// de escribir el temporal, incluso si vzdump falla después (regresión:
+// "no such file or directory" en la primera ejecución tras actualizar).
+func TestBuildLXCStagingCreaDirectorio(t *testing.T) {
+	r := &VMRunner{DataDir: t.TempDir()}
+	staging := filepath.Join(r.DataDir, "lxc-staging", "ct104-4aae31fb-2026-11-23.zst")
+	if _, err := r.buildLXCStaging(context.Background(), 104, staging, 0,
+		func(int, string, int64) {}); err == nil {
+		t.Skip("vzdump está disponible en esta máquina; no se cubre el fallo de arranque")
+	}
+	if fi, ierr := os.Stat(filepath.Dir(staging)); ierr != nil || !fi.IsDir() {
+		t.Fatalf("el directorio de staging no se creó: %v", ierr)
+	}
+}
