@@ -12,10 +12,13 @@ import (
 	"io"
 	"io/fs"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/juansoler/bdr/packages/contracts"
@@ -234,17 +237,136 @@ type s3UploadDest struct {
 	// newClient crea un cliente S3 nuevo (misma configuración): los
 	// reintentos lo usan para descartar conexiones keep-alive envenenadas.
 	newClient func() (*minio.Client, error)
-	// preferMultipart se activa cuando el backend rechaza el PUT único
-	// (Hetzner/Ceph devuelve 400 InvalidRequest): a partir de ahí todos los
-	// objetos del backup van por multipart con partes de 8 MiB. Las subidas
-	// son secuenciales, así que no necesita sincronización.
-	preferMultipart bool
+	// rec guarda el último error HTTP del backend para incluirlo en el
+	// mensaje del panel.
+	rec *s3Recorder
+	// uploadMode recuerda el camino que acepta este destino para objetos
+	// grandes y se escala cuando el backend rechaza uno con 400
+	// InvalidRequest (Hetzner/Ceph rechaza el PUT simple). Los objetos
+	// pequeños (manifiestos) no heredan el modo: prueban desde el principio.
+	// Las subidas son secuenciales, así que no necesita sincronización.
+	uploadMode int
 }
 
-// multipartPartSize es el tamaño de parte cuando hay que usar multipart:
-// 8 MiB está por debajo de cualquier límite de PUT observado en los
-// backends Ceph de proveedor.
+// Modos de subida, de más simple a más compatible. El destino arranca en
+// s3ModeSingle y escala al que funcione.
+const (
+	s3ModeSingle    = iota // PUT único con firma SigV4 del payload
+	s3ModeUnsigned         // PUT único con UNSIGNED-PAYLOAD (sin aws-chunked)
+	s3ModeMD5              // PUT único con Content-MD5 (algunos Ceph lo exigen)
+	s3ModeMultipart        // multipart manual (1 parte para objetos pequeños)
+)
+
+// s3ModeNames son los nombres de los modos para los mensajes de error.
+var s3ModeNames = [...]string{"put", "put-sin-firma", "put-md5", "multipart"}
+
+// s3RetryDelay es la espera base entre reintentos de subida (crece con el
+// intento). Variable para que los tests no esperen.
+var s3RetryDelay = 3 * time.Second
+
+// multipartPartSize es el tamaño de parte del multipart manual: 8 MiB está
+// por debajo de cualquier límite de PUT observado en los backends Ceph de
+// proveedor.
 const multipartPartSize = 8 << 20
+
+// s3Recorder guarda el último error HTTP del backend. Ceph RGW (Hetzner
+// Object Storage) devuelve 400 InvalidRequest con Message vacío y sin pistas;
+// el cuerpo XML de la respuesta, el tamaño de la petición y los headers que
+// envió el cliente son lo único que permite saber por qué rechaza.
+type s3Recorder struct {
+	mu     sync.Mutex
+	detail string
+}
+
+func (r *s3Recorder) reset() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.detail = ""
+	r.mu.Unlock()
+}
+
+func (r *s3Recorder) set(s string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.detail = s
+	r.mu.Unlock()
+}
+
+func (r *s3Recorder) get() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.detail
+}
+
+// s3RecordTransport anota las peticiones que el backend rechaza (4xx/5xx).
+type s3RecordTransport struct {
+	base     http.RoundTripper
+	recorder *s3Recorder
+}
+
+// s3DumpHeaders son los headers que explican un rechazo de PUT en Ceph RGW.
+var s3DumpHeaders = []string{
+	"Content-Type", "Content-MD5", "x-amz-content-sha256", "x-amz-sdk-checksum-algorithm",
+	"x-amz-checksum-crc32", "x-amz-checksum-crc32c", "x-amz-checksum-sha256",
+	"x-amz-object-lock-mode", "x-amz-object-lock-retain-until-date", "x-amz-trailer",
+	"Transfer-Encoding", "Expect",
+}
+
+func (t *s3RecordTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil || resp == nil || resp.StatusCode < 400 {
+		return resp, err
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<10))
+	_ = resp.Body.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s → %d", req.Method, s3SafeURI(req.URL), resp.StatusCode)
+	if req.ContentLength > 0 {
+		fmt.Fprintf(&b, "; Content-Length=%d", req.ContentLength)
+	}
+	for _, h := range s3DumpHeaders {
+		if v := req.Header.Get(h); v != "" {
+			fmt.Fprintf(&b, "; %s=%s", h, v)
+		}
+	}
+	if id := resp.Header.Get("x-amz-request-id"); id != "" {
+		fmt.Fprintf(&b, "; request-id=%s", id)
+	}
+	if msg := strings.TrimSpace(strings.Join(strings.Fields(string(body)), " ")); msg != "" {
+		if r := []rune(msg); len(r) > 400 {
+			msg = string(r[:400]) + "…"
+		}
+		fmt.Fprintf(&b, "; respuesta=%s", msg)
+	}
+	t.recorder.set(b.String())
+	return resp, nil
+}
+
+// s3SafeURI devuelve path?query sin los parámetros de firma (el Authorization
+// nunca se registra).
+func s3SafeURI(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	q := u.Query()
+	for k := range q {
+		if strings.HasPrefix(k, "X-Amz-") {
+			q.Del(k)
+		}
+	}
+	c := url.URL{Path: u.Path, RawQuery: q.Encode()}
+	return c.RequestURI()
+}
+
 
 func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string,
 	machine, date string, retentionDays int) (*s3UploadDest, error) {
@@ -256,12 +378,18 @@ func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials
 	if region == "" {
 		region = contracts.DetectS3Region(creds.Endpoint)
 	}
+	rec := &s3Recorder{}
 	clientFactory := func() (*minio.Client, error) {
+		base, terr := minio.DefaultTransport(!creds.NoTLS)
+		if terr != nil {
+			return nil, terr
+		}
 		return minio.New(creds.Endpoint, &minio.Options{
 			Creds:        credentials.NewStaticV4(creds.AccessKey, creds.SecretKey, ""),
 			Secure:       !creds.NoTLS,
 			Region:       region,
 			BucketLookup: minio.BucketLookupPath,
+			Transport:    &s3RecordTransport{base: base, recorder: rec},
 		})
 	}
 	mc, err := clientFactory()
@@ -276,7 +404,7 @@ func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials
 	return &s3UploadDest{
 		mc: mc, bucket: creds.Bucket, prefix: prefix,
 		retain: retentionDays > 0, retainDays: retentionDays, existing: existing,
-		newClient: clientFactory,
+		newClient: clientFactory, rec: rec,
 	}, nil
 }
 
@@ -295,8 +423,8 @@ func listKeys(ctx context.Context, mc *minio.Client, bucket, prefix string) (map
 func (u *s3UploadDest) Prefix() string { return u.prefix }
 
 // putOpts aplica Object Lock GOVERNANCE si el destino lo pide y parte de
-// un PUT único (sin multipart). putObjectMode ajusta DisableMultipart y
-// PartSize según el camino elegido.
+// un PUT único (sin multipart). putOnce ajusta DisableMultipart, PartSize y
+// los checksums según el camino elegido.
 func (u *s3UploadDest) putOpts(now time.Time) minio.PutObjectOptions {
 	opts := minio.PutObjectOptions{DisableMultipart: true}
 	if u.retain {
@@ -333,36 +461,58 @@ func esRetryableS3(err error) bool {
 	return false
 }
 
-// putObject sube un objeto al destino S3 con reintentos y espera creciente:
-// el PUT es idempotente (clave y contenido fijos), así que reintentar no
-// puede dejar objetos duplicados ni corruptos. Cada reintento usa un
-// CLIENTE S3 NUEVO: una conexión keep-alive envenenada (NAT, proxy o front
-// sobrecargado) falla siempre con el mismo 400, y reintentar sobre la misma
-// conexión hereda el fallo.
+// putObject sube un objeto al destino S3 y escala de estrategia cuando el
+// backend la rechaza con 400 InvalidRequest. Hetzner Object Storage (Ceph
+// RGW) rechaza el PUT simple —también para objetos pequeños: el manifiesto de
+// un backup no entraba— mientras el ciclo multipart sí funciona. El orden es:
+// PUT único firmado → PUT con UNSIGNED-PAYLOAD → PUT con Content-MD5 →
+// multipart manual (una sola parte para objetos pequeños, que minio-go no
+// enviaría por multipart por sí solo).
 //
-// El primer intento es un PUT único (sin multipart): es más simple y evita
-// el ciclo multipart de Ceph RGW, que en Hetzner Object Storage rechaza de
-// forma determinista con 400 InvalidRequest a mitad de un backup. Si el
-// backend rechaza el PUT único, se pasa a multipart (partes de 8 MiB) para
-// el resto del backup: 400 InvalidRequest sin mensaje es la firma de que el
-// objeto no entra por el camino directo.
+// Los objetos grandes repiten el modo que ya funcionó para el backup (evita
+// un rechazo por segmento). Los pequeños (≤ 8 MiB, los manifiestos) prueban
+// desde el primero: el modo que necesita un segmento grande no tiene por qué
+// ser el que acepta un manifiesto, y un rechazo de un objeto diminuto no
+// cuesta transferencia.
 func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, now time.Time) error {
-	if !u.preferMultipart {
-		err := u.putObjectMode(ctx, key, data, now, false)
+	start := u.uploadMode
+	if len(data) <= int(multipartPartSize) {
+		start = s3ModeSingle
+	}
+	var intentos []string
+	for mode := start; mode <= s3ModeMultipart; mode++ {
+		err := u.putObjectRetries(ctx, key, data, now, mode)
 		if err == nil {
+			if len(data) > int(multipartPartSize) {
+				u.uploadMode = mode
+			}
 			return nil
 		}
 		if !esInvalidRequest(err) {
-			return err
+			return u.uploadErr(key, data, s3ErrDetail(err))
 		}
-		u.preferMultipart = true
+		intentos = append(intentos, s3ModeNames[mode]+": "+s3ErrDetail(err))
 	}
-	return u.putObjectMode(ctx, key, data, now, true)
+	return u.uploadErr(key, data, strings.Join(intentos, " | "))
 }
 
-// putObjectMode ejecuta el PUT con reintentos. Con multipart=true usa el
-// camino multipart con partes pequeñas; con multipart=false un PUT único.
-func (u *s3UploadDest) putObjectMode(ctx context.Context, key string, data []byte, now time.Time, multipart bool) error {
+// uploadErr compone el mensaje de error de una subida: objeto, tamaño, qué
+// caminos fallaron y la última respuesta del backend (cuerpo XML incluido).
+func (u *s3UploadDest) uploadErr(key string, data []byte, causa string) error {
+	detalle := ""
+	if d := u.rec.get(); d != "" {
+		detalle = " [" + d + "]"
+	}
+	return fmt.Errorf("%s (%s): %s%s", s3KeyName(key), humanBytes(int64(len(data))), causa, detalle)
+}
+
+// putObjectRetries ejecuta la subida en el modo indicado con reintentos y
+// espera creciente: el PUT es idempotente (clave y contenido fijos), así que
+// reintentar no puede dejar objetos duplicados ni corruptos. Cada reintento
+// usa un CLIENTE S3 NUEVO: una conexión keep-alive envenenada (NAT, proxy o
+// front sobrecargado) falla siempre con el mismo 400, y reintentar sobre la
+// misma conexión hereda el fallo.
+func (u *s3UploadDest) putObjectRetries(ctx context.Context, key string, data []byte, now time.Time, mode int) error {
 	var lastErr error
 	for intento := 0; intento < 4; intento++ {
 		if intento > 0 {
@@ -374,25 +524,89 @@ func (u *s3UploadDest) putObjectMode(ctx context.Context, key string, data []byt
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(time.Duration(intento) * 3 * time.Second):
+			case <-time.After(time.Duration(intento) * s3RetryDelay):
 			}
 		}
-		opts := u.putOpts(now)
-		opts.DisableMultipart = !multipart
-		if multipart {
-			opts.PartSize = multipartPartSize
-		}
-		_, err := u.mc.PutObject(ctx, u.bucket, key, bytes.NewReader(data),
-			int64(len(data)), opts)
+		u.rec.reset()
+		err := u.putOnce(ctx, key, data, now, mode)
 		if err == nil {
 			return nil
 		}
 		if !esRetryableS3(err) {
-			return fmt.Errorf("%s (%s): %w", s3KeyName(key), humanBytes(int64(len(data))), s3ErrDetail(err))
+			return err
 		}
 		lastErr = err
 	}
-	return fmt.Errorf("%s (%s): %w", s3KeyName(key), humanBytes(int64(len(data))), s3ErrDetail(lastErr))
+	return lastErr
+}
+
+// putOnce hace una sola subida en el modo indicado.
+func (u *s3UploadDest) putOnce(ctx context.Context, key string, data []byte, now time.Time, mode int) error {
+	opts := u.putOpts(now)
+	switch mode {
+	case s3ModeUnsigned:
+		opts.DisableMultipart = true
+		opts.DisableContentSha256 = true
+	case s3ModeMD5:
+		opts.DisableMultipart = true
+		opts.SendContentMd5 = true
+	case s3ModeMultipart:
+		return u.putMultipartOnce(ctx, key, data, now, opts)
+	default:
+		opts.DisableMultipart = true
+	}
+	_, err := u.mc.PutObject(ctx, u.bucket, key, bytes.NewReader(data),
+		int64(len(data)), opts)
+	return err
+}
+
+// putMultipartOnce sube el objeto con el ciclo multipart manual
+// (initiate → partes de 8 MiB → complete). Los objetos pequeños van como una
+// única parte: es válido mientras solo la última parte pueda ser menor de
+// 5 MiB, y evita el PUT simple que los backends Ceph de Hetzner rechazan.
+func (u *s3UploadDest) putMultipartOnce(ctx context.Context, key string, data []byte, now time.Time, opts minio.PutObjectOptions) error {
+	core := minio.Core{Client: u.mc}
+	uploadID, err := core.NewMultipartUpload(ctx, u.bucket, key, opts)
+	if err != nil {
+		return err
+	}
+	done := false
+	defer func() {
+		if !done {
+			_ = core.AbortMultipartUpload(context.WithoutCancel(ctx), u.bucket, key, uploadID)
+		}
+	}()
+
+	partSize := int(multipartPartSize)
+	var parts []minio.CompletePart
+	partNumber := 1
+	for off := 0; ; {
+		end := off + partSize
+		if end > len(data) {
+			end = len(data)
+		}
+		chunk := data[off:end]
+		part, perr := core.PutObjectPart(ctx, u.bucket, key, uploadID, partNumber,
+			bytes.NewReader(chunk), int64(len(chunk)), minio.PutObjectPartOptions{})
+		if perr != nil {
+			return perr
+		}
+		parts = append(parts, minio.CompletePart{PartNumber: partNumber, ETag: part.ETag})
+		partNumber++
+		if end >= len(data) {
+			break
+		}
+		off = end
+	}
+	// Un objeto vacío no puede ir multipart: no hay parte que subir.
+	if len(parts) == 0 {
+		return fmt.Errorf("objeto vacío no admite multipart")
+	}
+	if _, cerr := core.CompleteMultipartUpload(ctx, u.bucket, key, uploadID, parts, opts); cerr != nil {
+		return cerr
+	}
+	done = true
+	return nil
 }
 
 // esInvalidRequest indica si el error es un 400 InvalidRequest del backend
@@ -414,18 +628,22 @@ func s3KeyName(key string) string {
 	return key
 }
 
-// s3ErrDetail añade al error los detalles del ErrorResponse del backend
-// (código HTTP, mensaje, RequestID/HostID) para poder diagnosticar fallos
-// de S3 compatibles que devuelven mensajes vacíos.
-func s3ErrDetail(err error) error {
+// s3ErrDetail describe un error de S3 con el código HTTP, mensaje y
+// RequestID/HostID del backend, para diagnosticar fallos de implementaciones
+// compatibles que devuelven mensajes vacíos.
+func s3ErrDetail(err error) string {
 	if err == nil {
-		return err
+		return ""
 	}
 	var resp minio.ErrorResponse
 	if !errors.As(err, &resp) {
-		return err
+		return err.Error()
 	}
-	return fmt.Errorf("%w (HTTP %d, código %s, mensaje %q, request %q, host %q)",
+	if resp.Message == "" {
+		return fmt.Sprintf("HTTP %d, código %s, mensaje vacío, request %q, host %q",
+			resp.StatusCode, resp.Code, resp.RequestID, resp.HostID)
+	}
+	return fmt.Sprintf("%v (HTTP %d, código %s, mensaje %q, request %q, host %q)",
 		err, resp.StatusCode, resp.Code, resp.Message, resp.RequestID, resp.HostID)
 }
 

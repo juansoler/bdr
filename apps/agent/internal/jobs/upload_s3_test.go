@@ -5,12 +5,19 @@
 package jobs
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/juansoler/bdr/packages/contracts"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -89,6 +96,199 @@ func TestEsInvalidRequest(t *testing.T) {
 	for i, err := range no {
 		if esInvalidRequest(err) {
 			t.Errorf("caso no-%d: esInvalidRequest = true; quiero false", i)
+		}
+	}
+}
+
+// El transporte de diagnóstico guarda la respuesta del backend (cuerpo XML
+// incluido) y los headers relevantes, sin la firma.
+func TestS3RecordTransport(t *testing.T) {
+	rec := &s3Recorder{}
+	tr := &s3RecordTransport{
+		recorder: rec,
+		base: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 400,
+				Header:     http.Header{"X-Amz-Request-Id": {"tx1"}},
+				Body: io.NopCloser(strings.NewReader(
+					`<Error><Code>InvalidRequest</Code><Message></Message></Error>`)),
+			}, nil
+		}),
+	}
+	req, err := http.NewRequest(http.MethodPut,
+		"https://hel1.your-objectstorage.com/b/backup/manifest.json?X-Amz-Signature=secreto", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Amz-Object-Lock-Mode", "GOVERNANCE")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AK/secreto")
+	req.ContentLength = 2048
+
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := io.ReadAll(resp.Body); len(b) == 0 {
+		t.Fatal("el cuerpo de la respuesta debe seguir disponible para el SDK")
+	}
+	got := rec.get()
+	for _, quiero := range []string{"→ 400", "Content-Length=2048", "GOVERNANCE", "InvalidRequest", "request-id=tx1", "/b/backup/manifest.json"} {
+		if !strings.Contains(got, quiero) {
+			t.Errorf("detalle sin %q: %s", quiero, got)
+		}
+	}
+	for _, prohibido := range []string{"secreto", "Authorization", "X-Amz-Signature"} {
+		if strings.Contains(got, prohibido) {
+			t.Errorf("detalle filtra %q: %s", prohibido, got)
+		}
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// fakeS3 rechaza todo PUT simple con 400 InvalidRequest y acepta el ciclo
+// multipart: el comportamiento observado en Hetzner Object Storage con los
+// manifiestos.
+type fakeS3 struct {
+	mu       sync.Mutex
+	simples  int
+	inicios  int
+	completa int
+}
+
+func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	switch {
+	case r.Method == http.MethodPut && q.Get("partNumber") != "":
+		w.Header().Set("ETag", `"e1"`)
+		w.WriteHeader(http.StatusOK)
+	case r.Method == http.MethodPut:
+		f.mu.Lock()
+		f.simples++
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidRequest</Code><Message></Message><RequestId>tx-test</RequestId><HostId>host</HostId></Error>`)
+	case r.Method == http.MethodPost && q.Has("uploads"):
+		f.mu.Lock()
+		f.inicios++
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = io.WriteString(w, `<InitiateMultipartUploadResult><Bucket>backupbdr</Bucket><Key>k</Key><UploadId>u1</UploadId></InitiateMultipartUploadResult>`)
+	case r.Method == http.MethodPost:
+		f.mu.Lock()
+		f.completa++
+		f.mu.Unlock()
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = io.WriteString(w, `<CompleteMultipartUploadResult><Bucket>backupbdr</Bucket><Key>k</Key><ETag>"e1"</ETag></CompleteMultipartUploadResult>`)
+	case r.Method == http.MethodDelete:
+		w.WriteHeader(http.StatusNoContent)
+	case r.Method == http.MethodGet && q.Has("list-type"):
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = io.WriteString(w, `<ListBucketResult><Name>backupbdr</Name><Prefix></Prefix><KeyCount>0</KeyCount><MaxKeys>1000</MaxKeys><IsTruncated>false</IsTruncated></ListBucketResult>`)
+	default:
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func newFakeS3Dest(t *testing.T) (*s3UploadDest, *fakeS3) {
+	t.Helper()
+	fs := &fakeS3{}
+	srv := httptest.NewServer(fs)
+	t.Cleanup(srv.Close)
+	creds := &contracts.RepositoryCredentials{
+		Kind: contracts.RepoKindS3, Endpoint: strings.TrimPrefix(srv.URL, "http://"),
+		Bucket: "backupbdr", Region: "hel1", AccessKey: "ak", SecretKey: "sk", NoTLS: true,
+	}
+	dest, err := newS3UploadDest(context.Background(), creds, "lxc", "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dest, fs
+}
+
+// El manifiesto (objeto diminuto) debe acabar subiendo por multipart cuando
+// el backend rechaza el PUT simple, y el error final debe llevar el detalle
+// del backend si todos los caminos fallan.
+func TestPutObjectEscalaAMultipartParaObjetosPequenos(t *testing.T) {
+	viejo := s3RetryDelay
+	s3RetryDelay = 0
+	t.Cleanup(func() { s3RetryDelay = viejo })
+
+	dest, fs := newFakeS3Dest(t)
+	err := dest.putRaw(context.Background(), dest.Prefix()+"manifest-x.json", []byte(`{"a":1}`), time.Now())
+	if err != nil {
+		t.Fatalf("putRaw = %v", err)
+	}
+	fs.mu.Lock()
+	simples, inicios, completa := fs.simples, fs.inicios, fs.completa
+	fs.mu.Unlock()
+	if simples == 0 {
+		t.Error("no se intentó el PUT simple primero")
+	}
+	if inicios == 0 || completa == 0 {
+		t.Errorf("no se usó el multipart: inicios=%d completa=%d", inicios, completa)
+	}
+
+	// Un objeto grande fija el modo multipart para el resto del backup: el
+	// siguiente no vuelve a pagar los PUT simples fallidos.
+	grande := make([]byte, 9<<20)
+	if _, err := dest.putSegment(context.Background(), dest.Prefix()+"ct1-seg0000", grande, time.Now()); err != nil {
+		t.Fatalf("putSegment grande = %v", err)
+	}
+	fs.mu.Lock()
+	simplesTrasGrande := fs.simples
+	fs.mu.Unlock()
+	if dest.uploadMode != s3ModeMultipart {
+		t.Errorf("uploadMode = %d; quiero s3ModeMultipart", dest.uploadMode)
+	}
+	if _, err := dest.putSegment(context.Background(), dest.Prefix()+"ct1-seg0001", grande, time.Now()); err != nil {
+		t.Fatalf("segundo putSegment = %v", err)
+	}
+	fs.mu.Lock()
+	simplesFinal := fs.simples
+	fs.mu.Unlock()
+	if simplesFinal != simplesTrasGrande {
+		t.Errorf("el segundo segmento repitió PUT simples fallidos (%d → %d)", simplesTrasGrande, simplesFinal)
+	}
+}
+
+// Si ningún camino funciona, el error del panel dice qué se intentó y qué
+// respondió el backend.
+func TestPutObjectErrorConDiagnostico(t *testing.T) {
+	viejo := s3RetryDelay
+	s3RetryDelay = 0
+	t.Cleanup(func() { s3RetryDelay = viejo })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("list-type") {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<ListBucketResult><Name>backupbdr</Name><KeyCount>0</KeyCount><IsTruncated>false</IsTruncated></ListBucketResult>`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `<Error><Code>InvalidRequest</Code><Message></Message></Error>`)
+	}))
+	defer srv.Close()
+	creds := &contracts.RepositoryCredentials{
+		Kind: contracts.RepoKindS3, Endpoint: strings.TrimPrefix(srv.URL, "http://"),
+		Bucket: "backupbdr", Region: "hel1", AccessKey: "ak", SecretKey: "sk", NoTLS: true,
+	}
+	dest, err := newS3UploadDest(context.Background(), creds, "lxc", "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = dest.putRaw(context.Background(), dest.Prefix()+"manifest.json", []byte(`{}`), time.Now())
+	if err == nil {
+		t.Fatal("putRaw debía fallar")
+	}
+	msg := err.Error()
+	for _, quiero := range []string{"manifest.json", "put:", "put-sin-firma:", "put-md5:", "multipart:", "InvalidRequest", "respuesta="} {
+		if !strings.Contains(msg, quiero) {
+			t.Errorf("error sin %q: %s", quiero, msg)
 		}
 	}
 }

@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.47] — 2026-11-23
+
+### Corregido
+
+- **El manifiesto del backup no subía a Hetzner Object Storage**: con 0.16.46
+  los 85 segmentos (16 MiB) subieron correctamente, pero el manifiesto
+  —un objeto de unos KB— fallaba con `400 InvalidRequest`. El destino
+  recordaba el camino que necesitaron los segmentos y lo aplicaba al
+  manifiesto; ahora **cada objeto escala por su cuenta** desde el camino más
+  simple (PUT firmado → PUT sin firma de payload → PUT con `Content-MD5` →
+  multipart de una parte), y los objetos grandes siguen reutilizando el que
+  ya funcionó para no repetir rechazos por segmento.
+- **Diagnóstico del backend en el error**: si ningún camino funciona, el
+  error del panel incluye la respuesta HTTP del proveedor (código, cuerpo
+  XML, `request-id`) y los headers enviados (tamaño, checksums, Object Lock),
+  sin la firma. Con Ceph/Hetzner el cuerpo de la respuesta es la única pista
+  cuando el mensaje llega vacío.
+
 ## [0.16.46] — 2026-11-23
 
 ### Corregido
