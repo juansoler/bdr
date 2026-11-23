@@ -51,10 +51,20 @@ func NewImageRunner(dataDir string, log *logging.Logger, kopiaBinary, kopiaConfi
 }
 
 // Capture ejecuta el job de imagen sobre los discos físicos del equipo.
+// Los objetos se agrupan en el destino como
+// backup/<plan>/<fecha>/image/<segmentos y manifiesto>.
 func (r *ImageRunner) Capture(ctx context.Context, creds *contracts.RepositoryCredentials,
 	payload contracts.ImageJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
 
-	dest, err := newUploadDest(ctx, creds, "image", payload.RetentionDays)
+	machine := sanitizeMachine(payload.PlanName)
+	if machine == "" {
+		machine = sanitizeMachine(payload.PlanID)
+	}
+	if machine == "" {
+		machine = "unnamed"
+	}
+	date := time.Now().UTC().Format(dateFormat)
+	dest, err := newUploadDest(ctx, creds, "image", machine, date, payload.RetentionDays)
 	if err != nil {
 		return nil, err
 	}

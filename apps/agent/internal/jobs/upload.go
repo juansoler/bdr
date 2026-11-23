@@ -43,8 +43,12 @@ type uploadDest interface {
 
 // newUploadDest prepara el destino para un namespace ("image" | "vm" | "lxc")
 // según el tipo de repo de las credenciales: S3 directo, ruta física local o
-// compartida SMB.
-func newUploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string, retentionDays int) (uploadDest, error) {
+// compartida SMB. Machine y date (ya normalizados con sanitizeMachine y
+// dateFormat) estructuran el destino como
+// backup/<máquina>/<fecha>/<namespace>/; si llegan vacíos (restauraciones,
+// que leen por clave completa) el prefijo queda como siempre.
+func newUploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string,
+	machine, date string, retentionDays int) (uploadDest, error) {
 	if creds == nil {
 		return nil, &CodeError{Code: "E_VALIDATION",
 			Message: "esta operación requiere un destino de almacenamiento (elige destino en el plan o en la acción)"}
@@ -52,22 +56,29 @@ func newUploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, 
 	switch creds.Kind {
 	case contracts.RepoKindFilesystem:
 		if contracts.IsSMBPath(creds.Path) {
-			return newSMBUploadDest(ctx, creds, ns)
+			return newSMBUploadDest(ctx, creds, ns, machine, date)
 		}
-		return newFSUploadDest(creds, ns)
+		return newFSUploadDest(creds, ns, machine, date)
 	case contracts.RepoKindS3, "":
-		return newS3UploadDest(ctx, creds, ns, retentionDays)
+		return newS3UploadDest(ctx, creds, ns, machine, date, retentionDays)
 	default:
 		return nil, &CodeError{Code: "E_VALIDATION",
 			Message: "el destino no soporta upload directo de imagen/VM/LXC (tipo " + creds.Kind + ")"}
 	}
 }
 
-func uploadPrefix(creds *contracts.RepositoryCredentials, ns string) string {
-	if creds.Prefix != "" {
-		return strings.Trim(creds.Prefix, "/") + "/" + ns + "/"
+func uploadPrefix(creds *contracts.RepositoryCredentials, ns, machine, date string) string {
+	parts := []string{}
+	if creds != nil {
+		if p := strings.Trim(creds.Prefix, "/"); p != "" {
+			parts = append(parts, p)
+		}
 	}
-	return ns + "/"
+	if machine != "" && date != "" {
+		parts = append(parts, backupRoot, machine, date)
+	}
+	parts = append(parts, ns)
+	return strings.Join(parts, "/") + "/"
 }
 
 // fsKeyPath resuelve la ruta local de una clave y rechaza recorridos de
@@ -92,7 +103,7 @@ type fsUploadDest struct {
 	existing map[string]bool
 }
 
-func newFSUploadDest(creds *contracts.RepositoryCredentials, ns string) (*fsUploadDest, error) {
+func newFSUploadDest(creds *contracts.RepositoryCredentials, ns, machine, date string) (*fsUploadDest, error) {
 	if creds.Path == "" {
 		return nil, &CodeError{Code: "E_VALIDATION",
 			Message: "las credenciales del destino no incluyen la ruta física"}
@@ -101,7 +112,7 @@ func newFSUploadDest(creds *contracts.RepositoryCredentials, ns string) (*fsUplo
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, &CodeError{Code: "E_IMAGE_UPLOAD", Message: "preparar la ruta del destino: " + err.Error()}
 	}
-	prefix := uploadPrefix(creds, ns)
+	prefix := uploadPrefix(creds, ns, machine, date)
 	existing, err := listFSKeys(root)
 	if err != nil {
 		return nil, &CodeError{Code: "E_IMAGE_UPLOAD", Message: "listar destino: " + err.Error()}
@@ -222,7 +233,8 @@ type s3UploadDest struct {
 	existing   map[string]bool
 }
 
-func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string, retentionDays int) (*s3UploadDest, error) {
+func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string,
+	machine, date string, retentionDays int) (*s3UploadDest, error) {
 	if creds.Endpoint == "" || creds.Bucket == "" {
 		return nil, &CodeError{Code: "E_VALIDATION",
 			Message: "las credenciales del destino S3 no incluyen endpoint o bucket"}
@@ -240,7 +252,7 @@ func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials
 	if err != nil {
 		return nil, &CodeError{Code: "E_VALIDATION", Message: "endpoint del destino inválido"}
 	}
-	prefix := uploadPrefix(creds, ns)
+	prefix := uploadPrefix(creds, ns, machine, date)
 	existing, err := listKeys(ctx, mc, creds.Bucket, prefix)
 	if err != nil {
 		return nil, &CodeError{Code: "E_IMAGE_UPLOAD", Message: "listar destino: " + err.Error()}
@@ -333,7 +345,7 @@ func defaultSMBPort(host string) string {
 	return host + ":445"
 }
 
-func newSMBUploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string) (*smbUploadDest, error) {
+func newSMBUploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns, machine, date string) (*smbUploadDest, error) {
 	info, ok := contracts.ParseSMBPath(creds.Path)
 	if !ok || info.Share == "" {
 		return nil, &CodeError{Code: "E_VALIDATION",
@@ -373,7 +385,7 @@ func newSMBUploadDest(ctx context.Context, creds *contracts.RepositoryCredential
 	}
 	return &smbUploadDest{
 		sess: sess, share: share, root: root,
-		prefix: uploadPrefix(creds, ns), existing: existing,
+		prefix: uploadPrefix(creds, ns, machine, date), existing: existing,
 	}, nil
 }
 
@@ -512,4 +524,37 @@ func (u *smbUploadDest) openObject(ctx context.Context, key string) (io.ReadClos
 		return nil, err
 	}
 	return u.share.Open(obj)
+}
+
+// backupRoot es el primer componente de la estructura de backups: los
+// segmentos y manifiestos de imagen/VM/LXC se agrupan como
+// backup/<máquina>/<fecha>/<namespace>/... (sin barra inicial para que sea
+// válida como clave de objeto: fsKeyPath rechaza claves absolutas).
+const backupRoot = "backup"
+
+// dateFormat es el formato de fecha usado para agrupar backups por día.
+const dateFormat = "2006-01-02"
+
+// sanitizeMachine normaliza el nombre de la máquina para usarlo como
+// componente de ruta en el destino (S3, ruta física o SMB): sustituye todo
+// lo que no sea letra, dígito, punto, guion o guion bajo por "_", colapsa
+// separadores repetidos y recorta bordes. Puede devolver "" si el nombre
+// era vacío o no tenía caracteres válidos (el llamador debe usar un
+// fallback: p. ej. "vm105").
+func sanitizeMachine(name string) string {
+	name = strings.TrimSpace(name)
+	out := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			return r
+		case r == '-' || r == '_' || r == '.':
+			return r
+		default:
+			return '_'
+		}
+	}, name)
+	for strings.Contains(out, "__") {
+		out = strings.ReplaceAll(out, "__", "_")
+	}
+	return strings.Trim(out, "_.-")
 }

@@ -235,14 +235,6 @@ func waitNBDSize(ctx context.Context, dev string, min int64) int64 {
 func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCredentials,
 	payload contracts.BackupVMJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
 
-	dest, err := newUploadDest(ctx, creds, "vm", payload.RetentionDays)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
-	defer cancel()
-	start := time.Now()
-
 	cfgOut, err := runProbe(60, "qm", "config", strconv.Itoa(payload.VMID))
 	if err != nil {
 		return nil, &CodeError{Code: "E_VM_CONFIG", Message: err.Error()}
@@ -252,6 +244,20 @@ func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCred
 	if name == "" {
 		name = cfg["name"]
 	}
+	// Los objetos se agrupan como backup/<vm>/<fecha>/vm/<segmentos y manifiesto>.
+	machine := sanitizeMachine(name)
+	if machine == "" {
+		machine = fmt.Sprintf("vm%d", payload.VMID)
+	}
+	date := time.Now().UTC().Format(dateFormat)
+	dest, err := newUploadDest(ctx, creds, "vm", machine, date, payload.RetentionDays)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
+	defer cancel()
+	start := time.Now()
+
 	disks, err := disksFromConfig(ctx, cfg)
 	if err != nil {
 		return nil, &CodeError{Code: "E_VM_DISKS", Message: err.Error()}
@@ -365,7 +371,9 @@ func (r *VMRunner) BackupVM(ctx context.Context, creds *contracts.RepositoryCred
 func (r *VMRunner) RestoreVM(ctx context.Context, creds *contracts.RepositoryCredentials,
 	payload contracts.RestoreVMJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
 
-	dest, err := newUploadDest(ctx, creds, "vm", 0)
+	// Restauración: lee por clave completa (payload.ManifestKey), que ya
+	// incluye máquina/fecha en los puntos creados con la estructura nueva.
+	dest, err := newUploadDest(ctx, creds, "vm", "", "", 0)
 	if err != nil {
 		return nil, err
 	}

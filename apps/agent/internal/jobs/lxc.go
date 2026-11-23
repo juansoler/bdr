@@ -39,14 +39,6 @@ import (
 func (r *VMRunner) BackupLXC(ctx context.Context, creds *contracts.RepositoryCredentials,
 	payload contracts.BackupLXCJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
 
-	dest, err := newUploadDest(ctx, creds, "lxc", payload.RetentionDays)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
-	defer cancel()
-	start := time.Now()
-
 	cfgOut, err := runProbe(60, "pct", "config", strconv.Itoa(payload.VMID))
 	if err != nil {
 		return nil, &CodeError{Code: "E_LXC_CONFIG", Message: err.Error()}
@@ -56,6 +48,20 @@ func (r *VMRunner) BackupLXC(ctx context.Context, creds *contracts.RepositoryCre
 	if name == "" {
 		name = cfg["hostname"]
 	}
+	// Los objetos se agrupan como backup/<ct>/<fecha>/lxc/<segmentos y manifiesto>.
+	machine := sanitizeMachine(name)
+	if machine == "" {
+		machine = fmt.Sprintf("ct%d", payload.VMID)
+	}
+	date := time.Now().UTC().Format(dateFormat)
+	dest, err := newUploadDest(ctx, creds, "lxc", machine, date, payload.RetentionDays)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 24*time.Hour)
+	defer cancel()
+	start := time.Now()
+
 	estimated := lxcEstimatedBytes(cfg)
 
 	// vzdump a stdout: snapshot si el storage lo soporta; si falla antes de
@@ -252,7 +258,8 @@ func isNumeric(s string) bool {
 func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCredentials,
 	payload contracts.RestoreLXCJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
 
-	dest, err := newUploadDest(ctx, creds, "lxc", 0)
+	// Restauración: lee por clave completa (payload.ManifestKey).
+	dest, err := newUploadDest(ctx, creds, "lxc", "", "", 0)
 	if err != nil {
 		return nil, err
 	}

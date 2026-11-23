@@ -2,6 +2,32 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.29] — 2026-11-23
+
+### Añadido
+
+- **Estructura de backups por máquina y fecha en el destino** — los
+  backups de imagen completa, VM (Proxmox) y LXC se organizan ahora en el
+  bucket S3, la ruta física o el recurso SMB como
+  `backup/<máquina>/<fecha>/<namespace>/…` (p. ej.
+  `backup/servidor-01/2026-11-23/image/disk0-seg0000-abc123` y
+  `…/manifest-<id>.json`), sin mezclar objetos de equipos distintos en el
+  mismo nivel del bucket.
+  - Máquina: nombre del plan (imagen), de la VM (`qm config`) o del
+    contenedor (`pct config`); se normaliza con `sanitizeMachine` y, si el
+    nombre viene vacío, cae a `unnamed` / `vm<VMID>` / `ct<VMID>`.
+  - Fecha: `YYYY-MM-DD` en UTC; cada ejecución de un día repite carpeta, y
+    la reanudación incremental reutiliza exactamente los segmentos de esa
+    misma carpeta (el listing del destino S3 ahora apunta al prefijo de la
+    máquina/fecha del día, antes listaba todo el namespace).
+  - El prefijo del destino (`creds.Prefix`) se respeta delante de
+    `backup/` en destinos S3 con prefijo configurado.
+  - Compatibilidad total: restauración (`RestoreVM`/`RestoreLXC`),
+    `image-fetch`, `image-write` y el borrado de puntos de restauración
+    siguen usando las claves completas guardadas en el catálogo y en el
+    manifiesto — los backups anteriores a esta versión siguen
+    restaurándose y borrándose igual.
+
 ## [0.16.28] — 2026-11-23
 
 ### Añadido

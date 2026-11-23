@@ -25,7 +25,7 @@ func TestStreamArchiveRoundtrip(t *testing.T) {
 	root := t.TempDir()
 	dest, err := newFSUploadDest(&contracts.RepositoryCredentials{
 		Kind: contracts.RepoKindFilesystem, Path: root,
-	}, "lxc")
+	}, "lxc", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,19 +104,19 @@ func TestLXCHelpers(t *testing.T) {
 func TestSMBUploadDestValidation(t *testing.T) {
 	if _, err := newSMBUploadDest(context.Background(), &contracts.RepositoryCredentials{
 		Kind: contracts.RepoKindFilesystem, Path: "//host-sin-recurso",
-	}, "lxc"); err == nil {
+	}, "lxc", "", ""); err == nil {
 		t.Fatal("ruta SMB sin recurso aceptada")
 	}
 	if _, err := newSMBUploadDest(context.Background(), &contracts.RepositoryCredentials{
 		Kind: contracts.RepoKindFilesystem, Path: "/mnt/local",
-	}, "lxc"); err == nil {
+	}, "lxc", "", ""); err == nil {
 		t.Fatal("ruta local aceptada como SMB")
 	}
 	// Un dial a un host que no responde debe fallar rápido con error claro.
 	if _, err := newSMBUploadDest(context.Background(), &contracts.RepositoryCredentials{
 		Kind: contracts.RepoKindFilesystem, Path: "//127.0.0.1:1/share",
 		SMBUser: "u", SMBPassword: "p",
-	}, "lxc"); err == nil {
+	}, "lxc", "", ""); err == nil {
 		t.Fatal("conexión a SMB inexistente aceptada")
 	}
 }

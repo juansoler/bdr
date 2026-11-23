@@ -68,7 +68,7 @@ func destinoTest(t *testing.T, ns string) (uploadDest, string) {
 	root := t.TempDir()
 	dest, err := newFSUploadDest(&contracts.RepositoryCredentials{
 		Kind: contracts.RepoKindFilesystem, Path: root,
-	}, ns)
+	}, ns, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
