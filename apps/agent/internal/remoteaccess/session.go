@@ -2,6 +2,7 @@
 package remoteaccess
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"sync"
@@ -20,15 +21,22 @@ func NewSessionManager() *SessionManager {
 	}
 }
 
-// PTYSession representa una sesión de terminal activa.
+// PTYSession representa una sesión de terminal activa. Los campos de
+// plataforma: unix usa PTY (maestro bidireccional) + Cmd; Windows usa
+// In/Out (pipes del ConPTY), Resize/WaitExit/Terminate (callbacks) y Cmd nil.
 type PTYSession struct {
 	ID        string
-	PTY       *os.File
+	PTY       *os.File // unix: maestro de la PTY (read+write); windows: nil
+	In        io.WriteCloser
+	Out       io.ReadCloser
+	Resize    func(cols, rows uint16) // cambio de dimensiones (plataforma)
+	WaitExit  func() int              // windows: bloquea hasta la salida del shell
+	Terminate func()                  // windows: mata el shell y cierra el ConPTY
 	Shell     string
 	Cols      uint16
 	Rows      uint16
 	Privilege string
-	Cmd       *exec.Cmd
+	Cmd       *exec.Cmd // unix
 }
 
 // NewSession abre una nueva pseudoterminal con el shell indicado y la
@@ -37,22 +45,17 @@ func (m *SessionManager) NewSession(id, shell string, cols, rows uint16, privile
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	master, cmd, err := StartShell(shell, cols, rows)
+	ps, err := StartShell(shell, cols, rows)
 	if err != nil {
 		return nil, err
 	}
-
-	s := &PTYSession{
-		ID:        id,
-		PTY:       master,
-		Shell:     shell,
-		Cols:      cols,
-		Rows:      rows,
-		Privilege: privilege,
-		Cmd:       cmd,
-	}
-	m.sessions[id] = s
-	return s, nil
+	ps.ID = id
+	ps.Shell = shell
+	ps.Cols = cols
+	ps.Rows = rows
+	ps.Privilege = privilege
+	m.sessions[id] = ps
+	return ps, nil
 }
 
 // GetSession devuelve una sesión por ID.
@@ -76,8 +79,14 @@ func (m *SessionManager) CloseSession(id string, reason string) {
 		return
 	}
 	_ = reason
-	if s.PTY != nil {
-		_ = s.PTY.Close() // desbloquea la bomba de salida (EOF)
+	if s.Out != nil {
+		_ = s.Out.Close() // desbloquea la bomba de salida (EOF)
+	}
+	if s.In != nil {
+		_ = s.In.Close()
+	}
+	if s.Terminate != nil {
+		s.Terminate() // windows: mata el shell y cierra el ConPTY
 	}
 	if s.Cmd != nil && s.Cmd.Process != nil {
 		_ = s.Cmd.Process.Kill()

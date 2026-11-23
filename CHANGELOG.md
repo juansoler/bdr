@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.28] — 2026-11-23
+
+### Añadido
+
+- **Terminal remota real en Windows con ConPTY** — hasta ahora era un stub
+  («ConPTY no implementado en Fase 1») y «Abrir consola» fallaba siempre en
+  Windows. Implementación completa: `CreatePseudoConsole` + shell atado por
+  atributo de proceso (`PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`), pipes de
+  entrada/salida bombeadas por el canal de terminal, resize en vivo
+  (`ResizePseudoConsole`) y código de salida del shell.
+  - Shell por defecto en Windows: **PowerShell** (`powershell -NoLogo`);
+    `cmd` también disponible (el gestor de shells del servidor lo publica).
+  - La terminal corre como SYSTEM en la sesión del servicio (equivalente al
+    shell root de los agentes Linux — operación administrativa por diseño).
+  - Refactor de la sesión de terminal (PTYSession con In/Out/Resize/
+    WaitExit/Terminate neutros por plataforma): unix sin cambios de
+    comportamiento, Windows con ConPTY nativo.
+
 ## [0.16.27] — 2026-11-23
 
 ### Corregido

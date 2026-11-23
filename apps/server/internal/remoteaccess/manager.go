@@ -152,7 +152,7 @@ func (m *Manager) AgentCapabilities(agentID, osFamily string) contracts.Terminal
 func shellsFor(osFamily string) []string {
 	switch osFamily {
 	case "windows":
-		return []string{contracts.TerminalShellDefault, contracts.TerminalShellPowerShell}
+		return []string{contracts.TerminalShellDefault, contracts.TerminalShellPowerShell, "cmd"}
 	case "darwin":
 		return []string{contracts.TerminalShellDefault, contracts.TerminalShellZsh, contracts.TerminalShellBash}
 	default:

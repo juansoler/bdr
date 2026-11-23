@@ -135,8 +135,8 @@ func (r *Runtime) handleControl(msg TerminalRequest) {
 		if err := json.Unmarshal(msg.Payload, &p); err != nil {
 			return
 		}
-		if s, ok := r.manager.GetSession(msg.SessionID); ok {
-			_ = ResizeTerminal(s.PTY, p.Cols, p.Rows)
+		if s, ok := r.manager.GetSession(msg.SessionID); ok && s.Resize != nil {
+			s.Resize(p.Cols, p.Rows)
 		}
 
 	case MsgSignal:
@@ -144,9 +144,14 @@ func (r *Runtime) handleControl(msg TerminalRequest) {
 		if err := json.Unmarshal(msg.Payload, &p); err != nil {
 			return
 		}
-		if s, ok := r.manager.GetSession(msg.SessionID); ok && s.Cmd != nil && s.Cmd.Process != nil {
-			if sig := signalFromName(p.Signal); sig != nil {
-				_ = s.Cmd.Process.Signal(sig) //nolint:errcheck // best-effort
+		if s, ok := r.manager.GetSession(msg.SessionID); ok {
+			// Windows: KILL/TERM por Terminate (Process.Signal no existe ahí).
+			if s.Terminate != nil && (p.Signal == "KILL" || p.Signal == "TERM") {
+				s.Terminate()
+			} else if s.Cmd != nil && s.Cmd.Process != nil {
+				if sig := signalFromName(p.Signal); sig != nil {
+					_ = s.Cmd.Process.Signal(sig) //nolint:errcheck // best-effort
+				}
 			}
 		}
 
@@ -168,18 +173,18 @@ func (r *Runtime) handleControl(msg TerminalRequest) {
 
 // handleBinary escribe la entrada del operador en la PTY de la sesión.
 func (r *Runtime) handleBinary(sessionID string, payload []byte) {
-	if s, ok := r.manager.GetSession(sessionID); ok && s.PTY != nil {
-		_, _ = s.PTY.Write(payload)
+	if s, ok := r.manager.GetSession(sessionID); ok && s.In != nil {
+		_, _ = s.In.Write(payload)
 	}
 }
 
-// pumpOutput lee la salida de la PTY y la envía al servidor como frames
+// pumpOutput lee la salida del shell y la envía al servidor como frames
 // binarios multiplexados. Cuando el shell termina, notifica `exit` y limpia
 // la sesión local.
 func (r *Runtime) pumpOutput(s *PTYSession) {
 	buf := make([]byte, 32*1024)
 	for {
-		n, err := s.PTY.Read(buf)
+		n, err := s.Out.Read(buf)
 		if n > 0 {
 			if frame, encErr := encodeAgentData(s.ID, buf[:n]); encErr == nil {
 				_ = r.sendBinary(frame)
@@ -190,10 +195,12 @@ func (r *Runtime) pumpOutput(s *PTYSession) {
 		}
 	}
 
-	// El maestro de la PTY se cerró (shell terminó o sesión cerrada):
-	// recoger el estado del proceso y notificar al servidor.
+	// El shell terminó (o la sesión se cerró): recoger el estado del
+	// proceso y notificar al servidor.
 	code := 0
-	if s.Cmd != nil {
+	if s.WaitExit != nil {
+		code = s.WaitExit() // windows: bloquea hasta la salida real
+	} else if s.Cmd != nil {
 		if waitErr := s.Cmd.Wait(); waitErr != nil {
 			var exitErr *exec.ExitError
 			if errors.As(waitErr, &exitErr) {

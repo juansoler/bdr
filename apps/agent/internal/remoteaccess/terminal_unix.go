@@ -38,9 +38,9 @@ func ShellPath(shell string) (string, bool) {
 }
 
 // StartShell abre una pseudoterminal con las dimensiones dadas y arranca el
-// shell especificado. Devuelve el descriptor maestro de la PTY (lectura/escritura)
-// y el comando del proceso.
-func StartShell(shell string, cols, rows uint16) (*os.File, *exec.Cmd, error) {
+// shell especificado. La sesión resultante expone PTY/In/Out (el maestro de
+// la PTY sirve para ambas direcciones), Resize y el comando en Cmd.
+func StartShell(shell string, cols, rows uint16) (*PTYSession, error) {
 	if cols == 0 {
 		cols = 80
 	}
@@ -65,10 +65,18 @@ func StartShell(shell string, cols, rows uint16) (*os.File, *exec.Cmd, error) {
 	ws := &pty.Winsize{Rows: rows, Cols: cols}
 	master, err := pty.StartWithSize(cmd, ws)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return master, cmd, nil
+	return &PTYSession{
+		PTY: master,
+		In:  master,
+		Out: master,
+		Cmd: cmd,
+		Resize: func(c, r uint16) {
+			_ = ResizeTerminal(master, c, r)
+		},
+	}, nil
 }
 
 // ResizeTerminal cambia las dimensiones de la PTY indicada.
