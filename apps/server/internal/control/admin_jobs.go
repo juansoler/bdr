@@ -944,7 +944,6 @@ func atoiDefault(s string, def int) int {
 // keep: referencia para futuras ampliaciones (hash de cuerpo).
 var _ = auth.Hash
 
-
 // --- Limpieza de backups incompletos ---
 
 // incompleteInfo extrae del resultado de un job fallido de backup el

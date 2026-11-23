@@ -367,7 +367,6 @@ func s3SafeURI(u *url.URL) string {
 	return c.RequestURI()
 }
 
-
 func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string,
 	machine, date string, retentionDays int) (*s3UploadDest, error) {
 	if creds.Endpoint == "" || creds.Bucket == "" {

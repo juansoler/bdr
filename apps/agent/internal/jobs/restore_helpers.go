@@ -110,4 +110,3 @@ func (s *restoreState) Clear() {
 		_ = os.Remove(path)
 	}
 }
-
