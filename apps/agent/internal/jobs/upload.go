@@ -287,13 +287,64 @@ func (u *s3UploadDest) putOpts(now time.Time) minio.PutObjectOptions {
 	return opts
 }
 
+// esRetryableS3 decide si un error de la API S3 admite reintentar la
+// subida: siempre los de transporte (sin ErrorResponse) y los 5xx; además
+// los 400 InvalidRequest sin mensaje ni RequestID que emiten de forma
+// esporádica los backends Ceph de proveedores como Hetzner Object Storage
+// bajo carga (documentado: sus guías piden reintentar en el cliente).
+func esRetryableS3(err error) bool {
+	if err == nil {
+		return false
+	}
+	var resp minio.ErrorResponse
+	if !errors.As(err, &resp) {
+		return true // fallo de transporte (conexión, TLS, timeout…)
+	}
+	if resp.StatusCode >= 500 {
+		return true
+	}
+	switch resp.Code {
+	case "SlowDown", "InternalError", "ServiceUnavailable", "RequestTimeout":
+		return true
+	case "InvalidRequest":
+		return resp.Message == "" && resp.RequestID == ""
+	}
+	return false
+}
+
+// putObject sube un objeto al destino S3 con reintentos y espera creciente:
+// el PUT es idempotente (clave y contenido fijos), así que reintentar no
+// puede dejar objetos duplicados ni corruptos.
+func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, now time.Time) error {
+	var lastErr error
+	for intento := 0; intento < 4; intento++ {
+		if intento > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(intento) * 3 * time.Second):
+			}
+		}
+		_, err := u.mc.PutObject(ctx, u.bucket, key, bytes.NewReader(data),
+			int64(len(data)), u.putOpts(now))
+		if err == nil {
+			return nil
+		}
+		if !esRetryableS3(err) {
+			return err
+		}
+		lastErr = err
+	}
+	return lastErr
+}
+
 // putSegment sube un segmento si no existe ya (reanudación incremental).
 // Devuelve la clave del objeto.
 func (u *s3UploadDest) putSegment(ctx context.Context, key string, data []byte, now time.Time) (string, error) {
 	if _, ok := u.existing[key]; ok {
 		return key, nil
 	}
-	if _, err := u.mc.PutObject(ctx, u.bucket, key, bytes.NewReader(data), int64(len(data)), u.putOpts(now)); err != nil {
+	if err := u.putObject(ctx, key, data, now); err != nil {
 		return "", err
 	}
 	u.existing[key] = true
@@ -302,8 +353,7 @@ func (u *s3UploadDest) putSegment(ctx context.Context, key string, data []byte, 
 
 // putRaw sube un objeto arbitrario (manifiestos) siempre.
 func (u *s3UploadDest) putRaw(ctx context.Context, key string, data []byte, now time.Time) error {
-	_, err := u.mc.PutObject(ctx, u.bucket, key, bytes.NewReader(data), int64(len(data)), u.putOpts(now))
-	return err
+	return u.putObject(ctx, key, data, now)
 }
 
 // getManifest descarga y parsea un objeto manifiesto.

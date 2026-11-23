@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.32] — 2026-11-23
+
+### Corregido
+
+- **Subidas S3 reintentan fallos transitorios del backend** — Hetzner
+  Object Storage (backend Ceph RGW) devuelve de forma esporádica un
+  `400 InvalidRequest` sin mensaje ni RequestID durante subidas de gran
+  volumen (mismo caso documentado en clientes WAL-G y Terraform); el
+  FAQ de Hetzner pide reintentar en el cliente. El agente reintentaba
+  solo con el reintento del job (que re-empezaba y paraba en el mismo
+  punto por suerte del backend). Ahora `putSegment`/`putRaw` del destino
+  S3 reintentan hasta 3 veces con espera creciente (3/6/9 s) ante:
+  fallos de transporte, errores 5xx, `SlowDown`/`InternalError`/
+  `ServiceUnavailable`/`RequestTimeout` y los `InvalidRequest` sin
+  mensaje ni RequestID de esos backends. Los PUT son idempotentes (clave
+  y contenido fijos): reintentar no duplica ni corrompe objetos. Los 400
+  con detalle (firma, argumentos, checksums) siguen fallando rápido.
+
 ## [0.16.31] — 2026-11-23
 
 ### Cambiado
