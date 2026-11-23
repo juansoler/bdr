@@ -30,8 +30,10 @@ func TestEsRetryableS3(t *testing.T) {
 		{"firma", minio.ErrorResponse{Code: "SignatureDoesNotMatch", Message: "firma", RequestID: "tx2", StatusCode: 403}, false},
 		{"invalidarg", minio.ErrorResponse{Code: "InvalidArgument", Message: "mal", RequestID: "tx3", StatusCode: 400}, false},
 		{"invalidrequest-detallado", minio.ErrorResponse{Code: "InvalidRequest", Message: "aws-chunked malformado", RequestID: "tx4", StatusCode: 400}, false},
-		// El caso Hetzner: InvalidRequest sin mensaje ni RequestID → sí.
-		{"invalidrequest-flaky", minio.ErrorResponse{Code: "InvalidRequest", StatusCode: 400}, true},
+		// El caso Hetzner: InvalidRequest sin mensaje (RequestID SIEMPRE
+		// poblado en S3) → flaky, sí reintentar.
+		{"invalidrequest-flaky", minio.ErrorResponse{Code: "InvalidRequest", StatusCode: 400, RequestID: "tx5"}, true},
+		{"invalidrequest-flaky-con-request-id", minio.ErrorResponse{Code: "InvalidRequest", Message: "", RequestID: "tx0000090f494650ea4f46c-006b0442b1-28f0c71d-hel1-prod1-ceph4", StatusCode: 400}, true},
 	}
 	for _, c := range cases {
 		if got := esRetryableS3(c.err); got != c.want {

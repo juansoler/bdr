@@ -2,6 +2,18 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.43] — 2026-11-23
+
+### Corregido
+
+- **El reintento de subida S3 nunca disparaba en el fallo flaky del segmento
+  21**: `esRetryableS3` excluía `InvalidRequest` solo cuando el `RequestID`
+  estaba vacío, pero S3 siempre asigna RequestID — el fallo esporádico de
+  Hetzner Object Storage/Ceph trae el código con **mensaje vacío**. Ahora se
+  reintenta cualquier `InvalidRequest` sin mensaje (el PUT es idempotente).
+- El error final de subida ahora incluye el mensaje del backend además del
+  HTTP code/RequestID para diagnóstico.
+
 ## [0.16.42] — 2026-11-23
 
 ### Corregido

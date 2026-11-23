@@ -296,9 +296,11 @@ func (u *s3UploadDest) putOpts(now time.Time) minio.PutObjectOptions {
 
 // esRetryableS3 decide si un error de la API S3 admite reintentar la
 // subida: siempre los de transporte (sin ErrorResponse) y los 5xx; además
-// los 400 InvalidRequest sin mensaje ni RequestID que emiten de forma
-// esporádica los backends Ceph de proveedores como Hetzner Object Storage
-// bajo carga (documentado: sus guías piden reintentar en el cliente).
+// los 400 InvalidRequest sin mensaje que emiten de forma esporádica los
+// backends Ceph de proveedores como Hetzner Object Storage bajo carga
+// (documentado: sus guías piden reintentar en el cliente). El RequestID no
+// se usa para filtrar: S3 siempre lo asigna, el fallo flaky trae el código
+// con Message vacío.
 func esRetryableS3(err error) bool {
 	if err == nil {
 		return false
@@ -314,7 +316,7 @@ func esRetryableS3(err error) bool {
 	case "SlowDown", "InternalError", "ServiceUnavailable", "RequestTimeout":
 		return true
 	case "InvalidRequest":
-		return resp.Message == "" && resp.RequestID == ""
+		return resp.Message == ""
 	}
 	return false
 }
@@ -354,8 +356,8 @@ func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, n
 }
 
 // s3ErrDetail añade al error los detalles del ErrorResponse del backend
-// (código HTTP y RequestID/HostID) para poder diagnosticar fallos de S3
-// compatibles que devuelven mensajes vacíos.
+// (código HTTP, mensaje, RequestID/HostID) para poder diagnosticar fallos
+// de S3 compatibles que devuelven mensajes vacíos.
 func s3ErrDetail(err error) error {
 	if err == nil {
 		return err
@@ -364,8 +366,8 @@ func s3ErrDetail(err error) error {
 	if !errors.As(err, &resp) {
 		return err
 	}
-	return fmt.Errorf("%w (HTTP %d, código %s, request %q, host %q)",
-		err, resp.StatusCode, resp.Code, resp.RequestID, resp.HostID)
+	return fmt.Errorf("%w (HTTP %d, código %s, mensaje %q, request %q, host %q)",
+		err, resp.StatusCode, resp.Code, resp.Message, resp.RequestID, resp.HostID)
 }
 
 // putSegment sube un segmento si no existe ya (reanudación incremental).
