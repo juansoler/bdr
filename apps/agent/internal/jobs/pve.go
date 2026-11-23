@@ -398,6 +398,13 @@ func (r *VMRunner) RestoreVM(ctx context.Context, creds *contracts.RepositoryCre
 			Message: "el manifiesto no tiene segmentos (captura vacía); usa un punto de restauración posterior"}
 	}
 
+	// Estado de reanudación: los streams escritos y verificados en un
+	// intento anterior se saltan; el estado se elimina al terminar bien.
+	resume := loadRestoreState(r.DataDir, payload.ManifestKey)
+	if len(resume.Done) > 0 {
+		r.Log.Info("reanudando restauración de VM", "streams_completados", len(resume.Done))
+	}
+
 	targetVMID := payload.TargetVMID
 	targetCfg := manifest.VM.Config
 	if payload.Mode != "new" && payload.Mode != "in_place" {
@@ -602,14 +609,15 @@ func (r *VMRunner) RestoreVM(ctx context.Context, creds *contracts.RepositoryCre
 				cleanup()
 				return nil, &CodeError{Code: "E_VM_NBD", Message: fmt.Sprintf("%s: %v", dev, oerr)}
 			}
-			werr := writeStreams(ctx, dest, manifest, d.Index, dst, devSize, func(n int) {
-				done++
-				progress(10+(done*80)/maxInt(totalStreams, 1),
-					fmt.Sprintf("segmento %d/%d", done, totalStreams), bytesWritten)
-			}, func(warn string) {
-				progress(10, warn, bytesWritten)
-				r.Log.Warn(warn)
-			})
+			werr := writeStreams(ctx, dest, manifest, d.Index, dst, devSize, resume,
+				func(n int) {
+					done++
+					progress(10+(done*80)/maxInt(totalStreams, 1),
+						fmt.Sprintf("segmento %d/%d", done, totalStreams), bytesWritten)
+				}, func(warn string) {
+					progress(10, warn, bytesWritten)
+					r.Log.Warn(warn)
+				})
 			_ = dst.Close()
 			_ = dst.Sync()
 			cleanup()
@@ -639,18 +647,27 @@ func (r *VMRunner) RestoreVM(ctx context.Context, creds *contracts.RepositoryCre
 		destroyIfNew(ferr.Error())
 		return nil, ferr
 	}
+	// Restauración completa: el estado de reanudación ya no hace falta.
+	resume.Clear()
 	return out, nil
 }
 
 // writeStreams escribe en el destino los segmentos del disco indicado,
-// verificando el SHA-256 de cada uno. Las escrituras se recortan al tamaño
-// real del dispositivo (un efidisk/tpmstate nuevo puede diferir en unos KB
-// del original; los ceros que no caben se omiten con aviso).
+// verificando el SHA-256 de cada uno. Con resume != nil, los streams ya
+// completados en un intento anterior se saltan (reanudación) y cada stream
+// escrito y verificado se registra en el estado. Las escrituras se recortan
+// al tamaño real del dispositivo (un efidisk/tpmstate nuevo puede diferir
+// en unos KB del original; los ceros que no caben se omiten con aviso).
 func writeStreams(ctx context.Context, dest uploadDest, manifest pkgimg.Manifest, diskIdx int,
-	dst io.WriterAt, devSize int64, onSeg func(n int), warn func(string)) error {
+	dst io.WriterAt, devSize int64, resume *restoreState,
+	onSeg func(n int), warn func(string)) error {
 
 	for _, s := range manifest.Streams {
 		if s.Disk != diskIdx {
+			continue
+		}
+		if resume != nil && resume.Has(s.Name) {
+			onSeg(1) // ya escrito y verificado en un intento anterior
 			continue
 		}
 		// Recorte al dispositivo: lo que quede fuera de su tamaño no se
@@ -671,6 +688,9 @@ func writeStreams(ctx context.Context, dest uploadDest, manifest pkgimg.Manifest
 					return fmt.Errorf("segmento %s: escribir ceros: sin espacio — verifica la cuota ZFS del dataset (zfs get refquota <dataset>) o el espacio del storage del volumen", s.Name)
 				}
 				return fmt.Errorf("segmento %s: escribir ceros: %w", s.Name, err)
+			}
+			if resume != nil {
+				resume.Mark(s.Name)
 			}
 			onSeg(1)
 			continue
@@ -701,6 +721,9 @@ func writeStreams(ctx context.Context, dest uploadDest, manifest pkgimg.Manifest
 			if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, s.SHA256) {
 				return fmt.Errorf("segmento %s: SHA-256 no coincide (imagen incompleta)", s.Name)
 			}
+		}
+		if resume != nil {
+			resume.Mark(s.Name)
 		}
 		onSeg(1)
 	}

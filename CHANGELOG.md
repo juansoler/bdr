@@ -2,6 +2,38 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.33] — 2026-11-23
+
+### Añadido
+
+- **Reanudación real de backups y restauraciones en todos los tipos** —
+  un job que falla a mitad continúa en el siguiente intento donde quedó,
+  en vez de empezar de cero:
+  - **Backup LXC**: el archivo vzdump+zstd se guarda primero en un staging
+    local del agente (`DataDir/lxc-staging/`, atómico por renombrado); si
+    la subida falla, el reintento reutiliza ese archivo y solo sube los
+    segmentos que faltan (los subidos se deduplican por clave de
+    contenido). El staging se elimina al completar el backup y los restos
+    de más de 48 h se depuran; la huella del config evita reutilizar el
+    archivo de un CT destruido y recreado con el mismo VMID.
+  - **Backup VM/imagen**: los segmentos van direccionados por contenido
+    (SHA-256 en la clave) y a offsets fijos: el reintento re-lee la fuente
+    y re-sube solo las regiones que cambiaron entre intentos (en un disco
+    en reposo, casi nada). Ficheros (kopia) ya reanudaba nativamente.
+  - **Restore VM (Proxmox)**: los streams escritos y verificados se
+    registran en `DataDir/restore-state/` y el reintento se salta lo ya
+    escrito; el estado se elimina al terminar bien.
+  - **Restore LXC**: el dump de la restauración usa un nombre
+    determinista por manifiesto y un estado por segmento; el reintento
+    re-verifica los rangos ya descargados leyéndolos del fichero local
+    (sin re-descargar) y descarga solo los que faltan o estén corruptos.
+  - **image-fetch (bare-metal)**: los segmentos ya presentes en el
+    directorio con el SHA-256 correcto no se descargan de nuevo.
+  - **PG_DUMP**: si un intento anterior dejó un dump que verifica
+    (`pg_restore --list`), el reintento lo reutiliza (mismo nombre único,
+    misma URI estable) en vez de repetir el pg_dump; se conserva en fallo,
+    se elimina al transferir y se depuran restos de más de 48 h.
+
 ## [0.16.32] — 2026-11-23
 
 ### Corregido

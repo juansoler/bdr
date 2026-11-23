@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -151,6 +152,36 @@ func pgRepoName(database string, t time.Time) string {
 	return fmt.Sprintf("%s_PGDUMP_%s.dump", database, t.UTC().Format("20060102_150405"))
 }
 
+// pgDumpReutilizable busca en el staging el dump más reciente de la base de
+// datos que verifique con pg_restore --list (reanudación: un reintento no
+// vuelve a ejecutar pg_dump). Depura los restos con más de 48 h.
+func pgDumpReutilizable(ctx context.Context, bin, database string) string {
+	vb, verr := pgBin("pg_restore")
+	if verr != nil {
+		return ""
+	}
+	matches, _ := filepath.Glob(filepath.Join(pgStagingRoot(), database+"_PGDUMP_*.dump"))
+	sort.Strings(matches)
+	var newest string
+	for i := len(matches) - 1; i >= 0; i-- {
+		p := matches[i]
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if fi.ModTime().Before(time.Now().Add(-48 * time.Hour)) {
+			_ = os.Remove(p) // resto abandonado de hace días
+			continue
+		}
+		if newest == "" {
+			if _, lerr := runPG(ctx, vb, []string{"--list", p}); lerr == nil {
+				newest = p
+			}
+		}
+	}
+	return newest
+}
+
 // Dump ejecuta un job PG_DUMP.
 func (m *PGMotor) Dump(ctx context.Context, creds *contracts.RepositoryCredentials,
 	payload contracts.PGDumpJobPayload, progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
@@ -172,14 +203,32 @@ func (m *PGMotor) Dump(ctx context.Context, creds *contracts.RepositoryCredentia
 	if err := os.MkdirAll(pgStagingRoot(), 0o750); err != nil {
 		return nil, &CodeError{Code: "E_INTERNAL", Message: err.Error()}
 	}
-	path := filepath.Join(pgStagingRoot(), pgRepoName(payload.Database, time.Now()))
-	defer func() { _ = os.Remove(path) }()
-
-	progress(15, "pg_dump "+payload.Database, 0)
 	start := time.Now()
-	if _, err := runPG(ctx, bin, buildDumpArgs(payload.Host, payload.Port, payload.User, payload.Database, path)); err != nil {
-		return nil, &CodeError{Code: "E_JOB_FAILED", Message: err.Error()}
+	// Reanudación: si un intento anterior dejó un dump de esta base de
+	// datos que verifica, se reutiliza en vez de re-ejecutar pg_dump. El
+	// fichero conserva su nombre único (timestamp), así que la URI del
+	// destino sigue siendo estable. En fallo se conserva para el siguiente
+	// intento; al transferir bien se elimina y los restos de más de 48 h
+	// se depuran.
+	path := pgDumpReutilizable(ctx, bin, payload.Database)
+	if path != "" {
+		progress(40, "reutilizando el dump del intento anterior ("+filepath.Base(path)+")", 0)
+	} else {
+		path = filepath.Join(pgStagingRoot(), pgRepoName(payload.Database, time.Now()))
+		progress(15, "pg_dump "+payload.Database, 0)
+		if _, derr := runPG(ctx, bin, buildDumpArgs(payload.Host, payload.Port, payload.User, payload.Database, path)); derr != nil {
+			_ = os.Remove(path)
+			return nil, &CodeError{Code: "E_JOB_FAILED", Message: derr.Error()}
+		}
 	}
+	transferred := false
+	defer func() {
+		if !transferred {
+			// Fallo: el dump queda en staging para el reintento.
+			return
+		}
+		_ = os.Remove(path)
+	}()
 
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -191,6 +240,7 @@ func (m *PGMotor) Dump(ctx context.Context, creds *contracts.RepositoryCredentia
 	if err != nil {
 		return nil, &CodeError{Code: "E_STORAGE", Message: err.Error()}
 	}
+	transferred = true
 
 	// Verificación barata del archivo recién creado (índice del dump).
 	verified := true

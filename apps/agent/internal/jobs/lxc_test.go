@@ -18,6 +18,98 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
+// TestLXCStagingPath: la huella del config separa CTs recreados con el
+// mismo VMID y data-dir vacío desactiva el staging.
+func TestLXCStagingPath(t *testing.T) {
+	r := &VMRunner{DataDir: t.TempDir(), Log: nil}
+	cfgA := map[string]string{"hostname": "web", "rootfs": "local-lvm:vm-disk-102"}
+	cfgB := map[string]string{"hostname": "otra", "rootfs": "local-lvm:vm-disk-103"}
+
+	pathA := r.lxcStagingPath(102, "2026-11-23", cfgA)
+	pathB := r.lxcStagingPath(102, "2026-11-23", cfgB)
+	pathC := r.lxcStagingPath(102, "2026-11-24", cfgA)
+
+	if pathA == "" || pathA == pathB || pathA == pathC {
+		t.Fatalf("rutas de staging no diferenciadas: %q %q %q", pathA, pathB, pathC)
+	}
+	if filepath.Base(pathA)[:2] != "ct" {
+		t.Fatalf("nombre inesperado: %q", pathA)
+	}
+
+	sinDataDir := &VMRunner{Log: nil}
+	if got := sinDataDir.lxcStagingPath(102, "2026-11-23", cfgA); got != "" {
+		t.Fatalf("sin DataDir el staging debería desactivarse; got %q", got)
+	}
+}
+
+// TestStreamArchiveResume: el segundo streamArchive con el MISMO contenido
+// contra un destino que ya tiene los segmentos (reintento tras un fallo)
+// no reescribe ningún objeto: todos los segmentos se deduplican por clave
+// (el nombre lleva el SHA-256) y el fichero del destino queda intacto.
+func TestStreamArchiveResume(t *testing.T) {
+	root := t.TempDir()
+	creds := &contracts.RepositoryCredentials{
+		Kind: contracts.RepoKindFilesystem, Path: root,
+	}
+	origin := bytes.Repeat([]byte("contenido-estable-para-reanudar"), 100_000)
+
+	run := func() (int, *pkgimg.Manifest) {
+		dest, err := newFSUploadDest(creds, "lxc", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest := &pkgimg.Manifest{Kind: "lxc", LXC: &pkgimg.LXC{VMID: 102, Name: "web"}}
+		segCount, _, err := streamArchive(context.Background(), dest, manifest,
+			bytes.NewReader(origin), int64(len(origin)),
+			func(_ int, _ string, b int64) {})
+		if err != nil {
+			t.Fatalf("streamArchive: %v", err)
+		}
+		return segCount, manifest
+	}
+
+	seg1, m1 := run()
+	if seg1 == 0 || len(m1.Streams) == 0 {
+		t.Fatalf("primera pasada sin segmentos: seg=%d streams=%d", seg1, len(m1.Streams))
+	}
+	blobPath := filepath.Join(root, filepath.FromSlash(m1.Streams[0].Blob))
+	st1, err := os.Stat(blobPath)
+	if err != nil {
+		t.Fatalf("segmento del destino: %v", err)
+	}
+
+	// Reintento (destino reconstruido: re-lista lo existente).
+	seg2, m2 := run()
+	if seg2 != seg1 {
+		t.Fatalf("segmentos: %d ≠ %d", seg2, seg1)
+	}
+	if m2.Streams[0].Blob != m1.Streams[0].Blob {
+		t.Fatalf("claves distintas para el mismo contenido: %q ≠ %q",
+			m2.Streams[0].Blob, m1.Streams[0].Blob)
+	}
+	// El reintento NO reescribe: el fichero conserva su mtime original.
+	st2, err := os.Stat(blobPath)
+	if err != nil {
+		t.Fatalf("segmento tras el reintento: %v", err)
+	}
+	if !st2.ModTime().Equal(st1.ModTime()) {
+		t.Fatal("el reintento reescribió el segmento existente (no reanudó)")
+	}
+
+	// Y un destino con máquina/fecha (estructura nueva) sube todo a su
+	// propia carpeta: primera ejecución de ese nodo/CT/día.
+	dest2, err := newFSUploadDest(creds, "lxc", "pve1/web-105", "2026-11-23")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := &pkgimg.Manifest{Kind: "lxc", LXC: &pkgimg.LXC{VMID: 105, Name: "web-105"}}
+	_, _, err = streamArchive(context.Background(), dest2, manifest,
+		bytes.NewReader(origin), int64(len(origin)), func(_ int, _ string, b int64) {})
+	if err != nil {
+		t.Fatalf("streamArchive estructura nueva: %v", err)
+	}
+}
+
 // TestStreamArchiveRoundtrip: streamArchive comprime y segmenta el archivo;
 // los blobs del destino concatenados y descomprimidos reproducen el origen,
 // y los SHA-256 del manifiesto corresponden a los segmentos comprimidos.

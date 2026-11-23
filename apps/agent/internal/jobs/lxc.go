@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -66,18 +67,41 @@ func (r *VMRunner) BackupLXC(ctx context.Context, creds *contracts.RepositoryCre
 
 	estimated := lxcEstimatedBytes(cfg)
 
-	// vzdump a stdout: snapshot si el storage lo soporta; si falla antes de
-	// emitir bytes, reintenta con stop (parada breve del contenedor).
-	mode := "snapshot"
-	cmd, stdout, stderr, err := startVzdump(ctx, payload.VMID, mode)
-	if err != nil {
-		mode = "stop"
-		cmd, stdout, stderr, err = startVzdump(ctx, payload.VMID, mode)
-		if err != nil {
-			return nil, &CodeError{Code: "E_LXC_BACKUP", Message: err.Error()}
+	// Archivo en staging local: se genera UNA VEZ (vzdump+zstd) y las
+	// subidas que fallan a mitad reanudan desde él — el reintento no
+	// regenera el archivo ni re-sube los segmentos ya en el destino
+	// (los segmentos son direccionados por contenido: la clave lleva el
+	// SHA-256, así que el destino ya no los reenvía). Se elimina al tener
+	// el manifiesto subido; los restos de ejecuciones abandonadas se
+	// depuran a las 48 h.
+	stagingPath := r.lxcStagingPath(payload.VMID, date, cfg)
+	r.cleanStaleStaging()
+	var staged *os.File
+	if stagingPath != "" {
+		if f, err := os.Open(stagingPath); err == nil {
+			if info, ierr := f.Stat(); ierr == nil && info.Size() > 0 {
+				staged = f
+				r.Log.Info("reanudando subida desde el archivo local del intento anterior",
+					"staging", stagingPath, "bytes", info.Size())
+				progress(0, "reanudando subida (el archivo ya está generado en el agente)", 0)
+			} else {
+				_ = f.Close()
+			}
 		}
 	}
-	r.Log.Info("vzdump iniciado", "vmid", payload.VMID, "mode", mode)
+	mode := "reanudado"
+	if staged == nil {
+		var berr error
+		mode, berr = r.buildLXCStaging(ctx, payload.VMID, stagingPath, estimated, progress)
+		if berr != nil {
+			return nil, berr
+		}
+		staged, err = os.Open(stagingPath)
+		if err != nil {
+			return nil, &CodeError{Code: "E_LXC_BACKUP",
+				Message: "abrir el archivo local de staging: " + err.Error()}
+		}
+	}
 
 	manifest := &pkgimg.Manifest{
 		SchemaVersion: 1,
@@ -95,22 +119,21 @@ func (r *VMRunner) BackupLXC(ctx context.Context, creds *contracts.RepositoryCre
 		Disks: []pkgimg.Disk{{Index: 0, TotalBytes: estimated}},
 	}
 
-	segCount, bytesDone, xerr := streamArchive(ctx, dest, manifest, stdout, estimated, progress)
-	waitErr := cmd.Wait()
+	segCount, bytesDone, xerr := streamArchive(ctx, dest, manifest, staged, estimated, progress)
 	if xerr != nil {
 		return nil, xerr
-	}
-	if waitErr != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = waitErr.Error()
-		}
-		return nil, &CodeError{Code: "E_LXC_BACKUP", Message: "vzdump: " + firstLines(msg, 2)}
 	}
 
 	out, err := finishCapture(ctx, dest, manifest, "lxc", progress, bytesDone)
 	if err != nil {
 		return nil, err
+	}
+	// El punto de restauración está completo: el archivo local ya no hace
+	// falta (una nueva ejecución del mismo día genera uno nuevo con los
+	// datos actuales del CT).
+	if stagingPath != "" {
+		_ = staged.Close()
+		_ = os.Remove(stagingPath)
 	}
 	progress(100, fmt.Sprintf("archivo completo en el destino (%s)", out.manifestKey), bytesDone)
 	return json.Marshal(map[string]any{
@@ -123,6 +146,183 @@ func (r *VMRunner) BackupLXC(ctx context.Context, creds *contracts.RepositoryCre
 		"bytes_total":  bytesDone,
 		"duration_ms":  time.Since(start).Milliseconds(),
 	})
+}
+
+// lxcStagingDir devuelve el directorio de staging de archivos LXC del
+// agente (DataDir/lxc-staging) o cadena vacía si no hay DataDir.
+func (r *VMRunner) lxcStagingDir() string {
+	if r.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(r.DataDir, "lxc-staging")
+}
+
+// lxcStagingPath construye la ruta del archivo en staging para un CT y día:
+// DataDir/lxc-staging/ct<vmid>-<huella cfg>-<fecha>.zst. La huella del
+// config evita reutilizar el archivo de un CT destruido y recreado con el
+// mismo VMID el mismo día.
+func (r *VMRunner) lxcStagingPath(vmid int, date string, cfg map[string]string) string {
+	dir := r.lxcStagingDir()
+	if dir == "" {
+		return ""
+	}
+	keys := make([]string, 0, len(cfg))
+	for k := range cfg {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		fmt.Fprintf(h, "%s=%s\n", k, cfg[k])
+	}
+	return filepath.Join(dir, fmt.Sprintf("ct%d-%s-%s.zst",
+		vmid, hex.EncodeToString(h.Sum(nil))[:8], date))
+}
+
+// cleanStaleStaging depura restos de staging: temporales de ejecuciones
+// interrumpidas y archivos completos de hace más de 48 h (ningún job
+// reanuda algo tan viejo). Sin efecto si no hay directorio.
+func (r *VMRunner) cleanStaleStaging() {
+	dir := r.lxcStagingDir()
+	if dir == "" {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		if strings.HasSuffix(e.Name(), ".bdr-tmp") {
+			_ = os.Remove(path) // sin job concurrente: ningún intento lo usa
+			continue
+		}
+		if info, ierr := e.Info(); ierr == nil && info.ModTime().
+			Before(time.Now().Add(-48*time.Hour)) {
+			_ = os.Remove(path)
+		}
+	}
+}
+
+// buildLXCStaging genera el archivo zstd del CT en stagingPath ejecutando
+// vzdump a stdout y comprimiendo en vuelo hacia un temporal que se renombra
+// al terminar (atómico: solo existe en staging si el archivo está completo).
+// Devuelve el modo vzdump usado. Si el modo snapshot falla sin emitir
+// bytes, reintenta con stop (parada breve del contenedor); un fallo a mitad
+// de archivo es error (nunca se renombra un archivo truncado).
+func (r *VMRunner) buildLXCStaging(ctx context.Context, vmid int, stagingPath string,
+	estimated int64, progress func(percent int, msg string, bytesDone int64)) (string, error) {
+	tmpPath := stagingPath + ".bdr-tmp"
+	var lastErr error
+	for _, mode := range []string{"snapshot", "stop"} {
+		cmd, stdout, stderr, err := startVzdump(ctx, vmid, mode)
+		if err != nil {
+			lastErr = &CodeError{Code: "E_LXC_BACKUP", Message: err.Error()}
+			continue // fallo al arrancar snapshot → prueba con stop
+		}
+		r.Log.Info("vzdump iniciado (staging)", "vmid", vmid, "mode", mode)
+		raw, berr := r.dumpToStaging(ctx, cmd, stdout, stderr, tmpPath, mode, estimated, progress)
+		if berr == nil {
+			if rerr := os.Rename(tmpPath, stagingPath); rerr != nil {
+				return "", &CodeError{Code: "E_LXC_BACKUP",
+					Message: "guardar el archivo en staging: " + rerr.Error()}
+			}
+			return mode, nil
+		}
+		_ = os.Remove(tmpPath)
+		if ctx.Err() != nil {
+			return "", &CodeError{Code: "E_CANCELED", Message: "job cancelado"}
+		}
+		lastErr = berr
+		// El fallback a stop solo tiene sentido si snapshot no llegó a
+		// emitir datos (el storage no soporta snapshots); a mitad de
+		// archivo el error es real y no se re-intenta parando el CT.
+		if raw > 0 || mode == "stop" {
+			break
+		}
+	}
+	if lastErr == nil {
+		lastErr = &CodeError{Code: "E_LXC_BACKUP", Message: "vzdump: no se pudo generar el archivo"}
+	}
+	return "", lastErr
+}
+
+// dumpToStaging vuelca vzdump --stdout comprimido con zstd al temporal,
+// contando los bytes crudos leídos, y espera a que vzdump termine con
+// éxito. Devuelve (bytes crudos leídos, error). Si hay error, el temporal
+// se elimina: nunca se renombra un archivo truncado.
+func (r *VMRunner) dumpToStaging(ctx context.Context, cmd *exec.Cmd, stdout io.ReadCloser,
+	stderr *bytes.Buffer, tmpPath, mode string, estimated int64,
+	progress func(percent int, msg string, bytesDone int64)) (int64, error) {
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return 0, &CodeError{Code: "E_LXC_BACKUP",
+			Message: "crear el archivo local de staging: " + err.Error()}
+	}
+	defer func() {
+		_ = f.Close()
+		_ = os.Remove(tmpPath) // no-op si se renombró antes (el rename lo mueve)
+	}()
+
+	zw, zerr := zstd.NewWriter(f, zstd.WithEncoderConcurrency(1))
+	if zerr != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return 0, &CodeError{Code: "E_LXC_BACKUP", Message: "comprimir el archivo: " + zerr.Error()}
+	}
+	buf := make([]byte, 1<<20)
+	var raw int64
+	var rerr error
+	for rerr == nil {
+		if ctx.Err() != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return raw, &CodeError{Code: "E_CANCELED", Message: "job cancelado"}
+		}
+		var n int
+		n, rerr = stdout.Read(buf)
+		if n > 0 {
+			raw += int64(n)
+			if estimated > 0 {
+				pct := int(raw * 95 / estimated)
+				if pct > 95 {
+					pct = 95
+				}
+				progress(pct, fmt.Sprintf("generando archivo (vzdump %s)", mode), raw)
+			}
+			if _, werr := zw.Write(buf[:n]); werr != nil {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+				return raw, &CodeError{Code: "E_LXC_BACKUP",
+					Message: "comprimir al archivo de staging: " + werr.Error()}
+			}
+		}
+	}
+	if rerr != nil && rerr != io.EOF {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return raw, &CodeError{Code: "E_LXC_BACKUP", Message: "leer vzdump: " + rerr.Error()}
+	}
+	// Cierra el epílogo zstd antes de esperar a vzdump: si vzdump falla,
+	// el error manda y el temporal se elimina (nunca se renombra truncado).
+	if err := zw.Close(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return raw, &CodeError{Code: "E_LXC_BACKUP", Message: "comprimir el archivo: " + err.Error()}
+	}
+	if err := cmd.Wait(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return raw, &CodeError{Code: "E_LXC_BACKUP", Message: "vzdump: " + firstLines(msg, 2)}
+	}
+	return raw, nil
 }
 
 // startVzdump lanza `vzdump <vmid> --stdout --mode <mode>` y devuelve el
@@ -306,7 +506,11 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 		storage = lxcRootfsStorage(manifest.LXC.Config)
 	}
 
-	// Fichero temporal para `pct restore` (necesita una ruta local).
+	// Fichero del dump para `pct restore` (necesita una ruta local). Con
+	// DataDir el nombre es determinista por manifiesto y un reintento
+	// reanuda la descarga: los segmentos ya verificados se re-comprueban
+	// leyendo su rango del fichero local (sin re-descargar). Sin DataDir,
+	// temporal aleatorio y limpieza al salir (comportamiento clásico).
 	tmpDir := "/var/tmp"
 	if r.DataDir != "" {
 		tmpDir = filepath.Join(r.DataDir, "tmp")
@@ -314,16 +518,31 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, &CodeError{Code: "E_LXC_RESTORE", Message: "no se pudo crear el directorio temporal: " + err.Error()}
 	}
-	tmpFile, err := os.CreateTemp(tmpDir, "bdr-lxc-*.tar.zst")
+	tmpPath := filepath.Join(tmpDir, fmt.Sprintf("bdr-lxc-restore-%s.tar.zst",
+		restoreFingerprint(payload.ManifestKey)))
+
+	resume := loadRestoreState(r.DataDir, payload.ManifestKey)
+	restoreFailed := true
+	defer func() {
+		if restoreFailed {
+			// Un reintento continúa desde aquí: conserva dump y estado.
+			return
+		}
+		_ = os.Remove(tmpPath)
+		resume.Clear()
+	}()
+	if len(resume.Done) > 0 {
+		r.Log.Info("reanudando restauración de LXC", "segmentos_completados", len(resume.Done))
+	}
+
+	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, &CodeError{Code: "E_LXC_RESTORE", Message: "no se pudo crear el archivo temporal: " + err.Error()}
 	}
-	tmpPath := tmpFile.Name()
-	cleanTemp := func() { _ = tmpFile.Close(); _ = os.Remove(tmpPath) }
-	defer cleanTemp()
+	defer func() { _ = tmpFile.Close() }()
 
-	// Descarga y verificación: concatena los segmentos (orden por número)
-	// verificando el SHA-256 de cada uno en el formato comprimido.
+	// Descarga y verificación: escribe cada segmento en su offset del dump
+	// concatenado y verifica el SHA-256 del formato comprimido.
 	totalStreams := len(manifest.Streams)
 	done := 0
 	var bytesDone int64
@@ -334,6 +553,18 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 		if s.Zero || s.Blob == "" {
 			continue
 		}
+		if resume.Has(s.Name) {
+			// Re-verifica el rango local del intento anterior.
+			h := sha256.New()
+			sec := io.NewSectionReader(tmpFile, s.Offset, s.Bytes)
+			if nv, cerr := io.Copy(h, sec); cerr == nil && nv == s.Bytes &&
+				strings.EqualFold(hex.EncodeToString(h.Sum(nil)), s.SHA256) {
+				bytesDone += s.Bytes
+				done++
+				continue
+			}
+			// Corrupto o a medias: se descarga de nuevo.
+		}
 		progress(5+(done*55)/maxInt(totalStreams, 1),
 			fmt.Sprintf("descargando %s (%d/%d)", s.Name, done+1, totalStreams), bytesDone)
 		obj, err := dest.openObject(ctx, s.Blob)
@@ -341,7 +572,7 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 			return nil, &CodeError{Code: "E_IMAGE_UPLOAD", Message: "descargar " + s.Name + ": " + err.Error()}
 		}
 		h := sha256.New()
-		n, cerr := io.Copy(io.MultiWriter(tmpFile, h), obj)
+		n, cerr := io.Copy(io.MultiWriter(newWriterAt(tmpFile, s.Offset), h), obj)
 		_ = obj.Close()
 		if cerr != nil {
 			return nil, &CodeError{Code: "E_IMAGE_UPLOAD", Message: "descargar " + s.Name + ": " + cerr.Error()}
@@ -354,6 +585,7 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 			return nil, &CodeError{Code: "E_IMAGE_UPLOAD",
 				Message: fmt.Sprintf("segmento %s: SHA-256 no coincide (destino corrupto o captura a medias)", s.Name)}
 		}
+		resume.Mark(s.Name)
 		bytesDone += n
 		done++
 	}
@@ -362,13 +594,32 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 	}
 	_ = tmpFile.Close()
 
-	hostname := ""
-	if mode == "new" {
-		hostname = payload.TargetName
-		if hostname == "" {
-			hostname = manifest.LXC.Name
-		}
+	out, err := r.finishLXCRestore(ctx, payload, &manifest, mode, targetVMID, storage, hostnameForRestore(payload, &manifest, mode), tmpPath, start, bytesDone, totalStreams, progress)
+	if err != nil {
+		return nil, err
 	}
+	// Restauración completa: el dump y el estado ya no hacen falta.
+	restoreFailed = false
+	return out, nil
+}
+
+// hostnameForRestore calcula el hostname destino del CT restaurado.
+func hostnameForRestore(payload contracts.RestoreLXCJobPayload, manifest *pkgimg.Manifest, mode string) string {
+	if mode != "new" {
+		return ""
+	}
+	if payload.TargetName != "" {
+		return payload.TargetName
+	}
+	return manifest.LXC.Name
+}
+
+// finishLXCRestore ejecuta la fase de pct del restore (stop/destroy en
+// in_place, restore y start) y serializa el resultado del job.
+func (r *VMRunner) finishLXCRestore(ctx context.Context, payload contracts.RestoreLXCJobPayload,
+	manifest *pkgimg.Manifest, mode string, targetVMID int, storage, hostname, tmpPath string,
+	start time.Time, bytesDone int64, totalStreams int,
+	progress func(percent int, msg string, bytesDone int64)) (json.RawMessage, error) {
 
 	if mode == "in_place" {
 		// Restaura sobre el propio CT: parada, destrucción y restore con la

@@ -227,7 +227,7 @@ func TestCaptureSourceRoundtripRestore(t *testing.T) {
 	// Destino con datos viejos distintos del origen.
 	target := &memDisk{b: bytes.Repeat([]byte{0xFF}, int(total))}
 	warns := 0
-	if err := writeStreams(context.Background(), dest, *manifest, 0, target, total,
+	if err := writeStreams(context.Background(), dest, *manifest, 0, target, total, nil,
 		func(int) {}, func(string) { warns++ }); err != nil {
 		t.Fatalf("writeStreams: %v", err)
 	}

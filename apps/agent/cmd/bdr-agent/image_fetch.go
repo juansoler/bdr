@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -98,6 +100,15 @@ func cmdImageFetch(args []string) {
 			continue
 		}
 		local := filepath.Join(*dir, filepath.Base(s.Blob))
+		// Reanudación: si el fichero local ya está y su SHA-256 coincide
+		// con el del manifiesto, no se descarga de nuevo.
+		if data, err := os.ReadFile(local); err == nil && len(data) == int(s.Bytes) {
+			sum := sha256.Sum256(data)
+			if strings.EqualFold(hex.EncodeToString(sum[:]), s.SHA256) {
+				done++
+				continue
+			}
+		}
 		if err := mc.FGetObject(ctx, *bucket, s.Blob, local, minio.GetObjectOptions{}); err != nil {
 			log.Error("segmento", "blob", s.Blob, "error", err.Error())
 			os.Exit(1)
