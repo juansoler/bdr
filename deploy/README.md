@@ -106,6 +106,20 @@ Compila los binarios y el `.deb` con `scripts/build-agents.sh` y `scripts/packag
 
 Para mTLS (recomendado en producción), levanta además el listener TLS del servidor con `--agent-addr 0.0.0.0:8443 --public-url http://IP:8080 --agent-url https://IP:8443 --agent-tls-names IP` (añádelo al `entrypoint` del servicio o monta tu propio Compose).
 
+## Desinstalación
+
+Procedimiento completo por SO (scripts + comandos manuales) en
+[`uninstall/README.md`](uninstall/README.md). Los desinstaladores conservan
+por defecto el estado y el repositorio Kopia; `-Purge` / `--purge` borra
+todo con confirmación.
+
+Para Compose:
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml down     # contenedores
+docker compose -f deploy/docker-compose.prod.yml down -v  # + volúmenes (borra las copias)
+```
+
 ## Secretos y clave maestra
 
 - `BDR_ADMIN_TOKEN`: credencial de administración de arranque (el «token del panel»).

@@ -180,6 +180,16 @@ for f in deploy/install/install-linux.sh deploy/install/install-macos.sh deploy/
 done
 ( cd "$OUT" && shasum -a 256 install-linux.sh install-macos.sh install-windows.ps1 >> SHA256SUMS )
 
+# Desinstaladores: mismos assets y misma garantía de suma que los
+# instaladores (deploy/uninstall/README.md).
+for f in deploy/uninstall/uninstall-agent.sh deploy/uninstall/uninstall-control.sh \
+         deploy/uninstall/uninstall-agent.ps1 deploy/uninstall/uninstall-control.ps1; do
+  [[ -f "$f" ]] || { echo "falta $f" >&2; exit 1; }
+  cp "$f" "$OUT/"
+done
+( cd "$OUT" && shasum -a 256 uninstall-agent.sh uninstall-control.sh uninstall-agent.ps1 uninstall-control.ps1 >> SHA256SUMS )
+sort -o "$OUT/SHA256SUMS" "$OUT/SHA256SUMS"
+
 echo "== firma del manifiesto…"
 go run ./tools/update-sign sign -key "$KEY" -in "$OUT/latest.json"
 

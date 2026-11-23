@@ -173,6 +173,22 @@ embebida en el binario) y te **notifica** en el panel: nada se instala sin
 tu confirmación. Los agentes se actualizan solos cuando están ociosos,
 verificando el SHA-256 del binario.
 
+### 5 · Desinstala cuando quieras
+
+El procedimiento por sistema operativo (agente y servidor, con scripts y
+comandos manuales equivalentes) está en
+[`deploy/uninstall/README.md`](deploy/uninstall/README.md). Por defecto los
+desinstaladores solo detienen el servicio y eliminan los binarios: el estado,
+los secretos y el repositorio Kopia **se conservan**; con `--purge` /
+`-Purge` se borra todo (con confirmación, y las copias externas NAS/S3
+quedan siempre fuera).
+
+```bash
+# Linux / macOS — en el equipo protegido
+curl -fsSL https://github.com/juansoler/bdr/releases/latest/download/uninstall-agent.sh -o /tmp/uninstall-agent.sh
+sudo bash /tmp/uninstall-agent.sh
+```
+
 ## 🗄️ Bases de datos: SQL Server y PostgreSQL
 
 El motor corre **dentro del agente instalado en el host de la base de datos**

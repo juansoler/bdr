@@ -2,6 +2,31 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.40] — 2026-11-23
+
+### Añadido
+
+- **Desinstaladores oficiales para bdr-agent y bdr-control en los tres
+  sistemas operativos** (`deploy/uninstall/`, publicados como assets de la
+  release con su suma en `SHA256SUMS`, igual que los instaladores):
+  - `uninstall-agent.sh` / `uninstall-agent.ps1` — Linux (systemd), macOS
+    (launchd) y Windows (servicio SCM del panel **y** tarea programada del
+    instalador de `deploy/agent/windows`).
+  - `uninstall-control.sh` / `uninstall-control.ps1` — Linux, macOS y
+    Windows (servicio, secretos de máquina, firewall y binarios).
+  - Por defecto solo detienen el servicio y eliminan binarios: el estado,
+    los secretos (`/etc/bdr`, `bdr.env`) y el repositorio Kopia con las
+    copias **se conservan**. `--purge` / `-Purge` borra todo con
+    confirmación explícita (y nunca toca repositorios externos NAS/S3).
+  - El agente detecta instalaciones vía `.deb` (dpkg) y deriva el binario y
+    la unidad al gestor de paquetes; en macOS/Windows purga solo los
+    ficheros del agente en los data-dirs compartidos con el control.
+- **Documentación de desinstalación** (`deploy/uninstall/README.md`):
+  procedimiento por SO con comandos manuales equivalentes, orden recomendado
+  (revocar agentes → desinstalar agente → desinstalar control → limpiar
+  repositorio externo), teardown de Compose (`down -v`) y qué conserva cada
+  modo. Enlazada desde el README y `deploy/README.md`.
+
 ## [0.16.39] — 2026-11-23
 
 ### Cambiado
