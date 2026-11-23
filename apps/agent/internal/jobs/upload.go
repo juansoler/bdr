@@ -284,9 +284,14 @@ func listKeys(ctx context.Context, mc *minio.Client, bucket, prefix string) (map
 
 func (u *s3UploadDest) Prefix() string { return u.prefix }
 
-// putOpts aplica Object Lock GOVERNANCE si el destino lo pide.
+// putOpts aplica Object Lock GOVERNANCE si el destino lo pide y fuerza un
+// PUT único (sin multipart). Hetzner Object Storage/Ceph RGW rechaza de
+// forma determinista el ciclo multipart a partir de ~1,3 GB de un backup
+// (400 InvalidRequest con mensaje vacío, incluso con cliente y conexión
+// nuevos), mientras los mismos bytes en un PUT único pasan sin problema:
+// cada segmento son 64 MiB, muy por debajo del límite de 5 GiB por PUT.
 func (u *s3UploadDest) putOpts(now time.Time) minio.PutObjectOptions {
-	opts := minio.PutObjectOptions{}
+	opts := minio.PutObjectOptions{DisableMultipart: true}
 	if u.retain {
 		opts.Mode = minio.Governance
 		opts.RetainUntilDate = now.UTC().AddDate(0, 0, u.retainDays)
@@ -348,11 +353,20 @@ func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, n
 			return nil
 		}
 		if !esRetryableS3(err) {
-			return s3ErrDetail(err)
+			return fmt.Errorf("%s (%s): %w", s3KeyName(key), humanBytes(int64(len(data))), s3ErrDetail(err))
 		}
 		lastErr = err
 	}
-	return s3ErrDetail(lastErr)
+	return fmt.Errorf("%s (%s): %w", s3KeyName(key), humanBytes(int64(len(data))), s3ErrDetail(lastErr))
+}
+
+// s3KeyName devuelve el nombre final de una clave (sin el prefijo), para
+// los mensajes de error del panel.
+func s3KeyName(key string) string {
+	if i := strings.LastIndexByte(key, '/'); i >= 0 {
+		return key[i+1:]
+	}
+	return key
 }
 
 // s3ErrDetail añade al error los detalles del ErrorResponse del backend

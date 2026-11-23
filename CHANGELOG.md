@@ -2,6 +2,19 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.45] — 2026-11-23
+
+### Corregido
+
+- **La subida a Hetzner Object Storage moría siempre en el segmento 22
+  (~1,3 GB)** con `400 InvalidRequest` y mensaje vacío, también con cliente
+  y conexión nuevos y tras 4 reintentos. El ciclo multipart de Ceph RGW
+  (cada segmento de 64 MiB se partía en 4 partes de 16 MiB) es el que falla:
+  los segmentos se suben ahora como **PUT único** (`DisableMultipart`),
+  muy por debajo del límite de 5 GiB por PUT del proveedor.
+- El error de subida incluye ahora el nombre del objeto y su tamaño para
+  localizar el segmento que falla.
+
 ## [0.16.44] — 2026-11-23
 
 ### Corregido

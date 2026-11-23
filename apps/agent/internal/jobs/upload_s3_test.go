@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 )
@@ -39,5 +40,30 @@ func TestEsRetryableS3(t *testing.T) {
 		if got := esRetryableS3(c.err); got != c.want {
 			t.Errorf("esRetryableS3(%s) = %v; quiero %v", c.nombre, got, c.want)
 		}
+	}
+}
+
+// Los segmentos van en PUT único: el ciclo multipart de Hetzner/Ceph RGW
+// falla de forma determinista a partir de ~1,3 GB de un backup.
+func TestPutOptsSinMultipart(t *testing.T) {
+	u := &s3UploadDest{retain: true, retainDays: 7}
+	opts := u.putOpts(time.Now())
+	if !opts.DisableMultipart {
+		t.Fatal("putOpts debe desactivar multipart: el backend rechaza el ciclo multipart")
+	}
+	if opts.Mode != minio.Governance {
+		t.Fatalf("Mode = %v; quiero GOVERNANCE con retención", opts.Mode)
+	}
+	if opts.RetainUntilDate.IsZero() {
+		t.Fatal("RetainUntilDate vacío con retención configurada")
+	}
+}
+
+func TestS3KeyName(t *testing.T) {
+	if got := s3KeyName("backup/nodo/ct/fecha/lxc/ct104-seg0021-abc"); got != "ct104-seg0021-abc" {
+		t.Fatalf("s3KeyName = %q", got)
+	}
+	if got := s3KeyName("manifiesto.json"); got != "manifiesto.json" {
+		t.Fatalf("s3KeyName sin barra = %q", got)
 	}
 }
