@@ -18,28 +18,26 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// TestLXCStagingPath: la huella del config separa CTs recreados con el
-// mismo VMID y data-dir vacío desactiva el staging.
-func TestLXCStagingPath(t *testing.T) {
+// TestRemoveLegacyStaging: el agente elimina el directorio de staging de
+// las versiones 0.16.33–0.16.36 (la subida vuelve a ser directa) y es
+// idempotente; sin DataDir no hace nada.
+func TestRemoveLegacyStaging(t *testing.T) {
 	r := &VMRunner{DataDir: t.TempDir(), Log: nil}
-	cfgA := map[string]string{"hostname": "web", "rootfs": "local-lvm:vm-disk-102"}
-	cfgB := map[string]string{"hostname": "otra", "rootfs": "local-lvm:vm-disk-103"}
-
-	pathA := r.lxcStagingPath(102, "2026-11-23", cfgA)
-	pathB := r.lxcStagingPath(102, "2026-11-23", cfgB)
-	pathC := r.lxcStagingPath(102, "2026-11-24", cfgA)
-
-	if pathA == "" || pathA == pathB || pathA == pathC {
-		t.Fatalf("rutas de staging no diferenciadas: %q %q %q", pathA, pathB, pathC)
+	dir := filepath.Join(r.DataDir, "lxc-staging")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if filepath.Base(pathA)[:2] != "ct" {
-		t.Fatalf("nombre inesperado: %q", pathA)
+	if err := os.WriteFile(filepath.Join(dir, "ct102-abcd1234-2026-11-23.zst"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	r.removeLegacyStaging()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("el staging legacy no se eliminó: %v", err)
+	}
+	r.removeLegacyStaging() // idempotente (directorio ya inexistente)
 
 	sinDataDir := &VMRunner{Log: nil}
-	if got := sinDataDir.lxcStagingPath(102, "2026-11-23", cfgA); got != "" {
-		t.Fatalf("sin DataDir el staging debería desactivarse; got %q", got)
-	}
+	sinDataDir.removeLegacyStaging() // sin pánico ni efecto
 }
 
 // TestStreamArchiveResume: el segundo streamArchive con el MISMO contenido
@@ -227,17 +225,101 @@ func TestRestoreLXCSegmentOrder(t *testing.T) {
 	_ = time.Now()
 }
 
-// TestBuildLXCStagingCreaDirectorio: el directorio de staging se crea antes
-// de escribir el temporal, incluso si vzdump falla después (regresión:
-// "no such file or directory" en la primera ejecución tras actualizar).
-func TestBuildLXCStagingCreaDirectorio(t *testing.T) {
-	r := &VMRunner{DataDir: t.TempDir()}
-	staging := filepath.Join(r.DataDir, "lxc-staging", "ct104-4aae31fb-2026-11-23.zst")
-	if _, err := r.buildLXCStaging(context.Background(), 104, staging, 0,
-		func(int, string, int64) {}); err == nil {
-		t.Skip("vzdump está disponible en esta máquina; no se cubre el fallo de arranque")
+// TestNormalizeLXCDump: el dump correcto (una capa de zstd) se devuelve
+// tal cual; el doble-comprimido de los agentes 0.16.33–0.16.38 se
+// re-escribe con una sola capa; y un fichero que no es zstd falla.
+func TestNormalizeLXCDump(t *testing.T) {
+	dir := t.TempDir()
+	tar := bytes.Repeat([]byte("contenido-tar-de-prueba\n"), 4096)
+
+	// Caso normal: zstd(tar) → misma ruta, sin reescritura.
+	normal := filepath.Join(dir, "dump.tar.zst")
+	escribirZstd(t, normal, tar)
+	got, err := normalizeLXCDump(normal)
+	if err != nil {
+		t.Fatalf("normal: %v", err)
 	}
-	if fi, ierr := os.Stat(filepath.Dir(staging)); ierr != nil || !fi.IsDir() {
-		t.Fatalf("el directorio de staging no se creó: %v", ierr)
+	if got != normal {
+		t.Fatalf("normal: reescribió el dump: %q", got)
 	}
+
+	// Caso legado: zstd(zstd(tar)) → nueva ruta .norm.tar.zst cuyo
+	// contenido descomprime una sola vez al tar original. Se comprime de
+	// nuevo el fichero zstd(tar) EN BRUTO (no su contenido descomprimido).
+	single, err := os.ReadFile(normal) // zstd(tar) en bruto
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(dir, "dump-legacy.tar.zst")
+	escribirZstd(t, legacy, single)
+	got, err = normalizeLXCDump(legacy)
+	if err != nil {
+		t.Fatalf("legacy: %v", err)
+	}
+	if got == legacy || !strings.HasSuffix(got, ".norm.tar.zst") {
+		t.Fatalf("legacy: ruta inesperada: %q", got)
+	}
+	if cuerpo := leerZstd(t, got); !bytes.Equal(cuerpo, tar) {
+		t.Fatalf("legacy: contenido reescrito distinto del tar original (%d bytes)", len(cuerpo))
+	}
+
+	// Caso corrupto: bytes que no son zstd → error claro.
+	roto := filepath.Join(dir, "dump-roto.tar.zst")
+	if err := os.WriteFile(roto, []byte("esto no es zstd"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := normalizeLXCDump(roto); err == nil {
+		t.Fatal("un dump que no es zstd debería fallar")
+	}
+
+	// Caso vacío → error.
+	vacio := filepath.Join(dir, "dump-vacio.tar.zst")
+	if err := os.WriteFile(vacio, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := normalizeLXCDump(vacio); err == nil {
+		t.Fatal("un dump vacío debería fallar")
+	}
+}
+
+// escribirZstd escribe el contenido comprimido con zstd en una ruta.
+func escribirZstd(t *testing.T, path string, data []byte) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw, err := zstd.NewWriter(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := zw.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// leerZstd lee y descomprime una vez el fichero zstd de la ruta.
+func leerZstd(t *testing.T, path string) []byte {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	zr, err := zstd.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	data, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("descomprimir %s: %v", path, err)
+	}
+	return data
 }

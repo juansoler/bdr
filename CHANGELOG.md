@@ -2,6 +2,40 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.39] — 2026-11-23
+
+### Cambiado
+
+- **El backup LXC vuelve a subir directamente al destino** — se elimina el
+  archivo de staging local del agente (introducido en 0.16.33):
+  `vzdump --stdout` se comprime con zstd en vuelo y se sube por segmentos
+  al bucket sin escribir nada en el disco del nodo PVE. Motivo: el staging
+  ocupaba en el nodo el tamaño comprimido del CT y un intento fallido lo
+  dejaba completo en el root del PVE hasta el reintento o 48 h (riesgo de
+  llenar el disco del hipervisor). El agente elimina al arrancar un backup
+  los restos del staging antiguo (`DataDir/lxc-staging/`).
+  - A cambio, un backup LXC interrumpido **ya no se reanuda**: el reintento
+    regenera el archivo desde cero (un stream tar no es reproducible byte a
+    byte, así que una subida a medias no es reanudable). Los objetos
+    incompletos del intento se limpian desde el panel (0.16.35). La
+    restauración LXC y los backups de VM/imagen/ficheros/SQL conservan su
+    reanudación.
+  - De paso, el registro de eventos del panel deja de inundarse durante la
+    fase de vzdump: el progreso se reporta por segmento subido (64 MiB) y
+    no por cada bloque leído.
+
+### Corregido
+
+- **Los backups LXC tomados con agentes 0.16.33–0.16.38 salieron
+  doble-comprimidos** — el archivo de staging ya era zstd y la subida lo
+  volvía a comprimir: los segmentos del destino contenían
+  zstd(zstd(tar)) y `pct restore` solo descomprime una capa. La subida
+  directa vuelve a un solo frame zstd; además, la restauración normaliza
+  los dumps legacy: si tras descomprimir una capa aparece otro frame
+  zstd, re-escribe el dump con una sola antes de llamar a `pct restore`,
+  de modo que los backups de esa ventana de versiones vuelven a ser
+  restaurables.
+
 ## [0.16.38] — 2026-11-23
 
 ### Corregido
