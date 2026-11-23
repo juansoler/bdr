@@ -2,6 +2,17 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.37] — 2026-11-23
+
+### Corregido
+
+- **El auto-actualizador del control fallaba en despliegues con /tmp de
+  solo lectura** — `open /tmp/bdr-bundle-*.tar.gz: read-only file system`
+  (ProtectSystem=strict o contenedor con root read-only). El bundle y el
+  staging de la actualización se crean ahora junto al binario del control
+  (directorio que el propio self-update ya usa para renombrar), con
+  fallback al /tmp del sistema si aquel no fuera escribible.
+
 ## [0.16.36] — 2026-11-23
 
 ### Corregido

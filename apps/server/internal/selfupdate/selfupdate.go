@@ -206,7 +206,17 @@ func Apply(ctx context.Context, client *http.Client, manifest *Manifest, exePath
 		return "", fmt.Errorf("el manifiesto no trae bundle de servidor para %s", PlatformKey())
 	}
 
-	tmp, err := os.CreateTemp("", "bdr-bundle-*.tar.gz")
+	// Los temporales van junto al binario: el propio self-update ya renombra
+	// ficheros en ese directorio, así que es escribible, y /tmp puede ser de
+	// solo lectura en despliegues endurecidos (ProtectSystem=strict,
+	// contenedores con root read-only). Si tampoco se puede escribir ahí,
+	// cae al /tmp del sistema.
+	base := writableTempDir(exePath)
+	if base == "" {
+		return "", fmt.Errorf("no hay directorio temporal escribible (ni junto al binario ni /tmp)")
+	}
+
+	tmp, err := os.CreateTemp(base, "bdr-bundle-*.tar.gz")
 	if err != nil {
 		return "", err
 	}
@@ -227,7 +237,7 @@ func Apply(ctx context.Context, client *http.Client, manifest *Manifest, exePath
 		return "", fmt.Errorf("el bundle descargado no coincide con el SHA-256 del manifiesto")
 	}
 
-	staging, err := os.MkdirTemp("", "bdr-stage-*")
+	staging, err := os.MkdirTemp(base, "bdr-stage-*")
 	if err != nil {
 		return "", err
 	}
@@ -427,4 +437,29 @@ func copyFile(src, dst string) error {
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+// writableTempDir devuelve el primer directorio en el que este proceso
+// puede crear ficheros entre el del binario y el /tmp del sistema; "" si
+// ninguno lo es.
+func writableTempDir(exePath string) string {
+	candidates := []string{}
+	if exePath != "" {
+		candidates = append(candidates, filepath.Dir(exePath))
+	}
+	candidates = append(candidates, os.TempDir())
+	for _, d := range candidates {
+		if d == "" {
+			continue
+		}
+		probe, err := os.CreateTemp(d, ".bdr-write-probe-*")
+		if err != nil {
+			continue
+		}
+		name := probe.Name()
+		_ = probe.Close()
+		_ = os.Remove(name)
+		return d
+	}
+	return ""
 }
