@@ -107,6 +107,21 @@ func extFor(osarch string) string {
 	return ""
 }
 
+// structureMinVersion es la versión mínima del agente para ejecutar
+// backups de VM/LXC/imagen: a partir de 0.16.29 los segmentos se guardan
+// con la estructura backup/<máquina>/<fecha>/ (0.16.31 añadió el nivel de
+// nodo Proxmox). Agentes anteriores los guardarían sin estructura.
+const structureMinVersion = "0.16.29"
+
+// jobRequiresStructure indica si el tipo de job exige el layout nuevo.
+func jobRequiresStructure(jobType string) bool {
+	switch jobType {
+	case contracts.JobTypeBackupVM, contracts.JobTypeBackupLXC, contracts.JobTypeBackupImage:
+		return true
+	}
+	return false
+}
+
 // agentUpgradeOffer construye la instrucción de actualización para un agente
 // cuya versión difiere de la del plano de control.
 //

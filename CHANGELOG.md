@@ -2,6 +2,22 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.34] — 2026-11-23
+
+### Añadido
+
+- **Candado de versión en backups de VM/LXC/imagen** — los agentes
+  anteriores a 0.16.29 guardan esos backups sin la estructura
+  `backup/<máquina>/<fecha>/` (y sin el nivel de nodo de 0.16.31). El
+  plano de control ya no leva esos jobs para agentes desactualizados: el
+  job falla en el momento con
+  `E_AGENT_OLD: el agente (<versión>) es anterior a 0.16.29 y guardaría
+  el backup sin la estructura backup/<máquina>/<fecha>/; actualiza el
+  agente y reintenta`, en vez de almacenar en silencio un layout que ya
+  no es el del producto. Actualiza el agente desde el panel (forzar
+  actualización) o reinstalándolo en el nodo, y vuelve a lanzar el
+  backup; los backups anteriores siguen restaurándose igual.
+
 ## [0.16.33] — 2026-11-23
 
 ### Añadido

@@ -11,6 +11,7 @@ import (
 
 	"github.com/juansoler/bdr/apps/server/internal/auth"
 	"github.com/juansoler/bdr/apps/server/internal/pki"
+	"github.com/juansoler/bdr/apps/server/internal/selfupdate"
 	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/packages/contracts"
 	"github.com/juansoler/bdr/packages/version"
@@ -414,6 +415,26 @@ func (s *Server) handleAgentLease(w http.ResponseWriter, r *http.Request) {
 			job := st.LeaseJobFor(agent.ID, now, leaseDuration, leaseGrace)
 			if job == nil {
 				return store.ErrNotFound
+			}
+			// Candado de versión: los agentes anteriores a 0.16.29 guardan
+			// los backups de VM/LXC/imagen sin la estructura
+			// backup/<máquina>/<fecha>/ (0.16.31 añadió el nivel de nodo).
+			// Fallar el job con un mensaje claro en vez de almacenar en
+			// silencio un layout que ya no es el del producto.
+			if jobRequiresStructure(job.Type) &&
+				selfupdate.CompareVersion(agent.AgentVersion, structureMinVersion) < 0 {
+				t := now
+				job.State = store.JobFailed
+				job.ErrorCode = "E_AGENT_OLD"
+				job.ErrorMessage = fmt.Sprintf(
+					"el agente (%s) es anterior a %s y guardaría el backup sin la estructura backup/<máquina>/<fecha>/; actualiza el agente (panel → forzar actualización, o reinstálalo en el nodo) y reintenta",
+					agent.AgentVersion, structureMinVersion)
+				job.LeaseUntil = nil
+				job.FinishedAt = &t
+				job.UpdatedAt = t
+				st.AppendJobEvent(contracts.JobEvent{JobID: job.ID, Kind: "state", State: store.JobFailed, At: t})
+				s.alertFailedJob(job, st)
+				return nil // job consumido y fallido; se sigue con el siguiente
 			}
 			v := jobView(job)
 			out = &v
