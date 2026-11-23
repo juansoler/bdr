@@ -2,6 +2,22 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.42] — 2026-11-23
+
+### Corregido
+
+- **Reintentos de subida S3 con conexión nueva** — el backup seguía
+  fallando siempre en el segmento 21-22 (~1,3 GB / ~3 min, patrón
+  determinista): reintentar sobre la misma conexión keep-alive envenenada
+  (NAT/proxy/front sobrecargado) heredaba el fallo. Cada reintento de `putObject`
+  ahora crea un cliente S3 nuevo (misma configuración) y el error final
+  incluye código HTTP y RequestID del backend para diagnóstico.
+- **Limpieza de backups incompletos endurecida** — el handler del panel
+  (GET/POST `/api/v1/admin/jobs/{id}/cleanup-incomplete`) normaliza el
+  prefijo (sin borde de barra), lista y borra solo los objetos no
+  referenciados por manifiestos de restore points ya registrados, y se
+  rechaza la limpieza si hay un backup hacia el mismo destino en curso.
+
 ## [0.16.41] — 2026-11-23
 
 ### Corregido

@@ -235,11 +235,15 @@ function IncompleteCleanup({
     setBusy(true);
     setError(null);
     try {
-      const out = await api<{ detail: string }>(
+      const out = await api<{ objects: number; bytes: number }>(
         `/api/v1/admin/jobs/${jobId}/cleanup-incomplete`,
         token,
       );
-      setPreview(out.detail);
+      setPreview(
+        out.objects > 0
+          ? `${out.objects} objetos sin referenciar · ${formatBytes(out.bytes)}`
+          : "el destino ya no tiene objetos bajo ese prefijo",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo consultar el destino.");
     } finally {

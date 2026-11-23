@@ -231,6 +231,9 @@ type s3UploadDest struct {
 	retain     bool
 	retainDays int
 	existing   map[string]bool
+	// newClient crea un cliente S3 nuevo (misma configuración): los
+	// reintentos lo usan para descartar conexiones keep-alive envenenadas.
+	newClient func() (*minio.Client, error)
 }
 
 func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials, ns string,
@@ -243,12 +246,15 @@ func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials
 	if region == "" {
 		region = contracts.DetectS3Region(creds.Endpoint)
 	}
-	mc, err := minio.New(creds.Endpoint, &minio.Options{
-		Creds:        credentials.NewStaticV4(creds.AccessKey, creds.SecretKey, ""),
-		Secure:       !creds.NoTLS,
-		Region:       region,
-		BucketLookup: minio.BucketLookupPath,
-	})
+	clientFactory := func() (*minio.Client, error) {
+		return minio.New(creds.Endpoint, &minio.Options{
+			Creds:        credentials.NewStaticV4(creds.AccessKey, creds.SecretKey, ""),
+			Secure:       !creds.NoTLS,
+			Region:       region,
+			BucketLookup: minio.BucketLookupPath,
+		})
+	}
+	mc, err := clientFactory()
 	if err != nil {
 		return nil, &CodeError{Code: "E_VALIDATION", Message: "endpoint del destino inválido"}
 	}
@@ -260,6 +266,7 @@ func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials
 	return &s3UploadDest{
 		mc: mc, bucket: creds.Bucket, prefix: prefix,
 		retain: retentionDays > 0, retainDays: retentionDays, existing: existing,
+		newClient: clientFactory,
 	}, nil
 }
 
@@ -314,11 +321,19 @@ func esRetryableS3(err error) bool {
 
 // putObject sube un objeto al destino S3 con reintentos y espera creciente:
 // el PUT es idempotente (clave y contenido fijos), así que reintentar no
-// puede dejar objetos duplicados ni corruptos.
+// puede dejar objetos duplicados ni corruptos. Cada reintento usa un
+// CLIENTE S3 NUEVO: una conexión keep-alive envenenada (NAT, proxy o front
+// sobrecargado) falla siempre con el mismo 400, y reintentar sobre la misma
+// conexión hereda el fallo.
 func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, now time.Time) error {
 	var lastErr error
 	for intento := 0; intento < 4; intento++ {
 		if intento > 0 {
+			if u.newClient != nil {
+				if nc, cerr := u.newClient(); cerr == nil {
+					u.mc = nc
+				}
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -331,11 +346,26 @@ func (u *s3UploadDest) putObject(ctx context.Context, key string, data []byte, n
 			return nil
 		}
 		if !esRetryableS3(err) {
-			return err
+			return s3ErrDetail(err)
 		}
 		lastErr = err
 	}
-	return lastErr
+	return s3ErrDetail(lastErr)
+}
+
+// s3ErrDetail añade al error los detalles del ErrorResponse del backend
+// (código HTTP y RequestID/HostID) para poder diagnosticar fallos de S3
+// compatibles que devuelven mensajes vacíos.
+func s3ErrDetail(err error) error {
+	if err == nil {
+		return err
+	}
+	var resp minio.ErrorResponse
+	if !errors.As(err, &resp) {
+		return err
+	}
+	return fmt.Errorf("%w (HTTP %d, código %s, request %q, host %q)",
+		err, resp.StatusCode, resp.Code, resp.RequestID, resp.HostID)
 }
 
 // putSegment sube un segmento si no existe ya (reanudación incremental).

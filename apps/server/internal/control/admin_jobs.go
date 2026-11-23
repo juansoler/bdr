@@ -15,6 +15,7 @@ import (
 	"github.com/juansoler/bdr/apps/server/internal/auth"
 	"github.com/juansoler/bdr/apps/server/internal/store"
 	"github.com/juansoler/bdr/packages/contracts"
+	pkgimg "github.com/juansoler/bdr/packages/image"
 
 	"github.com/minio/minio-go/v7"
 )
@@ -943,11 +944,13 @@ func atoiDefault(s string, def int) int {
 // keep: referencia para futuras ampliaciones (hash de cuerpo).
 var _ = auth.Hash
 
+
 // --- Limpieza de backups incompletos ---
 
 // incompleteInfo extrae del resultado de un job fallido de backup el
 // prefijo de destino donde quedaron objetos a medias (el agente lo reporta
-// desde 0.16.33) y si ya se limpió.
+// desde 0.16.33) y si ya se limpió. El prefijo llega con barra final
+// (dest.Prefix()); se normaliza para que sea una clave válida.
 func incompleteInfo(j *store.Job) (prefix string, cleaned bool, err error) {
 	if j.State != store.JobFailed && j.State != store.JobCanceled {
 		return "", false, fmt.Errorf("solo se limpian jobs fallidos o cancelados")
@@ -965,10 +968,11 @@ func incompleteInfo(j *store.Job) (prefix string, cleaned bool, err error) {
 	if res.DestPrefix == "" {
 		return "", false, fmt.Errorf("el job no reportó objetos incompletos (agente anterior a 0.16.33)")
 	}
-	if !validObjectKey(res.DestPrefix) {
+	prefix = strings.Trim(res.DestPrefix, "/")
+	if !validObjectKey(prefix) {
 		return "", false, fmt.Errorf("prefijo del destino inválido")
 	}
-	return res.DestPrefix, res.Cleaned, nil
+	return prefix, res.Cleaned, nil
 }
 
 // jobTargetID extrae el destino de almacenamiento del payload del job
@@ -982,28 +986,20 @@ func jobTargetID(j *store.Job) string {
 }
 
 // listTargetPrefix lista los objetos de un destino bajo un prefijo y
-// devuelve (claves, bytes totales).
-func (s *Server) listTargetPrefix(ctx context.Context, t *store.StorageTarget, prefix string) ([]string, int64, error) {
+// devuelve (claves, bytes por clave).
+func (s *Server) listTargetPrefix(ctx context.Context, t *store.StorageTarget, prefix string) ([]string, map[string]int64, error) {
 	switch {
 	case t.IsSMB():
 		sm, err := s.smbConnect(ctx, t)
 		if err != nil {
-			return nil, 0, err
+			return nil, nil, err
 		}
 		defer sm.close()
-		keys, sizes, lerr := smbListUnder(sm.share, t, prefix)
-		if lerr != nil {
-			return nil, 0, lerr
-		}
-		total := int64(0)
-		for _, sz := range sizes {
-			total += sz
-		}
-		return keys, total, nil
+		return smbListUnder(sm.share, t, prefix+"/")
 	case t.IsFilesystem():
 		root := filepath.Join(t.RepoPath(), filepath.FromSlash(prefix))
 		var keys []string
-		var total int64
+		sizes := map[string]int64{}
 		walkErr := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -1021,38 +1017,38 @@ func (s *Server) listTargetPrefix(ctx context.Context, t *store.StorageTarget, p
 			key := filepath.ToSlash(rel)
 			if validObjectKey(key) {
 				if fi, serr := d.Info(); serr == nil {
-					total += fi.Size()
+					sizes[key] = fi.Size()
 				}
 				keys = append(keys, key)
 			}
 			return nil
 		})
-		return keys, total, walkErr
+		return keys, sizes, walkErr
 	default:
 		sk, err := s.Box.Open(t.SecretKeyEnc)
 		if err != nil {
-			return nil, 0, fmt.Errorf("no se pudo descifrar el secreto del destino")
+			return nil, nil, fmt.Errorf("no se pudo descifrar el secreto del destino")
 		}
 		mc, err := minioClientFor(ctx, t, sk)
 		if err != nil {
-			return nil, 0, err
+			return nil, nil, err
 		}
 		cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
 		var keys []string
-		var total int64
+		sizes := map[string]int64{}
 		for obj := range mc.ListObjects(cctx, t.Bucket, minio.ListObjectsOptions{
-			Prefix: prefix, Recursive: true,
+			Prefix: prefix + "/", Recursive: true,
 		}) {
 			if obj.Err != nil {
-				return nil, 0, obj.Err
+				return nil, nil, obj.Err
 			}
 			if validObjectKey(obj.Key) {
+				sizes[obj.Key] = obj.Size
 				keys = append(keys, obj.Key)
-				total += obj.Size
 			}
 		}
-		return keys, total, nil
+		return keys, sizes, nil
 	}
 }
 
@@ -1108,6 +1104,11 @@ func (s *Server) deleteTargetObjects(ctx context.Context, t *store.StorageTarget
 // jobCleanupIncomplete lista (GET) o borra (POST) los objetos que quedaron
 // a medias de un backup fallido/cancelado en el destino. El agente reporta
 // el prefijo (dest_prefix) en el resultado del fallo desde 0.16.33.
+//
+// Protecciones: no borra los objetos referenciados por manifiestos ya
+// registrados (un reintento exitoso el mismo día comparte carpeta con el
+// intento fallido) y no se ejecuta si hay un backup hacia el mismo destino
+// en curso.
 func (s *Server) jobCleanupIncomplete(w http.ResponseWriter, r *http.Request, id string) {
 	if !allowMethod(w, r, http.MethodGet) && !allowMethod(w, r, http.MethodPost) {
 		return
@@ -1117,50 +1118,135 @@ func (s *Server) jobCleanupIncomplete(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	execute := r.Method == http.MethodPost
-	var detail string
 	status, msg := http.StatusInternalServerError, ""
-	err := s.Store.Update(r.Context(), func(st *store.State) error {
+
+	// 1) Fuera de red: valida el job y el destino y localiza los
+	//    manifiestos que comparten la carpeta (para no borrarlos).
+	var prefix, targetID string
+	var cleaned bool
+	var protectedManifests []string
+	err := s.Store.View(r.Context(), func(st *store.State) error {
 		j := st.Jobs[id]
 		if j == nil {
 			status, msg = http.StatusNotFound, "Job no encontrado"
 			return errAbort
 		}
-		prefix, cleaned, ierr := incompleteInfo(j)
+		p, c, ierr := incompleteInfo(j)
 		if ierr != nil {
 			status, msg = http.StatusConflict, ierr.Error()
 			return errAbort
 		}
-		if cleaned && !execute {
-			// Ya limpiado: la vista lo mostrará como tal.
-			detail = "ya limpiado"
-			return nil
-		}
-		targetID := jobTargetID(j)
-		t := st.Storage[targetID]
-		if t == nil {
+		prefix, cleaned = p, c
+		targetID = jobTargetID(j)
+		if st.Storage[targetID] == nil {
 			status, msg = http.StatusConflict, "el destino del job ya no existe; borra los objetos a mano o registra el destino con el mismo nombre"
 			return errAbort
 		}
-		keys, total, lerr := s.listTargetPrefix(r.Context(), t, prefix)
-		if lerr != nil {
-			status, msg = http.StatusBadGateway, "listar el destino: "+lerr.Error()
-			return errAbort
+		if execute {
+			// Un backup hacia el mismo destino en curso sube segmentos que
+			// aún no referencia ningún manifiesto: esperar.
+			for _, other := range st.Jobs {
+				if other == nil || other.ID == j.ID {
+					continue
+				}
+				if other.State != store.JobPending && other.State != store.JobLeased && other.State != store.JobRunning {
+					continue
+				}
+				if !jobRequiresStructure(other.Type) || jobTargetID(other) != targetID {
+					continue
+				}
+				status, msg = http.StatusConflict, "hay un backup hacia el mismo destino en curso ("+other.ID+"); espera a que termine antes de limpiar"
+				return errAbort
+			}
 		}
-		if !execute {
-			detail = fmt.Sprintf("%d objetos, %s", len(keys), humanBytesCtrl(total))
+		for _, rp := range st.RestorePoints {
+			if rp == nil || rp.TargetID != targetID {
+				continue
+			}
+			if rp.Kind != "vm" && rp.Kind != "lxc" && rp.Kind != "image" {
+				continue
+			}
+			// El manifiesto vive en la misma carpeta que sus segmentos.
+			if strings.HasPrefix(rp.SnapshotID, prefix+"/") {
+				protectedManifests = append(protectedManifests, rp.SnapshotID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		if err == errAbort {
+			s.problem(w, r, status, codeForStatus(status), msg)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
+
+	target := s.loadTarget(targetID)
+	if target == nil {
+		s.problem(w, r, http.StatusConflict, "E_CLEANUP", "el destino del job ya no existe")
+		return
+	}
+
+	// 2) Listado del destino bajo el prefijo.
+	keys, sizes, lerr := s.listTargetPrefix(r.Context(), target, prefix)
+	if lerr != nil {
+		s.problem(w, r, http.StatusBadGateway, "E_CLEANUP", "listar el destino: "+lerr.Error())
+		return
+	}
+
+	// Referenciados: la clave del manifiesto y los blobs de sus streams.
+	referenced := map[string]bool{}
+	for _, mk := range protectedManifests {
+		referenced[mk] = true
+		if data, rerr := s.readTargetObject(r.Context(), target, mk); rerr == nil {
+			var m pkgimg.Manifest
+			if json.Unmarshal(data, &m) == nil {
+				for _, st := range m.Streams {
+					if st.Blob != "" {
+						referenced[st.Blob] = true
+					}
+				}
+			}
+		}
+	}
+	var deletable []string
+	var total int64
+	for _, k := range keys {
+		if referenced[k] {
+			continue
+		}
+		deletable = append(deletable, k)
+		total += sizes[k]
+	}
+	if cleaned && !execute {
+		s.problem(w, r, http.StatusConflict, "E_CLEANUP", "estos objetos ya fueron limpiados")
+		return
+	}
+
+	// 3) GET: solo la vista previa.
+	if !execute {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"dest_prefix": prefix + "/",
+			"objects":     len(deletable),
+			"bytes":       total,
+		})
+		return
+	}
+
+	// 4) POST: borrar y marcar el resultado del job como limpiado.
+	deleted, failures := s.deleteTargetObjects(r.Context(), target, deletable)
+	if len(failures) > 0 {
+		s.problem(w, r, http.StatusBadGateway, "E_CLEANUP",
+			fmt.Sprintf("no se pudieron borrar %d de %d objetos%s", len(failures), len(deletable), lockHint(failures)))
+		return
+	}
+	detail := fmt.Sprintf("%d objetos borrados (%s)", deleted, humanBytesCtrl(total))
+	_ = s.Store.Update(r.Context(), func(st *store.State) error {
+		j := st.Jobs[id]
+		if j == nil {
 			return nil
 		}
-		if len(keys) == 0 {
-			detail = "el destino ya no tiene objetos bajo " + prefix
-			return nil
-		}
-		deleted, failures := s.deleteTargetObjects(r.Context(), t, keys)
-		if len(failures) > 0 {
-			status = http.StatusBadGateway
-			msg = fmt.Sprintf("no se pudieron borrar %d de %d objetos%s", len(failures), len(keys), lockHint(failures))
-			return errAbort
-		}
-		// Marca el resultado: el botón desaparece del panel.
 		var res map[string]any
 		_ = json.Unmarshal(j.Result, &res)
 		if res == nil {
@@ -1169,21 +1255,23 @@ func (s *Server) jobCleanupIncomplete(w http.ResponseWriter, r *http.Request, id
 		res["cleaned"] = true
 		if out, merr := json.Marshal(res); merr == nil {
 			j.Result = out
+			j.UpdatedAt = s.Now().UTC()
 		}
-		detail = fmt.Sprintf("%d objetos borrados (%s)", deleted, humanBytesCtrl(total))
-		s.audit(r, a, "job.incomplete_cleaned", "job", id, "ok",
-			map[string]string{"dest_prefix": prefix, "deleted": strconv.Itoa(deleted)})
 		return nil
 	})
-	if err != nil {
-		if err == errAbort {
-			s.problem(w, r, status, "E_CLEANUP", msg)
-			return
-		}
-		s.internalError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"detail": detail, "executed": execute})
+	s.audit(r, a, "job.incomplete_cleaned", "job", id, "ok",
+		map[string]string{"dest_prefix": prefix + "/", "deleted": strconv.Itoa(deleted)})
+	writeJSON(w, http.StatusOK, map[string]any{"detail": detail, "executed": true})
+}
+
+// loadTarget devuelve el destino de almacenamiento o nil si no existe.
+func (s *Server) loadTarget(id string) *store.StorageTarget {
+	var out *store.StorageTarget
+	_ = s.Store.View(context.Background(), func(st *store.State) error {
+		out = st.Storage[id]
+		return nil
+	})
+	return out
 }
 
 // humanBytesCtrl formatea bytes para los mensajes del panel.
