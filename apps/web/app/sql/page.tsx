@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Button, ErrorBox, Field, Input, cx } from "@/components/ui";
+import { Button, ErrorBox, Field, Input, Select, cx } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { ApiError, api, type AgentList, type RestorePointViewList, type StorageTargetList, type StorageTargetView } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -148,6 +148,17 @@ export default function SQLPage() {
   const [chainBusy, setChainBusy] = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const chainReqId = useRef(0);
+
+  // Edición de plan programado (PUT /api/v1/admin/sql/plans/{id}): el modal
+  // rellena sus campos desde el plan seleccionado y guarda los cambios.
+  const [editingPlan, setEditingPlan] = useState<SQLPlanView | null>(null);
+  const [editType, setEditType] = useState("FULL");
+  const [editSchedule, setEditSchedule] = useState("");
+  const [editVerifyCron, setEditVerifyCron] = useState("");
+  const [editRetentionDays, setEditRetentionDays] = useState("0");
+  const [editVerify, setEditVerify] = useState(true);
+  const [editTimezone, setEditTimezone] = useState("UTC");
+  const [editTargetId, setEditTargetId] = useState("");
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -483,6 +494,46 @@ export default function SQLPage() {
       load();
     });
 
+  const openEditPlan = (p: SQLPlanView) => {
+    setEditingPlan(p);
+    setEditType(p.type || "FULL");
+    setEditSchedule(p.schedule);
+    setEditVerifyCron(p.verify_cron ?? "");
+    setEditRetentionDays(String(p.retention_days ?? 0));
+    setEditVerify(p.verify);
+    setEditTimezone(p.timezone ?? "UTC");
+    setEditTargetId(p.storage_target_id);
+    setError(null);
+  };
+
+  const updatePlan = () =>
+    act(`edit-${editingPlan?.id}`, async () => {
+      if (!editingPlan) return;
+      if (!editSchedule) {
+        setError("El plan requiere horario (cron).");
+        return;
+      }
+      await api(`/api/v1/admin/sql/plans/${editingPlan.id}`, token, {
+        method: "PUT",
+        body: JSON.stringify({
+          agent_id: editingPlan.agent_id,
+          server: editingPlan.server,
+          instance: editingPlan.instance,
+          database: editingPlan.database,
+          type: editType,
+          schedule: editSchedule,
+          timezone: editTimezone,
+          storage_target_id: editTargetId || editingPlan.storage_target_id,
+          retention_days: Number(editRetentionDays) || 0,
+          verify: editVerify,
+          verify_cron: editVerifyCron,
+        }),
+      });
+      setNotice("Plan actualizado.");
+      setEditingPlan(null);
+      load();
+    });
+
   return (
     <div>
       <h1 className="font-display text-3xl uppercase tracking-wide text-slate-100">SQL Server</h1>
@@ -645,6 +696,9 @@ export default function SQLPage() {
                   </td>
                   <td className="py-2 pr-4">
                     <div className="flex gap-1.5">
+                      <Button size="sm" variant="secondary" loading={busy === `edit-${p.id}`} onClick={() => openEditPlan(p)}>
+                        Editar
+                      </Button>
                       <Button size="sm" variant="ghost" loading={busy === `toggle-${p.id}`} onClick={() => togglePlan(p)}>
                         {p.enabled ? "Pausar" : "Activar"}
                       </Button>
@@ -721,6 +775,81 @@ export default function SQLPage() {
           FULL→DIFF→LOG con continuidad de LSN y la confirma el operador antes de ejecutar.
         </p>
       </div>
+
+      {editingPlan ? (
+        <Modal kicker="SQL Server" title={`Editar plan · ${editingPlan.database}`} onClose={() => setEditingPlan(null)} wide>
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-slate-400">
+              <span>
+                agente:{" "}
+                <span className="text-signal">{editingPlan.agent_id}</span>
+              </span>
+              <span>
+                servidor:{" "}
+                <span className="text-signal">
+                  {editingPlan.server}
+                  {editingPlan.instance ? `\\${editingPlan.instance}` : ""}
+                </span>
+              </span>
+              <span>
+                base:{" "}
+                <span className="text-signal">{editingPlan.database}</span>
+              </span>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Tipo">
+                <select
+                  value={editType}
+                  onChange={(e) => setEditType(e.target.value)}
+                  className="w-full border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slate-200 focus:border-signal focus:outline-none"
+                >
+                  <option value="FULL">FULL</option>
+                  <option value="DIFF">DIFFERENTIAL</option>
+                  <option value="LOG">LOG</option>
+                  <option value="COPY_ONLY">COPY_ONLY</option>
+                </select>
+              </Field>
+              <Field label="Horario (cron)" hint="minuto hora día-mes mes-día · p. ej. 0 3 * * *">
+                <Input value={editSchedule} onChange={(e) => setEditSchedule(e.target.value)} placeholder="0 3 * * *" />
+              </Field>
+              <Field label="Verify cron (opcional)" hint="RF-44: VERIFYONLY periódico del último backup">
+                <Input value={editVerifyCron} onChange={(e) => setEditVerifyCron(e.target.value)} placeholder="0 5 * * 6" />
+              </Field>
+              <Field label="Zona horaria">
+                <Input value={editTimezone} onChange={(e) => setEditTimezone(e.target.value)} placeholder="Europe/Madrid" />
+              </Field>
+              <Field label="Destino" hint="S3 o filesystem/SMB">
+                <select
+                  value={editTargetId}
+                  onChange={(e) => setEditTargetId(e.target.value)}
+                  className="w-full border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slate-200 focus:border-signal focus:outline-none"
+                >
+                  <option value="">— elige destino —</option>
+                  {targets.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} · {t.kind === "filesystem" ? t.path : `${t.endpoint}/${t.bucket}`}{t.prefix ? "/" + t.prefix : ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Retención (días)" hint="Object Lock GOVERNANCE en S3; 0 = la del destino">
+                <Input value={editRetentionDays} onChange={(e) => setEditRetentionDays(e.target.value)} inputMode="numeric" />
+              </Field>
+            </div>
+
+            <label className="flex items-center gap-2 font-mono text-xs text-slate-400">
+              <input type="checkbox" checked={editVerify} onChange={(e) => setEditVerify(e.target.checked)} />
+              Verificar el medio tras el backup (RESTORE VERIFYONLY)
+            </label>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setEditingPlan(null)}>Cancelar</Button>
+              <Button loading={busy === `edit-${editingPlan?.id}`} onClick={updatePlan}>Guardar cambios</Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
 
       {restoreFor ? (
         <Modal kicker="SQL Server" title={`Restaurar ${restoreFor}`} onClose={() => setRestoreFor(null)} wide>

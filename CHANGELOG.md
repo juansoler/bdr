@@ -2,6 +2,18 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.51] — 2026-11-24
+
+### Añadido
+
+- **Edición de planes programados de SQL desde el panel**: el listado de
+  `/sql` ahora ofrece la acción **Editar** en cada plan, que abre un modal
+  con tipo, horario (cron), zona horaria, destino de almacenamiento,
+  retención y verificación programada (`verify_cron`). El guardado emite
+  `PUT /api/v1/admin/sql/plans/{id}` (ya soportado por el backend, que
+  recalcula la próxima ejecución al cambiar horario/zona). Antes solo existía
+  crear, pausar y eliminar.
+
 ## [0.16.50] — 2026-11-24
 
 ### Corregido
