@@ -84,22 +84,20 @@ func smbJoin(parts ...string) string {
 	return strings.Join(nonEmpty, "/")
 }
 
-// destPath resuelve la ruta destino dentro del share para un fichero local.
-func (s *smbTransferer) destPath(srcPath string) (string, error) {
-	name := filepath.Base(srcPath)
-	if name == "" || name == "." || name == ".." || strings.ContainsRune(name, 0) {
-		return "", fmt.Errorf("nombre de fichero inválido: %q", name)
-	}
-	return smbJoin(s.root, name), nil
+// Transfer copia el fichero local al share de forma atómica.
+// Devuelve la URI UNC \\host\recurso\ruta. El objeto cae en la raíz del
+// subdirectorio del destino; usa TransferTo para una ruta con subdirectorios.
+func (s *smbTransferer) Transfer(ctx context.Context, srcPath string) (string, error) {
+	return s.TransferTo(ctx, srcPath, filepath.Base(srcPath))
 }
 
-// Transfer copia el fichero local al share de forma atómica.
-// Devuelve la URI UNC \\host\recurso\ruta.
-func (s *smbTransferer) Transfer(ctx context.Context, srcPath string) (string, error) {
-	dest, err := s.destPath(srcPath)
-	if err != nil {
+// TransferTo es Transfer bajo la clave relativa relKey dentro del
+// subdirectorio del destino (crea los directorios intermedios en el recurso).
+func (s *smbTransferer) TransferTo(ctx context.Context, srcPath, relKey string) (string, error) {
+	if err := validateRelKey(relKey); err != nil {
 		return "", err
 	}
+	dest := smbJoin(s.root, relKey)
 	if dir := path.Dir(dest); dir != "" && dir != "." {
 		if err := s.share.MkdirAll(dir, 0o755); err != nil {
 			return "", fmt.Errorf("crear directorio en el recurso: %w", err)

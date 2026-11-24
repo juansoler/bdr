@@ -84,6 +84,34 @@ func sqlBackupType(s string) (backup.Type, bool, error) {
 	}
 }
 
+// sqlRelDir compone el subdirectorio relativo del destino para los medios
+// SQL de una ejecución: <máquina-agente>/<instancia>/<fecha> (p. ej.
+// "SRV-SQL01/MSSQLSERVER/2026-11-24"). La máquina es el hostname del
+// agente (vive en el host SQL); la instancia es la del plan, normalizada a
+// MSSQLSERVER cuando apunta a la predeterminada. Los componentes se
+// sanitizan para ser segmentos válidos de ruta/clave de objeto.
+func sqlRelDir(instance string, now time.Time) string {
+	machine := sanitizeMachine(sqlHostname())
+	if machine == "" {
+		machine = "agent"
+	}
+	inst := sanitizeMachine(instance)
+	if inst == "" {
+		inst = "MSSQLSERVER"
+	}
+	return machine + "/" + inst + "/" + now.Format("2006-01-02")
+}
+
+// sqlHostname devuelve el hostname del agente ("" si no se puede obtener;
+// sqlRelDir usa el fallback "agent").
+func sqlHostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return h
+}
+
 // formatLSN serializa un LSN para el resultado del job (ya es texto:
 // numeric(25,0) no cabe en uint64, ver P-26). Vacío/0 → "" (omitempty).
 func formatLSN(l connector.LSN) string {
@@ -157,8 +185,10 @@ func (m *SQLMotor) Backup(ctx context.Context, creds *contracts.RepositoryCreden
 	progress(15, "BACKUP "+string(t)+" de "+payload.Database, 0)
 	// Catálogo en memoria del proceso: el registro duradero lo hace el
 	// control plane al ingestar el resultado del job (RestorePoint SQL).
+	// El medio se transfiere ordenado por máquina/instancia/fecha:
+	// <prefijo-destino>/<máquina>/<instancia>/<AAAA-MM-DD>/<fichero>.
 	orch := orchestrator.New(db, sm, tr, metadata.NewInMemoryCatalog(), payload.Database)
-	res, repoURI, err := orch.RunBackup(ctx, t, copyOnly, verify, enc)
+	res, repoURI, err := orch.RunBackupTo(ctx, t, copyOnly, verify, enc, sqlRelDir(payload.Instance, time.Now()))
 	if err != nil {
 		return nil, &CodeError{Code: "E_JOB_FAILED", Message: err.Error()}
 	}
@@ -407,11 +437,13 @@ func (m *SQLMotor) CertBackup(ctx context.Context, creds *contracts.RepositoryCr
 
 	progress(70, "transfiriendo custodia al destino", 0)
 	start := time.Now()
-	cerURI, err := tr.Transfer(ctx, cerPath)
+	// La custodia comparte la jerarquía de los medios: máquina/instancia/fecha.
+	relDir := sqlRelDir(payload.Instance, time.Now())
+	cerURI, err := tr.TransferTo(ctx, cerPath, relDir+"/"+filepath.Base(cerPath))
 	if err != nil {
 		return nil, &CodeError{Code: "E_STORAGE", Message: err.Error()}
 	}
-	pvkURI, err := tr.Transfer(ctx, pvkPath)
+	pvkURI, err := tr.TransferTo(ctx, pvkPath, relDir+"/"+filepath.Base(pvkPath))
 	if err != nil {
 		return nil, &CodeError{Code: "E_STORAGE", Message: err.Error()}
 	}

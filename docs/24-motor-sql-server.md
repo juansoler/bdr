@@ -234,6 +234,7 @@ WITH
 ### 8.1 Formato y deduplicación
 
 - Se conservan los **formatos nativos** `.bak`/`.trn`. SQL Server ya comprime sus backups, lo que reduce el beneficio de la deduplicación posterior; **no se deduplican internamente** con el mismo procedimiento que las imágenes de disco (A-12). El repositorio los trata como objetos o archivos protegidos.
+- **Layout en el repositorio:** los medios se ordenan por origen y fecha como `<prefijo-destino>/<máquina-agente>/<instancia>/<AAAA-MM-DD>/<base>_<TIPO>_<timestamp>.bak` (p. ej. `sql/SRV-SQL01/MSSQLSERVER/2026-11-24/app_FULL_20261124_020000.bak`). La máquina es el hostname del agente (host SQL) y la instancia la del plan (`MSSQLSERVER` cuando apunta a la predeterminada). La custodia de certificados comparte la misma jerarquía.
 - La retención se aplica como en el resto de la plataforma (GFS configurable por instancia o base de datos).
 - La réplica a S3 con Object Lock reutiliza el mecanismo de RF-10/RF-36.
 

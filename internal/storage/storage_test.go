@@ -187,3 +187,78 @@ func TestParseTargetURIEnvsDocumentados(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateRelKey(t *testing.T) {
+	validos := []string{
+		"SRV-SQL01/MSSQLSERVER/2026-11-24/app_FULL_20261124_020000.bak",
+		"a.b-c_d/e.f",
+		"fichero.bak",
+	}
+	for _, v := range validos {
+		if err := validateRelKey(v); err != nil {
+			t.Errorf("validateRelKey(%q): %v", v, err)
+		}
+	}
+	invalidos := []string{
+		"", "/abs/inicio", "a//b", "a/./b", "a/../b", `a\b`, ".", "..", "a/.",
+	}
+	for _, v := range invalidos {
+		if err := validateRelKey(v); err == nil {
+			t.Errorf("validateRelKey(%q): se esperaba error", v)
+		}
+	}
+}
+
+// TransferTo crea la jerarquía máquina/instancia/fecha en el destino local;
+// Transfer (nombre plano) sigue escribiendo en la raíz del repo.
+func TestLocalTransferToSubdir(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	staging := t.TempDir()
+	src := filepath.Join(staging, "app_FULL_1.bak")
+	if err := os.WriteFile(src, []byte("contenido-de-backup"), 0o640); err != nil {
+		t.Fatalf("crear src: %v", err)
+	}
+
+	tr := NewTransferer(Repository{Type: "nas", Path: repo})
+	uri, err := tr.TransferTo(context.Background(), src, "SRV01/MSSQLSERVER/2026-11-24/app_FULL_1.bak")
+	if err != nil {
+		t.Fatalf("TransferTo: %v", err)
+	}
+	want := filepath.Join(repo, "SRV01", "MSSQLSERVER", "2026-11-24", "app_FULL_1.bak")
+	if uri != want {
+		t.Fatalf("uri = %s; want %s", uri, want)
+	}
+	data, err := os.ReadFile(uri)
+	if err != nil || string(data) != "contenido-de-backup" {
+		t.Fatalf("contenido destino: %q, %v", data, err)
+	}
+
+	// Transfer plano: raíz del repo (comportamiento previo).
+	uri2, err := tr.Transfer(context.Background(), src)
+	if err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	want2 := filepath.Join(repo, "app_FULL_1.bak")
+	if uri2 != want2 {
+		t.Fatalf("uri plana = %s; want %s", uri2, want2)
+	}
+
+	// Clave relativa inválida: se rechaza antes de tocar el destino.
+	if _, err := tr.TransferTo(context.Background(), src, "a/../b"); err == nil {
+		t.Fatal("TransferTo con recorrido de directorio debe fallar")
+	}
+	if err := tr.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+// TransferTo de S3 valida la clave relativa antes de abrir el fichero
+// (sin cliente S3 se comprueba solo el rechazo de claves inválidas).
+func TestS3TransferToValidaRelKey(t *testing.T) {
+	s := &s3Transferer{bucket: "bdr", prefix: "sql/"}
+	if _, err := s.TransferTo(context.Background(), "/no/existe.bak", "a/../b"); err == nil {
+		t.Fatal("se esperaba error de clave relativa")
+	} else if !strings.Contains(err.Error(), "ruta relativa") {
+		t.Fatalf("error inesperado: %v", err)
+	}
+}

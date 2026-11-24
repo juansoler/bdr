@@ -20,8 +20,14 @@ import (
 type Transferer interface {
 	// Transfer copia el fichero local srcPath al repositorio y devuelve la
 	// URI del objeto destino ("s3://bucket/clave", UNC de Windows
-	// \\servidor\recurso\... o ruta local).
+	// \\servidor\recurso\... o ruta local). Es TransferTo con el nombre
+	// plano del fichero: el objeto cae en la raíz del prefijo del destino.
 	Transfer(ctx context.Context, srcPath string) (string, error)
+	// TransferTo es Transfer bajo la clave relativa relKey
+	// ("maquina/instancia/fecha/fichero.bak"): crea los subdirectorios
+	// intermedios necesarios en el destino. La usa el motor SQL para
+	// ordenar los medios por máquina/instancia/fecha en el repositorio.
+	TransferTo(ctx context.Context, srcPath, relKey string) (string, error)
 	// Fetch descarga al staging local destPath el objeto uri del
 	// repositorio (operación inversa de Transfer; la usa el restore).
 	Fetch(ctx context.Context, uri, destPath string) error

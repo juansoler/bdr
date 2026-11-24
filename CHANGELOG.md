@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.54] — 2026-11-24
+
+### Cambiado
+
+- **Los backups de SQL Server se ordenan por máquina/instancia/fecha en el
+  destino**: antes los medios caían en la raíz del almacenamiento configurado
+  (directamente bajo el prefijo del destino, p. ej.
+  `sql/app_FULL_20261124_020000.bak`); ahora el agente los transfiere a
+  `<prefijo>/<máquina-agente>/<instancia>/<AAAA-MM-DD>/<fichero>`, p. ej.
+  `sql/SRV-SQL01/MSSQLSERVER/2026-11-24/app_FULL_20261124_020000.bak`. La
+  máquina es el hostname del agente (host SQL) y la instancia la del plan,
+  normalizada a `MSSQLSERVER` cuando apunta a la predeterminada. La custodia
+  de certificados (`SQL_CERTBACKUP`) usa la misma jerarquía. Los medios ya
+  subidos conservan sus URIs y siguen restaurables; solo los nuevos usan el
+  layout nuevo. Añadido `Transferer.TransferTo` (backends local, S3 y SMB)
+  con `Transfer` como atajo de nombre plano: sin cambios para el motor
+  PostgreSQL ni el CLI de laboratorio.
+
 ## [0.16.53] — 2026-11-24
 
 ### Corregido

@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/juansoler/bdr/internal/backup"
 	"github.com/juansoler/bdr/internal/connector"
@@ -35,8 +37,17 @@ func New(db *connector.DB, sm *backup.StagingManager, t storage.Transferer, c me
 // verifyAfter controla si se verifica el medio tras el backup (RESTORE
 // VERIFYONLY; por diseño true en los planes, RF-44). enc != nil cifra el
 // medio (RF-45) — el certificado debe estar custodiado.
+// Es RunBackupTo sin subdirectorio: el medio cae en la raíz del prefijo
+// del destino (comportamiento histórico del CLI de laboratorio).
 // Devuelve el resultado del backup y la ruta en el repositorio.
 func (o *Orquestador) RunBackup(ctx context.Context, t backup.Type, copyOnly, verifyAfter bool, enc *backup.Encryption) (*backup.Result, string, error) {
+	return o.RunBackupTo(ctx, t, copyOnly, verifyAfter, enc, "")
+}
+
+// RunBackupTo es RunBackup transfiriendo el medio bajo el subdirectorio
+// relativo relDir ("maquina/instancia/fecha", vacío = raíz del destino).
+// El agente SQL lo usa para ordenar los medios en el repositorio.
+func (o *Orquestador) RunBackupTo(ctx context.Context, t backup.Type, copyOnly, verifyAfter bool, enc *backup.Encryption, relDir string) (*backup.Result, string, error) {
 	// Contrato de rutas: FullPath devuelve el FICHERO final; backup escribe
 	// ahí, storage transfiere ese fichero y Cleanup lo elimina.
 	stagingPath := o.staging.FullPath(o.database, t)
@@ -46,7 +57,13 @@ func (o *Orquestador) RunBackup(ctx context.Context, t backup.Type, copyOnly, ve
 		return nil, "", err
 	}
 
-	repoPath, err := o.transferer.Transfer(ctx, stagingPath)
+	var repoPath string
+	if relDir == "" {
+		repoPath, err = o.transferer.Transfer(ctx, stagingPath)
+	} else {
+		rel := strings.Trim(relDir, "/") + "/" + filepath.Base(stagingPath)
+		repoPath, err = o.transferer.TransferTo(ctx, stagingPath, rel)
+	}
 	if err != nil {
 		// el staging se mantiene para reintento
 		return res, "", err

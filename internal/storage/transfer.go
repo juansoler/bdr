@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/juansoler/bdr/internal/backup"
@@ -24,15 +25,25 @@ type localTransferer struct {
 	repo Repository
 }
 
-// Transfer mueve un archivo de staging al repositorio local.
+// Transfer copia el fichero local al repositorio.
 // La escritura es atómica (temporal + rename): si el proceso muere a mitad
 // no queda un fichero a medias con nombre definitivo.
 func (t *localTransferer) Transfer(ctx context.Context, stagingPath string) (string, error) {
-	if err := os.MkdirAll(t.repo.Path, 0750); err != nil {
-		return "", fmt.Errorf("crear destino repo %s: %w", t.repo.Path, err)
+	return t.TransferTo(ctx, stagingPath, filepath.Base(stagingPath))
+}
+
+// TransferTo es Transfer bajo la clave relativa relKey, creando los
+// subdirectorios intermedios dentro del repositorio.
+func (t *localTransferer) TransferTo(ctx context.Context, stagingPath, relKey string) (string, error) {
+	if err := validateRelKey(relKey); err != nil {
+		return "", err
 	}
 
-	dest := filepath.Join(t.repo.Path, filepath.Base(stagingPath))
+	dest := filepath.Join(t.repo.Path, filepath.FromSlash(relKey))
+	if err := os.MkdirAll(filepath.Dir(dest), 0750); err != nil {
+		return "", fmt.Errorf("crear destino repo %s: %w", filepath.Dir(dest), err)
+	}
+
 	tmp := dest + ".bdr-tmp"
 
 	if err := copyFile(stagingPath, tmp); err != nil {
@@ -48,6 +59,23 @@ func (t *localTransferer) Transfer(ctx context.Context, stagingPath string) (str
 	// en el catálogo (ver metadata.BackupInfo.RepoPath).
 
 	return dest, nil
+}
+
+// validateRelKey valida una clave relativa de objeto (segmentos separados
+// por "/", sin recorridos de directorio): es la ruta del objeto dentro del
+// destino y debe poder crearse en filesystem local, clave S3 y recurso SMB
+// por igual. Rechaza absolutas, segmentos vacíos, "." / ".." y "\" (la clave
+// es portátil: solo barra "/").
+func validateRelKey(rel string) error {
+	if rel == "" || strings.HasPrefix(rel, "/") || strings.ContainsRune(rel, 0) || strings.Contains(rel, `\`) {
+		return fmt.Errorf("ruta relativa de objeto inválida: %q", rel)
+	}
+	for _, part := range strings.Split(rel, "/") {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("ruta relativa de objeto inválida: %q", rel)
+		}
+	}
+	return nil
 }
 
 // Fetch copia un objeto del repositorio local al staging (por ruta).

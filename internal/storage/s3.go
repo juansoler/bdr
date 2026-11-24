@@ -79,8 +79,18 @@ func (s *s3Transferer) putOpts(now time.Time) minio.PutObjectOptions {
 }
 
 // Transfer sube el fichero local al bucket con streaming (los backups SQL
-// pueden pesar gigas: nunca se cargan en memoria).
+// pueden pesar gigas: nunca se cargan en memoria). El objeto cae en la raíz
+// del prefijo del destino; usa TransferTo para una clave con subdirectorios.
 func (s *s3Transferer) Transfer(ctx context.Context, srcPath string) (string, error) {
+	return s.TransferTo(ctx, srcPath, path.Base(srcPath))
+}
+
+// TransferTo sube el fichero bajo la clave relativa relKey dentro del
+// prefijo del destino (p. ej. "SRV-SQL01/MSSQLSERVER/2026-11-24/app_FULL_…bak").
+func (s *s3Transferer) TransferTo(ctx context.Context, srcPath, relKey string) (string, error) {
+	if err := validateRelKey(relKey); err != nil {
+		return "", err
+	}
 	f, err := os.Open(srcPath)
 	if err != nil {
 		return "", fmt.Errorf("abrir %s: %w", srcPath, err)
@@ -91,12 +101,9 @@ func (s *s3Transferer) Transfer(ctx context.Context, srcPath string) (string, er
 		return "", fmt.Errorf("stat %s: %w", srcPath, err)
 	}
 
-	key, err := s.s3Key(fi.Name())
-	if err != nil {
-		return "", err
-	}
+	key := s.prefix + relKey
 	if _, err := s.mc.PutObject(ctx, s.bucket, key, f, fi.Size(), s.putOpts(time.Now())); err != nil {
-		return "", fmt.Errorf("subir %s a s3://%s/%s: %w", fi.Name(), s.bucket, key, err)
+		return "", fmt.Errorf("subir %s a s3://%s/%s: %w", path.Base(srcPath), s.bucket, key, err)
 	}
 	return "s3://" + s.bucket + "/" + key, nil
 }
