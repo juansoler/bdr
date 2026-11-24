@@ -35,22 +35,22 @@ const SchemaVersion = 2
 
 // EnrollmentToken es un token de un solo uso. Solo se persiste su hash.
 type EnrollmentToken struct {
-	ID               string     `json:"ID"`
-	TokenHash        string     `json:"TokenHash"`
-	ExpectedHostname string     `json:"ExpectedHostname"`
+	ID               string `json:"ID"`
+	TokenHash        string `json:"TokenHash"`
+	ExpectedHostname string `json:"ExpectedHostname"`
 	// AgentID, si no está vacío, convierte el token en token de RECONEXIÓN:
 	// el enrolamiento no crea un agente nuevo sino que reenlaza este
 	// (misma identidad: grupos, planes e historial se conservan).
-	AgentID string `json:"AgentID,omitempty"`
-	CreatedAt        time.Time  `json:"CreatedAt"`
-	ExpiresAt        time.Time  `json:"ExpiresAt"`
-	UsedAt           *time.Time `json:"UsedAt"`
-	UsedByAgentID    string     `json:"UsedByAgentID"`
-	RevokedAt        *time.Time `json:"RevokedAt,omitempty"`
-	GroupID          string     `json:"GroupID,omitempty"`
-	PlanID           string     `json:"PlanID,omitempty"`
-	Note             string     `json:"Note,omitempty"`
-	CreatedBy        string     `json:"CreatedBy,omitempty"`
+	AgentID       string     `json:"AgentID,omitempty"`
+	CreatedAt     time.Time  `json:"CreatedAt"`
+	ExpiresAt     time.Time  `json:"ExpiresAt"`
+	UsedAt        *time.Time `json:"UsedAt"`
+	UsedByAgentID string     `json:"UsedByAgentID"`
+	RevokedAt     *time.Time `json:"RevokedAt,omitempty"`
+	GroupID       string     `json:"GroupID,omitempty"`
+	PlanID        string     `json:"PlanID,omitempty"`
+	Note          string     `json:"Note,omitempty"`
+	CreatedBy     string     `json:"CreatedBy,omitempty"`
 }
 
 // Agent es un equipo registrado. Solo se persiste el hash de su API key.
