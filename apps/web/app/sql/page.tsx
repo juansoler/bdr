@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { Button, ErrorBox, Field, Input, Select, cx } from "@/components/ui";
 import { Modal } from "@/components/Modal";
-import { ApiError, api, type AgentList, type RestorePointViewList, type StorageTargetList, type StorageTargetView } from "@/lib/api";
+import { ApiError, api, apiConfigBackup, type AgentList, type ConfigBackup, type RestorePointViewList, type StorageTargetList, type StorageTargetView } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 // Tipos alineados con contracts.SQLPlanView, contracts.RestorePointSQLView
@@ -148,6 +148,12 @@ export default function SQLPage() {
   const [chainBusy, setChainBusy] = useState(false);
   const [restoreConfirm, setRestoreConfirm] = useState(false);
   const chainReqId = useRef(0);
+
+  // Copia de seguridad / restauración de configuración (migración): exportar
+  // a fichero y restaurar desde fichero.
+  const restoreFileRef = useRef<HTMLInputElement>(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreSnapshot, setRestoreSnapshot] = useState<ConfigBackup | null>(null);
 
   // Edición de plan programado (PUT /api/v1/admin/sql/plans/{id}): el modal
   // rellena sus campos desde el plan seleccionado y guarda los cambios.
@@ -534,6 +540,56 @@ export default function SQLPage() {
       load();
     });
 
+  const exportConfig = async () =>
+    act("cfg-backup", async () => {
+      const snap = await apiConfigBackup(token);
+      const blob = new Blob([JSON.stringify(snap, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bdr-config-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setNotice("Copia de seguridad de configuración exportada.");
+    });
+
+  const onRestoreFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const snap = JSON.parse(text) as ConfigBackup;
+      if (snap?.schema_version !== 1) {
+        setError("La copia de seguridad tiene un formato no compatible.");
+        return;
+      }
+      setRestoreSnapshot(snap);
+      setRestoreOpen(true);
+    } catch {
+      setError("No se pudo leer el fichero: no es un JSON válido.");
+    }
+  };
+
+  const confirmRestore = () =>
+    act("cfg-restore", async () => {
+      if (!restoreSnapshot) return;
+      const res = await api<{ restored: boolean }>("/api/v1/admin/config/restore", token, {
+        method: "POST",
+        body: JSON.stringify(restoreSnapshot),
+      });
+      if (!res.restored) {
+        setError("La restauración no se aplicó.");
+        return;
+      }
+      setNotice("Copia de seguridad de configuración restaurada.");
+      setRestoreOpen(false);
+      setRestoreSnapshot(null);
+      load();
+    });
+
   return (
     <div>
       <h1 className="font-display text-3xl uppercase tracking-wide text-slate-100">SQL Server</h1>
@@ -712,6 +768,28 @@ export default function SQLPage() {
             </tbody>
           </table>
         )}
+      </div>
+
+      {/* --- Copia de seguridad de configuración (migración) --- */}
+      <div className="panel mt-6 p-5">
+        <h2 className="font-display text-lg uppercase tracking-wide text-slate-100">Copia de seguridad de configuración</h2>
+        <p className="mt-2 max-w-3xl text-sm text-slate-400">
+          Exporta la configuración del plano (agentes enrolados, planes, grupos, destinos de almacenamiento,
+          ajustes y el estado de los planes SQL) a un fichero JSON para migrar a otro servidor sin
+          reconfigurar nada. Los secretos de runtime (webhook, SMTP, passwords cifrados) no viajan en el
+          backup: se reconfiguran en destino.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button loading={busy === "cfg-backup"} onClick={exportConfig}>Exportar configuración</Button>
+          <Button variant="secondary" onClick={() => restoreFileRef.current?.click()}>Restaurar desde fichero</Button>
+          <input
+            ref={restoreFileRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={onRestoreFile}
+          />
+        </div>
       </div>
 
       {/* --- Puntos de restauración --- */}
@@ -938,6 +1016,25 @@ export default function SQLPage() {
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setRestoreFor(null)}>Cancelar</Button>
               <Button variant="danger" loading={busy === "restore"} onClick={launchRestore}>Restaurar</Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {restoreOpen && restoreSnapshot ? (
+        <Modal kicker="Migración" title="Restaurar copia de configuración" onClose={() => { setRestoreOpen(false); setRestoreSnapshot(null); }}>
+          <div className="space-y-5">
+            <div className="border border-alert/50 bg-alert/10 px-3 py-2 font-mono text-xs text-alert">
+              DESTRUCTIVO: esta operación reemplaza la configuración actual (ajustes, agentes, planes, grupos,
+              destinos de almacenamiento y estado de los planes SQL) por la de la copia de seguridad.
+            </div>
+            <p className="text-sm text-slate-400">
+              En una migración típica se restaura en el servidor de destino recién instalado; los backups de
+              datos (Kopia) se gestionan aparte desde los destinos de almacenamiento.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => { setRestoreOpen(false); setRestoreSnapshot(null); }}>Cancelar</Button>
+              <Button variant="danger" loading={busy === "cfg-restore"} onClick={confirmRestore}>Restaurar</Button>
             </div>
           </div>
         </Modal>

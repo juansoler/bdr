@@ -2,6 +2,19 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.52] — 2026-11-24
+
+### Añadido
+
+- **Copia de seguridad y restauración de configuración del plano** (migración):
+  `GET /api/v1/admin/config/backup` exporta ajustes, agentes enrolados, planes,
+  grupos, destinos de almacenamiento, credenciales de repositorio y el estado de
+  los planes SQL a un snapshot JSON (schema v1); `POST /api/v1/admin/config/restore`
+  lo aplica sobre otro servidor ya instalado. El panel `/sql` añade **Exportar
+  configuración** (descarga el snapshot) y **Restaurar desde fichero** (modal
+  destructivo), para migrar de un servidor a otro sin reconfigurar nada. Los
+  secretos de runtime (webhook, SMTP, passwords cifrados) no viajan en el backup.
+
 ## [0.16.51] — 2026-11-24
 
 ### Añadido

@@ -213,6 +213,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/admin/sql/plans", s.handleSQLPlansList)
 	mux.HandleFunc("PUT /api/v1/admin/sql/plans/{id}", s.handleSQLPlanUpdate)
 	mux.HandleFunc("DELETE /api/v1/admin/sql/plans/{id}", s.handleSQLPlanDelete)
+	mux.HandleFunc("GET /api/v1/admin/config/backup", s.handleConfigBackup)
+	mux.HandleFunc("POST /api/v1/admin/config/restore", s.handleConfigRestore)
 	mux.HandleFunc("/api/v1/admin/proxmox/manifest/", s.handleProxmoxManifestRoute)
 	mux.HandleFunc("/api/v1/admin/storage/targets", s.handleStorageTargets)
 	mux.HandleFunc("/api/v1/admin/storage/targets/", s.handleStorageTargets)

@@ -582,6 +582,163 @@ export interface UpdateInstallResponse {
   message?: string;
 }
 
+// --- Copia de seguridad / restauración de configuración (migración) ---
+
+export interface ConfigBackupSettings {
+  environment_name: string;
+  agent_offline_minutes: number;
+  alert_min_severity: string;
+  alert_renotify_hours: number;
+  webhook_configured: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_username: string;
+  smtp_configured: boolean;
+  smtp_from: string;
+  smtp_to: string[];
+  smtp_starttls: boolean;
+  session_hours: number;
+}
+
+export interface ConfigBackupAgent {
+  id: string;
+  hostname: string;
+  os_family: string;
+  os_version: string;
+  arch: string;
+  agent_version: string;
+  enrolled_at: string;
+  last_seen_at?: string;
+  revoked_at?: string;
+  revoked_reason?: string;
+  upgrade_requested_at?: string;
+}
+
+export interface ConfigBackupPlan {
+  id: string;
+  name: string;
+  description?: string;
+  kind: string;
+  paths?: string[];
+  excludes?: string[];
+  disks?: number[];
+  enabled: boolean;
+  schedule?: string;
+  timezone?: string;
+  window?: TimeWindow | null;
+  retention: Retention;
+  rpo_hours?: number;
+  storage_target_id?: string;
+}
+
+export interface ConfigBackupAssignment {
+  id: string;
+  plan_id: string;
+  target_type: TargetType;
+  target_id: string;
+  agent_id?: string;
+  enabled: boolean;
+}
+
+export interface ConfigBackupGroup {
+  id: string;
+  name: string;
+  description?: string;
+  parent_id?: string;
+  member_ids: string[];
+}
+
+export interface ConfigBackupStorage {
+  id: string;
+  name: string;
+  kind: "s3" | "filesystem";
+  endpoint?: string;
+  bucket?: string;
+  prefix?: string;
+  region?: string;
+  path?: string;
+  smb?: boolean;
+  smb_user?: string;
+  smb_domain?: string;
+  access_key?: string;
+  no_tls: boolean;
+  object_lock: boolean;
+  retention_days: number;
+  sync_interval_minutes: number;
+  enabled: boolean;
+}
+
+export interface ConfigBackupRepoCredential {
+  agent_id: string;
+  username: string;
+  hostname: string;
+  version: number;
+  rotated_at?: string;
+}
+
+export interface ConfigBackupSQLPlan {
+  id: string;
+  agent_id: string;
+  server: string;
+  instance?: string;
+  database: string;
+  type: string;
+  schedule: string;
+  timezone?: string;
+  storage_target_id: string;
+  retention_days?: number;
+  verify?: boolean;
+  enabled: boolean;
+  verify_cron?: string;
+}
+
+export interface ConfigBackupSQLCert {
+  name: string;
+  server: string;
+  instance?: string;
+  target_id?: string;
+  cert_uri?: string;
+  pvk_uri?: string;
+  last_backup_at?: string;
+  created_at?: string;
+}
+
+export interface ConfigBackupSQLInventory {
+  agent_id: string;
+  server: string;
+  instance?: string;
+  items?: unknown[];
+  updated_at?: string;
+}
+
+// ConfigBackup es el documento de exportación/restauración de la
+// configuración del plano (formato v1, para migración de servidor).
+export interface ConfigBackup {
+  schema_version: number;
+  exported_at: string;
+  settings: ConfigBackupSettings;
+  agents: ConfigBackupAgent[];
+  plans: ConfigBackupPlan[];
+  assignments: ConfigBackupAssignment[];
+  groups: ConfigBackupGroup[];
+  storage: ConfigBackupStorage[];
+  repo_credentials: ConfigBackupRepoCredential[];
+  sql_plans: ConfigBackupSQLPlan[];
+  sql_certs: ConfigBackupSQLCert[];
+  sql_inventories: ConfigBackupSQLInventory[];
+}
+
+export async function apiConfigBackup(token: string): Promise<ConfigBackup> {
+  return api<ConfigBackup>("/api/v1/admin/config/backup", token);
+}
+
+export async function apiConfigRestore(token: string, snapshot: ConfigBackup): Promise<{ restored: boolean }> {
+  return api("/api/v1/admin/config/restore", token, {
+    method: "POST",
+    body: JSON.stringify(snapshot),
+  });
+}
+
 export class ApiError extends Error {
   status: number;
   code: string;

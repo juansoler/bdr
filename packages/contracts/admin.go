@@ -680,3 +680,172 @@ type RestoreVMRequest struct {
 	TargetName       string `json:"target_name,omitempty"`
 	TargetStorage    string `json:"target_storage,omitempty"`
 }
+
+// --- Copia de seguridad y restauración de configuración (migración) ---
+
+// ConfigBackupSchemaVersion fija el formato de la copia de seguridad de
+// configuración exportada por GET /api/v1/admin/config/backup y aceptada por
+// POST /api/v1/admin/config/restore.
+const ConfigBackupSchemaVersion = 1
+
+// ConfigBackupSettings son los ajustes exportables (sin secretos: webhook y
+// SMTP se reconfiguran en destino).
+type ConfigBackupSettings struct {
+	EnvironmentName      string   `json:"environment_name"`
+	AgentOfflineMinutes int      `json:"agent_offline_minutes"`
+	AlertMinSeverity     string   `json:"alert_min_severity"`
+	AlertRenotifyHours   int      `json:"alert_renotify_hours"`
+	WebhookURL            string   `json:"webhook_url"`
+	WebhookConfigured    bool     `json:"webhook_configured"`
+	SMTPHost             string   `json:"smtp_host"`
+	SMTPPort             int      `json:"smtp_port"`
+	SMTPUsername         string   `json:"smtp_username"`
+	SMTPConfigured       bool     `json:"smtp_configured"`
+	SMTPFrom             string   `json:"smtp_from"`
+	SMTPTo               []string `json:"smtp_to"`
+	SMTPStartTLS        bool     `json:"smtp_starttls"`
+	SessionHours        int      `json:"session_hours"`
+}
+
+// ConfigBackupAgent resume un agente para la exportación de configuración
+// (equipos enrolados: hostname, SO, versión, estado de revocación…).
+type ConfigBackupAgent struct {
+	ID                  string  `json:"id"`
+	Hostname           string  `json:"hostname"`
+	OSFamily           string  `json:"os_family"`
+	OSVersion          string  `json:"os_version"`
+	Arch               string  `json:"arch"`
+	AgentVersion       string  `json:"agent_version"`
+	EnrolledAt         string  `json:"enrolled_at"`
+	LastSeenAt         string  `json:"last_seen_at,omitempty"`
+	RevokedAt          string  `json:"revoked_at,omitempty"`
+	RevokedReason     string  `json:"revoked_reason,omitempty"`
+	UpgradeRequestedAt string `json:"upgrade_requested_at,omitempty"`
+}
+
+// ConfigBackupPlan es un plan de protección exportable.
+type ConfigBackupPlan struct {
+	ID               string      `json:"id"`
+	Name             string      `json:"name"`
+	Description     string      `json:"description,omitempty"`
+	Kind             string      `json:"kind"`
+	Paths            []string    `json:"paths,omitempty"`
+	Excludes         []string    `json:"excludes,omitempty"`
+	Disks            []int       `json:"disks,omitempty"`
+	Enabled          bool        `json:"enabled"`
+	Schedule         string      `json:"schedule,omitempty"`
+	Timezone         string      `json:"timezone,omitempty"`
+	Window           *Window     `json:"window,omitempty"`
+	Retention        Retention   `json:"retention"`
+	RPOHours         int         `json:"rpo_hours,omitempty"`
+	StorageTargetID string      `json:"storage_target_id,omitempty"`
+}
+
+// ConfigBackupAssignment relaciona un plan con un agente o un grupo.
+type ConfigBackupAssignment struct {
+	ID         string `json:"id"`
+	PlanID     string `json:"plan_id"`
+	TargetType string `json:"target_type"`
+	TargetID   string `json:"target_id"`
+	AgentID    string `json:"agent_id,omitempty"`
+	Enabled    bool   `json:"enabled"`
+}
+
+// ConfigBackupGroup es un grupo de equipos con jerarquía opcional.
+type ConfigBackupGroup struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string  `json:"description,omitempty"`
+	ParentID    string   `json:"parent_id,omitempty"`
+	MemberIDs   []string `json:"member_ids"`
+}
+
+// ConfigBackupStorage es un destino de almacenamiento exportable (sin
+// secretos: access_key se exporta porque es legible, los valores cifrados no).
+type ConfigBackupStorage struct {
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Kind                 string `json:"kind"`
+	Endpoint             string `json:"endpoint,omitempty"`
+	Bucket               string `json:"bucket,omitempty"`
+	Prefix               string `json:"prefix,omitempty"`
+	Region               string `json:"region,omitempty"`
+	Path                 string `json:"path,omitempty"`
+	SMB                  bool   `json:"smb,omitempty"`
+	SMBUser              string `json:"smb_user,omitempty"`
+	SMBDomain            string `json:"smb_domain,omitempty"`
+	AccessKey            string `json:"access_key,omitempty"`
+	NoTLS               bool   `json:"no_tls"`
+	ObjectLock          bool   `json:"object_lock"`
+	RetentionDays       int    `json:"retention_days"`
+	SyncIntervalMinutes int   `json:"sync_interval_minutes"`
+	Enabled             bool   `json:"enabled"`
+}
+
+// ConfigBackupRepoCredential resume la credencial de repositorio por agente
+// (sin la contraseña: se re-adopta en destino).
+type ConfigBackupRepoCredential struct {
+	AgentID  string `json:"agent_id"`
+	Username string `json:"username"`
+	Hostname string `json:"hostname"`
+	Version  int    `json:"version"`
+	RotatedAt string `json:"rotated_at,omitempty"`
+}
+
+// ConfigBackupSQLPlan es un plan programado de backup SQL exportable.
+type ConfigBackupSQLPlan struct {
+	ID               string  `json:"id"`
+	AgentID          string  `json:"agent_id"`
+	Server           string  `json:"server"`
+	Instance         string  `json:"instance,omitempty"`
+	Database         string  `json:"database"`
+	Type             string  `json:"type"`
+	Schedule         string  `json:"schedule"`
+	Timezone         string  `json:"timezone,omitempty"`
+	StorageTargetID string  `json:"storage_target_id"`
+	RetentionDays    int     `json:"retention_days,omitempty"`
+	Verify           *bool   `json:"verify,omitempty"`
+	Enabled          bool    `json:"enabled"`
+	VerifyCron       string  `json:"verify_cron,omitempty"`
+}
+
+// ConfigBackupSQLCert resume la custodia de un certificado de SQL Server
+// exportable (sin la contraseña sellada: se re-custodia en destino).
+type ConfigBackupSQLCert struct {
+	Name           string `json:"name"`
+	Server         string `json:"server"`
+	Instance       string `json:"instance,omitempty"`
+	TargetID       string `json:"target_id,omitempty"`
+	CertURI        string `json:"cert_uri,omitempty"`
+	PvkURI         string `json:"pvk_uri,omitempty"`
+	LastBackupAt   string `json:"last_backup_at,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
+}
+
+// ConfigBackupSQLInventory resume la caché del inventario de bases de una
+// instancia SQL exportada para poblar el selector de bases en destino.
+type ConfigBackupSQLInventory struct {
+	AgentID   string               `json:"agent_id"`
+	Server    string               `json:"server"`
+	Instance  string               `json:"instance,omitempty"`
+	Items     []SQLDatabaseView   `json:"items"`
+	UpdatedAt string               `json:"updated_at,omitempty"`
+}
+
+// ConfigBackup es el documento completo de exportación/restauración de la
+// configuración del plano de control (formato v1, pensado para migración de
+// servidor: se exporta de un control y se restaura en otro ya instalado).
+type ConfigBackup struct {
+	SchemaVersion    int                       `json:"schema_version"`
+	ExportedAt       string                    `json:"exported_at"`
+	Settings         ConfigBackupSettings     `json:"settings"`
+	Agents           []ConfigBackupAgent     `json:"agents"`
+	Plans            []ConfigBackupPlan      `json:"plans"`
+	Assignments      []ConfigBackupAssignment `json:"assignments"`
+	Groups           []ConfigBackupGroup     `json:"groups"`
+	Storage          []ConfigBackupStorage   `json:"storage"`
+	RepoCredentials  []ConfigBackupRepoCredential `json:"repo_credentials"`
+	SQLPlans         []ConfigBackupSQLPlan   `json:"sql_plans"`
+	SQLCerts         []ConfigBackupSQLCert   `json:"sql_certs"`
+		SQLInventories   []ConfigBackupSQLInventory `json:"sql_inventories"`
+}
