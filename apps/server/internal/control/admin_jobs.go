@@ -1109,7 +1109,7 @@ func (s *Server) deleteTargetObjects(ctx context.Context, t *store.StorageTarget
 // intento fallido) y no se ejecuta si hay un backup hacia el mismo destino
 // en curso.
 func (s *Server) jobCleanupIncomplete(w http.ResponseWriter, r *http.Request, id string) {
-	if !allowMethod(w, r, http.MethodGet) && !allowMethod(w, r, http.MethodPost) {
+	if !allowMethod(w, r, http.MethodGet, http.MethodPost) {
 		return
 	}
 	r, a, ok := s.authorize(w, r, "operate")

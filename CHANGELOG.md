@@ -2,6 +2,20 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.53] — 2026-11-24
+
+### Corregido
+
+- **«Confirmar limpieza» de un backup fallido respondía HTTP 405**: el
+  endpoint `POST /api/v1/admin/jobs/{id}/cleanup-incomplete` validaba el
+  método con dos llamadas independientes a `allowMethod` (GET y POST); en un
+  POST la primera escribía el 405 en la respuesta antes de que la segunda
+  acertara, así que el panel mostraba «Error HTTP 405» aunque el borrado se
+  ejecutaba igualmente en el servidor (los objetos se borraban y el job
+  quedaba marcado como limpiado). Ahora la validación es única y variádica
+  (`allowMethod(w, r, GET, POST)`) y hay test de regresión que cubre la
+  vista previa (GET), el borrado (POST) y el marcado del job.
+
 ## [0.16.52] — 2026-11-24
 
 ### Añadido
