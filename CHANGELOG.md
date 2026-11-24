@@ -2,6 +2,33 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.49] — 2026-11-24
+
+### Añadido
+
+- **«Reconectar» en la ficha del equipo**: nuevo endpoint
+  `POST /admin/agents/{id}/reconnect-token` que genera un token de un solo
+  uso (15 minutos) ligado al agente existente. El enrolamiento con ese token
+  **reenlaza el mismo agente** —mismo ID, grupos, planes e historial
+  intactos, API key rotada y certificado mTLS reemitido— en lugar de crear
+  un equipo nuevo. Útil tras reinstalar un equipo o perder su identidad
+  local. El botón aparece cuando el equipo está offline.
+
+### Corregido
+
+- **Agente que queda offline por drift de endpoint no se recuperaba solo**:
+  si el endpoint configurado (p. ej. `https://nombre:8443`) deja de
+  resolverse o es inalcanzable (el servidor cambió de URL o el DNS se rompió),
+  el agente reintenta ahora el heartbeat contra su **URL de enrolamiento**
+  tras 5 fallos seguidos; un heartbeat allí le devuelve la URL vigente y la
+  adopta automáticamente. Antes reiniciar el servicio no servía de nada y
+  solo quedaba re-enrolar a mano.
+- **El instalador ya no crea equipos duplicados por accidente**: si el
+  data-dir ya contiene un agente enrolado, el instalador (Windows/Linux/
+  macOS) aborta con instrucciones claras. Para crear un equipo nuevo a
+  propósito hay que definir `BDR_FORCE_REENROLL=1`; los tokens de
+  reconexión generan un script sin ese guard.
+
 ## [0.16.48] — 2026-11-23
 
 ### Corregido

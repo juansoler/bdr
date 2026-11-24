@@ -285,6 +285,24 @@ type InstallerResponse struct {
 	AgentFilename string    `json:"agent_filename"`
 }
 
+// ReconnectTokenResponse es la respuesta de POST
+// /admin/agents/{id}/reconnect-token. El token re-enrola el agente
+// EXISTENTE (misma identidad: grupos, planes e historial se conservan);
+// no crea un equipo nuevo. OneLiner/InstallerURL solo vienen si el SO y la
+// arquitectura del agente tienen instalador (si no, usar el token a mano).
+type ReconnectTokenResponse struct {
+	ID            string    `json:"id"`
+	Token         string    `json:"token"`
+	ExpiresAt     time.Time `json:"expires_at"`
+	AgentID       string    `json:"agent_id"`
+	Hostname      string    `json:"hostname"`
+	OS            string    `json:"os"`
+	Arch          string    `json:"arch"`
+	InstallerURL  string    `json:"installer_url,omitempty"`
+	InstallerPath string    `json:"installer_path,omitempty"`
+	OneLiner      string    `json:"one_liner,omitempty"`
+}
+
 // PVEInstance es una instancia de Proxmox registrada para inventario y
 // operación. El secreto del token queda cifrado en reposo.
 type PVEInstance struct {

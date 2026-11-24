@@ -244,6 +244,8 @@ type EnrollmentTokenView struct {
 	UsedAt           *time.Time `json:"used_at,omitempty"`
 	UsedByAgentID    string     `json:"used_by_agent_id,omitempty"`
 	ExpectedHostname string     `json:"expected_hostname,omitempty"`
+	// AgentID no vacío marca el token como de reconexión de ese agente.
+	AgentID          string     `json:"agent_id,omitempty"`
 	Expired          bool       `json:"expired"`
 	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
 	GroupID          string     `json:"group_id,omitempty"`

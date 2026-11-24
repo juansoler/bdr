@@ -84,6 +84,15 @@ para que cualquier corrección o feature llegue publicada.
   La identidad propia está en `netbird status` (líneas `FQDN:` y
   `NetBird IP:`). Para `--public-url` usa el FQDN propio de NetBird
   (`<host>.netbird.cloud`) — lo resuelve el DNS de la malla y es estable.
+- Agente «sin conexión» con certificado vigente en el panel: mirar primero
+  el log del agente (`C:\ProgramData\BDR\agent.log` · `<data-dir>/agent.log`).
+  `dial tcp: lookup <host>: no such host` = el endpoint del agente dejó de
+  resolver (DNS): parchear DNS o usar **«Reconectar»** en la ficha del
+  equipo —reenlaza conservando identidad, grupos y planes—. Re-ejecutar el
+  instalador de «Añadir equipo» crea un EQUIPO NUEVO (aborta si ya hay
+  config salvo `BDR_FORCE_REENROLL=1`). Desde 0.16.49 el agente además se
+  autorrecupera: tras 5 heartbeats fallidos reintenta contra su URL de
+  enrolamiento y adopta la `--agent-url` vigente anunciada por el servidor.
 - La instalación del agente Windows genera servicio con recuperación
   automática (SCM); la de Linux systemd y la de macOS launchd — no mezclar
   tareas programadas con servicios.

@@ -2,6 +2,7 @@ package control
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -155,6 +156,8 @@ func (s *Server) handleAgentAction(w http.ResponseWriter, r *http.Request) {
 		s.agentDetail(w, r, agentID)
 	case len(parts) == 2 && parts[1] == "upgrade":
 		s.agentForceUpgrade(w, r, agentID)
+	case len(parts) == 2 && parts[1] == "reconnect-token":
+		s.agentReconnectToken(w, r, agentID)
 	case len(parts) == 2 && parts[1] == "backup":
 		s.agentBackupNow(w, r, agentID)
 	case len(parts) == 2 && parts[1] == "revoke":
@@ -596,7 +599,7 @@ func (s *Server) handleEnrollmentTokens(w http.ResponseWriter, r *http.Request) 
 				UsedAt: t.UsedAt, UsedByAgentID: t.UsedByAgentID,
 				ExpectedHostname: t.ExpectedHostname, Expired: now.After(t.ExpiresAt),
 				RevokedAt: t.RevokedAt, GroupID: t.GroupID, PlanID: t.PlanID,
-				Note: t.Note, CreatedBy: t.CreatedBy,
+				Note: t.Note, CreatedBy: t.CreatedBy, AgentID: t.AgentID,
 			})
 		}
 		writeJSON(w, http.StatusOK, contracts.EnrollmentTokenList{Items: items})
@@ -677,6 +680,96 @@ func (s *Server) handleEnrollmentTokenAction(w http.ResponseWriter, r *http.Requ
 	}
 	s.audit(r, a, "enrollment_token.revoked", "enrollment_token", id, "ok", nil)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// agentReconnectToken crea un token de un solo uso para REENLAZAR un agente
+// existente (p. ej. tras perder su identidad local o quedar desconectado):
+// el enrolamiento con este token conserva el agentID —grupos, planes e
+// historial intactos— en lugar de crear un equipo nuevo. TTL fijo y corto:
+// el operador lo ejecuta en el momento, desde la ficha del agente.
+func (s *Server) agentReconnectToken(w http.ResponseWriter, r *http.Request, agentID string) {
+	if !allowMethod(w, r, http.MethodPost) {
+		return
+	}
+	r, a, ok := s.authorize(w, r, "operate")
+	if !ok {
+		return
+	}
+	now := s.Now().UTC()
+	var ag store.Agent
+	err := s.Store.View(r.Context(), func(st *store.State) error {
+		agent := st.Agents[agentID]
+		if agent == nil {
+			return store.ErrNotFound
+		}
+		if agent.RevokedAt != nil {
+			return errReconnectRevoked
+		}
+		ag = *agent
+		return nil
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			s.problem(w, r, http.StatusNotFound, "E_AGENT_NOT_FOUND", "Agente no encontrado")
+		case errors.Is(err, errReconnectRevoked):
+			s.problem(w, r, http.StatusForbidden, "E_AGENT_REVOKED", "El agente está revocado; enrola uno nuevo")
+		default:
+			s.internalError(w, r, err)
+		}
+		return
+	}
+
+	token, err := auth.NewSecret(32)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	id, err := newID()
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	const reconnectTTL = 15 * time.Minute
+	rec := store.EnrollmentToken{
+		ID: id, TokenHash: auth.Hash(token), AgentID: agentID,
+		CreatedAt: now, ExpiresAt: now.Add(reconnectTTL),
+		Note: "reconnect", CreatedBy: a.auditName(),
+	}
+	if err := s.Store.Update(r.Context(), func(st *store.State) error {
+		st.Tokens[id] = &rec
+		return nil
+	}); err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	s.audit(r, a, "agent.reconnect_token_created", "agent", agentID, "ok",
+		map[string]string{"token_id": id, "hostname": ag.Hostname})
+	s.Logger.Info("reconnect token created", "token_id", id, "agent_id", agentID)
+
+	out := contracts.ReconnectTokenResponse{
+		ID: id, Token: token, ExpiresAt: rec.ExpiresAt,
+		AgentID: agentID, Hostname: ag.Hostname, OS: ag.OSFamily, Arch: ag.Arch,
+	}
+	// One-liner con el instalador cuando la plataforma del agente lo tiene.
+	osarch := ag.OSFamily + "-" + ag.Arch
+	if _, _, valid := validOSArch(osarch); valid {
+		base := strings.TrimRight(s.publicURLFor(r), "/")
+		ext := ""
+		if ag.OSFamily == "windows" {
+			ext = ".ps1"
+		}
+		out.InstallerURL = base + "/api/v1/download/installer/" + osarch + "/" + token + ext
+		out.InstallerPath = "/api/v1/download/installer/" + osarch + "/" + token + ext
+		switch ag.OSFamily {
+		case "windows":
+			out.OneLiner = "irm " + out.InstallerURL + " | iex"
+		default:
+			out.OneLiner = "curl -fsSL " + base + "/api/v1/download/installer/" + osarch + "/" + token +
+				" -o /tmp/bdr-reconnect.sh && sudo bash /tmp/bdr-reconnect.sh"
+		}
+	}
+	writeJSON(w, http.StatusCreated, out)
 }
 
 // --- Grupos ---

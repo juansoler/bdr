@@ -148,22 +148,27 @@ func (s *Server) downloadInstaller(w http.ResponseWriter, r *http.Request, osarc
 	if osName == "windows" && strings.HasSuffix(token, ".ps1") {
 		token = strings.TrimSuffix(token, ".ps1")
 	}
-	if _, valid := s.validateEnrollToken(token); !valid {
+	tok, valid := s.validateEnrollToken(token)
+	if !valid {
 		s.problem(w, r, http.StatusNotFound, "E_TOKEN_INVALID",
 			"Token de enrolamiento inexistente, caducado o revocado")
 		return
 	}
+	// Los tokens de reconexión (ligados a un agente existente) generan un
+	// script sin el guard anti-duplicados: su propósito es reenlazar el
+	// equipo que ya tiene config en el data-dir.
+	reconnect := tok.AgentID != ""
 	serverURL := strings.TrimRight(s.publicURLFor(r), "/")
 	var body, ctype string
 	switch osName {
 	case "windows":
-		body = s.windowsInstallerScript(serverURL, osarch, token)
+		body = s.windowsInstallerScript(serverURL, osarch, token, reconnect)
 		ctype = "application/octet-stream"
 	case "darwin":
-		body = s.darwinInstallerScript(serverURL, osarch, token)
+		body = s.darwinInstallerScript(serverURL, osarch, token, reconnect)
 		ctype = "text/x-shellscript; charset=utf-8"
 	default:
-		body = s.linuxInstallerScript(serverURL, osarch, token)
+		body = s.linuxInstallerScript(serverURL, osarch, token, reconnect)
 		ctype = "text/x-shellscript; charset=utf-8"
 	}
 	w.Header().Set("Content-Type", ctype)
@@ -185,11 +190,26 @@ func (s *Server) publicURLFor(r *http.Request) string {
 
 // linuxInstallerScript genera el instalador bash: descarga el binario, lo
 // registra (auto-enrol con el token embebido) e instala el servicio systemd
-// si existe; sin systemd imprime el comando manual.
-func (s *Server) linuxInstallerScript(serverURL, osarch, token string) string {
-	return strings.ReplaceAll("#!/bin/sh\n"+
-		"# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n"+
-		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n"+
+// si existe; sin systemd imprime el comando manual. Con reconnect=true
+// genera el script de RECONEXIÓN (sin guard anti-duplicados).
+func (s *Server) linuxInstallerScript(serverURL, osarch, token string, reconnect bool) string {
+	header := "# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n" +
+		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n"
+	guard := `# Guard anti-duplicados: con una config existente este instalador crearia un
+# EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la
+# accion «Reconectar» de su ficha; para forzar uno nuevo: BDR_FORCE_REENROLL=1.
+if [ -f "$DATA_DIR/agent.json" ] && [ -z "${BDR_FORCE_REENROLL:-}" ]; then
+  echo "este equipo ya tiene un agente enrolado en $DATA_DIR; aborto para no crear un equipo nuevo" >&2
+  echo "(reconectar: accion «Reconectar» del panel | forzar: BDR_FORCE_REENROLL=1)" >&2
+  exit 1
+fi
+`
+	if reconnect {
+		header = "# Reconexion BDR — reenlaza el agente EXISTENTE (conserva identidad, grupos y planes).\n" +
+			"# El token es de un solo uso: este script no es re-ejecutable.\n"
+		guard = ""
+	}
+	return strings.ReplaceAll("#!/bin/sh\n"+header+
 		"set -e\n"+
 		`SERVER="`+serverURL+`"`+"\n"+
 		`TOKEN="`+token+`"`+"\n"+
@@ -198,7 +218,7 @@ func (s *Server) linuxInstallerScript(serverURL, osarch, token string) string {
 		`DATA_DIR="${BDR_DATA_DIR:-/var/lib/bdr-agent}"`+"\n"+
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
-# Si hay un bdr-agent corriendo desde $BIN_DIR, hay que detenerlo ANTES de
+`+guard+`# Si hay un bdr-agent corriendo desde $BIN_DIR, hay que detenerlo ANTES de
 # descargar: Linux prohíbe reescribir (ETXTBSY) el binario de un proceso en
 # ejecución — y por eso el curl fallaba con (23) al escribir.
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet bdr-agent; then
@@ -248,15 +268,29 @@ fi
 }
 
 // windowsInstallerScript genera el instalador PowerShell: descarga el exe,
-// lo registra y crea el servicio de Windows.
-func (s *Server) windowsInstallerScript(serverURL, osarch, token string) string {
-	return "# Instalador generado por BDR Control — conecta el agente sin intervención.\r\n" +
+// lo registra y crea el servicio de Windows. Con reconnect=true genera el
+// script de RECONEXIÓN (sin guard anti-duplicados).
+func (s *Server) windowsInstallerScript(serverURL, osarch, token string, reconnect bool) string {
+	header := "# Instalador generado por BDR Control — conecta el agente sin intervención.\r\n"
+	guard := `# Guard anti-duplicados: con una config existente este instalador crearia un
+# EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la
+# accion «Reconectar» de su ficha.
+if ((Test-Path "$DataDir\agent.json") -and ($env:BDR_FORCE_REENROLL -ne "1")) {
+  throw "Este equipo ya tiene un agente enrolado en $DataDir. Ejecutar este instalador crearia un EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la accion «Reconectar» de su ficha. Para crear uno nuevo a proposito, define antes la variable de entorno BDR_FORCE_REENROLL=1 y reejecuta."
+}
+`
+	if reconnect {
+		header = "# Reconexion BDR — reenlaza el agente EXISTENTE (conserva identidad, grupos y planes).\r\n"
+		guard = ""
+	}
+	return header +
 		"$ErrorActionPreference = \"Stop\"\r\n" +
 		`$Server = "` + serverURL + `"` + "\r\n" +
 		`$Token = "` + token + `"` + "\r\n" +
 		`$OsArch = "` + osarch + `"` + "\r\n" +
 		`$Dir = "$env:ProgramFiles\BDR"` + "\r\n" +
 		`$DataDir = "$env:ProgramData\BDR"` + "\r\n" +
+		guard +
 		`
 New-Item -ItemType Directory -Force -Path $Dir, $DataDir | Out-Null
 Invoke-WebRequest -Uri "$Server/api/v1/download/agent/$OsArch" -OutFile "$Dir\bdr-agent.exe" -UseBasicParsing
@@ -283,11 +317,26 @@ try {
 // darwinInstallerScript genera el instalador bash para macOS: descarga el
 // binario, lo registra (auto-enrol con el token embebido) e instala el
 // servicio launchd (/Library/LaunchDaemons) para que arranque en el boot.
-func (s *Server) darwinInstallerScript(serverURL, osarch, token string) string {
-	return strings.ReplaceAll("#!/bin/sh\n"+
-		"# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n"+
-		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n"+
-		"# Requiere sudo (macOS Intel darwin-amd64 o Apple Silicon darwin-arm64).\n"+
+// Con reconnect=true genera el script de RECONEXIÓN (sin guard).
+func (s *Server) darwinInstallerScript(serverURL, osarch, token string, reconnect bool) string {
+	header := "# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n" +
+		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n" +
+		"# Requiere sudo (macOS Intel darwin-amd64 o Apple Silicon darwin-arm64).\n"
+	guard := `# Guard anti-duplicados: con una config existente este instalador crearia un
+# EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la
+# accion «Reconectar» de su ficha; para forzar uno nuevo: BDR_FORCE_REENROLL=1.
+if [ -f "$DATA_DIR/agent.json" ] && [ -z "${BDR_FORCE_REENROLL:-}" ]; then
+  echo "este equipo ya tiene un agente enrolado en $DATA_DIR; aborto para no crear un equipo nuevo" >&2
+  echo "(reconectar: accion «Reconectar» del panel | forzar: BDR_FORCE_REENROLL=1)" >&2
+  exit 1
+fi
+`
+	if reconnect {
+		header = "# Reconexion BDR — reenlaza el agente EXISTENTE (conserva identidad, grupos y planes).\n" +
+			"# El token es de un solo uso: este script no es re-ejecutable. Requiere sudo.\n"
+		guard = ""
+	}
+	return strings.ReplaceAll("#!/bin/sh\n"+header+
 		"set -e\n"+
 		`SERVER="`+serverURL+`"`+"\n"+
 		`TOKEN="`+token+`"`+"\n"+
@@ -296,7 +345,7 @@ func (s *Server) darwinInstallerScript(serverURL, osarch, token string) string {
 		`DATA_DIR="${BDR_DATA_DIR:-/Library/Application Support/BDR}"`+"\n"+
 		`
 command -v curl >/dev/null 2>&1 || { echo "falta curl" >&2; exit 1; }
-# Si hay un bdr-agent corriendo desde $BIN_DIR, hay que detenerlo ANTES de
+`+guard+`# Si hay un bdr-agent corriendo desde $BIN_DIR, hay que detenerlo ANTES de
 # descargar: Linux prohíbe reescribir (ETXTBSY) el binario de un proceso en
 # ejecución — y por eso el curl fallaba con (23) al escribir.
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet bdr-agent; then

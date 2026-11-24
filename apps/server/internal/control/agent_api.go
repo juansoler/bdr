@@ -63,6 +63,7 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 		}
 		used := now
 		t.UsedAt = &used
+		t.UsedByAgentID = t.AgentID // vacío en tokens normales de alta
 		consumed = *t
 		return nil
 	})
@@ -79,6 +80,13 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 		default:
 			s.problem(w, r, http.StatusUnauthorized, "E_ENROLL_INVALID", "Token de enrolamiento inválido")
 		}
+		return
+	}
+
+	// Token de reconexión: no se crea un agente nuevo; se reenlaza el
+	// existente conservando su identidad (grupos, planes e historial).
+	if consumed.AgentID != "" {
+		s.reconnectAgent(w, r, consumed, req, now)
 		return
 	}
 
@@ -153,6 +161,80 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Logger.Info("agent enrolled", "agent_id", agentID, "hostname", req.Hostname, "token_id", consumed.ID)
 	writeJSON(w, http.StatusCreated, out)
+}
+
+// errReconnectRevoked marca un intento de reconexión sobre un agente revocado.
+var errReconnectRevoked = errors.New("agente revocado")
+
+// reconnectAgent re-enrola un agente existente (token de reconexión):
+// conserva su ID —grupos, planes e historial intactos— pero rota la API key
+// y reemite el certificado mTLS desde la CSR presentada. Devuelve 200 (el
+// agente ya existía; el alta de un agente nuevo devuelve 201).
+func (s *Server) reconnectAgent(w http.ResponseWriter, r *http.Request, consumed store.EnrollmentToken, req contracts.EnrollRequest, now time.Time) {
+	agentID := consumed.AgentID
+	apiKey, err := auth.NewSecret(32)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+
+	var certPEM, caPEM string
+	var certExpiry *time.Time
+	var serial string
+	if req.CSRPEM != "" && s.CA != nil {
+		if issued, err := s.CA.SignAgentCSR(req.CSRPEM, agentID, now); err != nil {
+			s.Logger.Warn("csr inválida en reconexión", "agent", agentID, "error", err.Error())
+		} else {
+			certPEM, caPEM = issued.PEM, string(s.CA.CertPEM)
+			exp := issued.NotAfter
+			certExpiry = &exp
+			serial = issued.Serial
+		}
+	}
+
+	err = s.Store.Update(r.Context(), func(st *store.State) error {
+		a := st.Agents[agentID]
+		if a == nil {
+			return store.ErrNotFound
+		}
+		if a.RevokedAt != nil {
+			return errReconnectRevoked
+		}
+		a.APIKeyHash = auth.Hash(apiKey)
+		a.Hostname = req.Hostname
+		a.OSFamily = req.OSFamily
+		a.OSVersion = req.OSVersion
+		a.Arch = req.Arch
+		a.AgentVersion = req.AgentVersion
+		if serial != "" {
+			a.CertSerial = serial
+			a.CertNotAfter = certExpiry
+		}
+		st.BumpConfig()
+		return nil
+	})
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		s.problem(w, r, http.StatusNotFound, "E_AGENT_NOT_FOUND", "El agente a reconectar no existe")
+		return
+	case errors.Is(err, errReconnectRevoked):
+		s.problem(w, r, http.StatusForbidden, "E_AGENT_REVOKED", "El agente está revocado; enrola uno nuevo")
+		return
+	case err != nil:
+		s.internalError(w, r, err)
+		return
+	}
+
+	out := contracts.EnrollResponse{
+		AgentID: agentID, APIKey: apiKey, HeartbeatSeconds: s.HeartbeatSeconds,
+		AgentURL: s.AgentPublicURL, ServerFingerprint: s.CertFingerprint,
+		CertificatePEM: certPEM, CAPEM: caPEM, CertificateExpiry: certExpiry,
+	}
+	s.audit(r, &actor{kind: "agent", id: agentID, name: req.Hostname},
+		"agent.reconnected", "agent", agentID, "ok",
+		map[string]string{"token_id": consumed.ID, "requested_by": consumed.CreatedBy})
+	s.Logger.Info("agent reconnected", "agent_id", agentID, "hostname", req.Hostname)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleAgentRenewCert renueva el certificado mTLS del agente autenticado.

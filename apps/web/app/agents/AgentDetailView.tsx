@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { JobDetailModal } from "@/components/JobDetailModal";
 import { JobTable } from "@/components/JobTable";
+import { ReconnectModal } from "@/components/ReconnectModal";
 import { RevokeModal } from "@/components/RevokeModal";
 import { TerminalConsole } from "@/components/TerminalConsole";
 import { ScreenViewer } from "@/components/ScreenViewer";
@@ -52,6 +53,7 @@ export function AgentDetailView({ id }: { id: string }) {
   const [upgrading, setUpgrading] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [showScreen, setShowScreen] = useState(false);
+  const [showReconnect, setShowReconnect] = useState(false);
 
   // Versión del control (para mostrar «Forzar actualización» solo si difiere).
   useEffect(() => {
@@ -195,6 +197,11 @@ export function AgentDetailView({ id }: { id: string }) {
                 {ctlVersion && agent.agent_version && agent.agent_version !== ctlVersion ? (
                   <Button variant="secondary" onClick={forceUpgrade} loading={upgrading}>
                     Forzar actualización{ctlVersion ? ` a v${ctlVersion}` : ""}
+                  </Button>
+                ) : null}
+                {agent.status === "offline" ? (
+                  <Button variant="secondary" onClick={() => setShowReconnect(true)}>
+                    Reconectar
                   </Button>
                 ) : null}
                 <Button variant="danger" onClick={() => setShowRevoke(true)}>
@@ -626,6 +633,17 @@ export function AgentDetailView({ id }: { id: string }) {
           onDone={() => {
             setNotice("Acceso revocado.");
             return load();
+          }}
+        />
+      ) : null}
+      {showReconnect ? (
+        <ReconnectModal
+          token={token}
+          agent={agent}
+          onClose={() => setShowReconnect(false)}
+          onReconnected={() => {
+            setNotice("Token de reconexión generado. Ejecútalo en el equipo y espera el heartbeat.");
+            void load();
           }}
         />
       ) : null}

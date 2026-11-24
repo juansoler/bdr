@@ -166,6 +166,13 @@ El agente se enrola con mTLS, publica heartbeat e inventario, y aparece en el
 panel. Lanza un **backup ahora** y verifica que el restore point es
 recuperable.
 
+> Los instaladores son de un solo uso y **no re-ejecutables**: si el equipo ya
+> tiene un agente enrolado, el instalador aborta para no crear un equipo
+> duplicado (se fuerza con `BDR_FORCE_REENROLL=1` si de verdad quieres uno
+> nuevo). Para recuperar un agente existente desconectado usa **Reconectar**
+> en su ficha: genera un token que lo reenlaza conservando su identidad,
+> grupos, planes e historial.
+
 ### 4 · Actualiza cuando quieras
 
 El servidor consulta el canal de releases firmado (Ed25519, clave pública

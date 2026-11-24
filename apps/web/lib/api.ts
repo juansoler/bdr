@@ -496,12 +496,27 @@ export interface EnrollmentTokenView {
   used_at?: string;
   used_by_agent_id?: string;
   expected_hostname?: string;
+  agent_id?: string;
   expired: boolean;
   revoked_at?: string;
   group_id?: string;
   plan_id?: string;
   note?: string;
   created_by?: string;
+}
+
+// Token de reconexión (reenlaza un agente existente sin crear uno nuevo).
+export interface ReconnectToken {
+  id: string;
+  token: string;
+  expires_at: string;
+  agent_id: string;
+  hostname: string;
+  os: string;
+  arch: string;
+  installer_url?: string;
+  installer_path?: string;
+  one_liner?: string;
 }
 
 export interface EnrollmentTokenList {

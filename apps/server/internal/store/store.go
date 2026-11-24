@@ -38,6 +38,10 @@ type EnrollmentToken struct {
 	ID               string     `json:"ID"`
 	TokenHash        string     `json:"TokenHash"`
 	ExpectedHostname string     `json:"ExpectedHostname"`
+	// AgentID, si no está vacío, convierte el token en token de RECONEXIÓN:
+	// el enrolamiento no crea un agente nuevo sino que reenlaza este
+	// (misma identidad: grupos, planes e historial se conservan).
+	AgentID string `json:"AgentID,omitempty"`
 	CreatedAt        time.Time  `json:"CreatedAt"`
 	ExpiresAt        time.Time  `json:"ExpiresAt"`
 	UsedAt           *time.Time `json:"UsedAt"`

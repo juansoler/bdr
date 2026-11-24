@@ -63,6 +63,14 @@ type Agent struct {
 	activeID    string
 	activeState string
 	cancel      context.CancelFunc
+
+	// Recuperación de endpoint: si el endpoint configurado (AgentURL) lleva
+	// varios heartbeats fallidos, se reintenta contra ServerURL (la URL de
+	// enrolamiento) para adoptar la URL vigente anunciada por el servidor.
+	// Rompe el huevo y gallina del drift de endpoint (p. ej. el nombre de
+	// host deja de resolver). Solo toca beat (un solo goroutine).
+	hbFailures     int
+	nextFallbackAt time.Time
 }
 
 // New crea un agente a partir de las opciones.
@@ -266,9 +274,12 @@ func (a *Agent) beat(ctx context.Context) {
 	if err != nil {
 		if ctx.Err() == nil {
 			a.log.Warn("heartbeat fallido", "error", err.Error())
+			a.hbFailures++
+			a.tryEndpointRecovery(ctx)
 		}
 		return
 	}
+	a.hbFailures = 0
 	a.log.Debug("heartbeat enviado", "server_time", resp.ServerTime.Format(time.RFC3339), "state", state)
 	for _, id := range resp.CancelRequested {
 		a.requestCancel(id)
@@ -295,6 +306,81 @@ func (a *Agent) beat(ctx context.Context) {
 		a.log.Info("agente: URL del plano de control actualizada por el servidor", "agent_url", resp.AgentURL, "anterior", a.cfg.Endpoint())
 		if err := a.updateEndpoint(ctx, resp.AgentURL); err != nil {
 			a.log.Warn("no se pudo actualizar la URL del agente", "error", err.Error())
+		}
+	}
+}
+
+// tryEndpointRecovery reintenta el heartbeat contra la URL de enrolamiento
+// cuando el endpoint configurado lleva varios fallos seguidos. El plano de
+// control sirve las mismas rutas de agente en su puerto principal (la API
+// key basta, sin mTLS), así que un heartbeat allí devuelve la URL vigente
+// del listener de agentes y updateEndpoint la adopta. Caso real: el agente
+// apunta a un nombre que dejó de resolver (DNS) y el heartbeat por el
+// puerto de control sí llega.
+func (a *Agent) tryEndpointRecovery(ctx context.Context) {
+	const (
+		failuresThreshold = 5
+		fallbackCooldown  = 5 * time.Minute
+	)
+	if a.hbFailures < failuresThreshold {
+		return
+	}
+	// Una vez por ventana: el fallback no debe martillear en cada heartbeat.
+	if time.Now().Before(a.nextFallbackAt) {
+		return
+	}
+	a.cfgMu.Lock()
+	endpoint := a.cfg.Endpoint()
+	serverURL := a.cfg.ServerURL
+	apiKey := a.cfg.APIKey
+	fingerprint := a.cfg.ServerFingerprint
+	a.cfgMu.Unlock()
+	if serverURL == "" || serverURL == endpoint {
+		return
+	}
+	a.nextFallbackAt = time.Now().Add(fallbackCooldown)
+
+	opts := client.Options{BaseURL: serverURL, APIKey: apiKey}
+	if strings.HasPrefix(strings.ToLower(serverURL), "https://") {
+		keyPEM, certPEM, caPEM, err := identity.Load(a.dataDir)
+		if err == nil {
+			opts.KeyPEM, opts.CertPEM, opts.CAPEM = keyPEM, certPEM, caPEM
+		} else if fingerprint != "" {
+			opts.ServerFingerprint = fingerprint
+		}
+	}
+	fb, err := client.NewWithOptions(opts)
+	if err != nil {
+		a.log.Warn("recuperación de endpoint: URL de enrolamiento inválida", "url", serverURL, "error", err.Error())
+		return
+	}
+	if strings.HasPrefix(strings.ToLower(serverURL), "http://") {
+		a.log.Warn("recuperación de endpoint por HTTP sin TLS: la API key viaja en claro", "url", serverURL)
+	}
+	a.log.Warn("endpoint inalcanzable; reintentando heartbeat contra la URL de enrolamiento",
+		"endpoint", endpoint, "fallback", serverURL)
+
+	state, jobID := a.current()
+	fbCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	resp, err := fb.Heartbeat(fbCtx, contracts.HeartbeatRequest{
+		AgentVersion: version.Version,
+		State:        state,
+		CurrentJobID: jobID,
+	})
+	if err != nil {
+		a.log.Debug("recuperación de endpoint fallida", "url", serverURL, "error", err.Error())
+		return
+	}
+	switch {
+	case resp.AgentURL == "":
+		a.log.Warn("heartbeat recuperado vía la URL de enrolamiento, pero el servidor no anuncia URL de agentes; revisa --agent-url del control")
+	case resp.AgentURL == endpoint:
+		a.log.Warn("recuperación sin efecto: el servidor sigue anunciando el mismo endpoint inalcanzable; revisa su DNS o --agent-url", "endpoint", endpoint)
+	default:
+		a.log.Info("adoptando la URL de agentes anunciada por el servidor", "nueva", resp.AgentURL, "anterior", endpoint)
+		if err := a.updateEndpoint(ctx, resp.AgentURL); err != nil {
+			a.log.Warn("no se pudo adoptar la URL anunciada", "error", err.Error())
 		}
 	}
 }

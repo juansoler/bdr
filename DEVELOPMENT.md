@@ -249,6 +249,7 @@ curl -c cookies.txt -X POST http://127.0.0.1:8080/api/v1/auth/login \
 | DELETE | `/api/v1/admin/enrollment-tokens/{id}` | operate |
 | GET | `/api/v1/admin/agents` · `/agents/{id}` | lectura |
 | POST | `/api/v1/admin/agents/{id}/backup` (Idempotency-Key) | operate |
+| POST | `/api/v1/admin/agents/{id}/reconnect-token` | operate |
 | POST | `/api/v1/admin/agents/{id}/revoke` | admin |
 | GET | `/api/v1/admin/agents/{id}/repo-credentials` | read |
 | POST | `/api/v1/admin/agents/{id}/repo-credentials/rotate` | admin |
