@@ -40,27 +40,49 @@ jobs:
           mkdir -p apps/server/internal/webui/out
           cp -R apps/web/out/. apps/server/internal/webui/out/
 
-      - name: Compilar servidores y agentes (matriz)
+      - name: Compilar linux/amd64
+        timeout-minutes: 25
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           mkdir -p bin dist
-          for t in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64; do
-            os=${t%/*}; arch=${t#*/}
-            # if/fi y no $( && ): con bash -e, una asignación cuyo comando de
-            # sustitución falla aborta el script aunque el fallo sea esperado.
-            ext=""
-            if [ "$os" = windows ]; then ext=".exe"; fi
-            # Raspberry Pi en 32 bits: GOARM=7 (armv7).
-            goarch="$arch"; [ "$arch" = arm ] && goarch="arm"
-            GOOS=$os GOARCH=$goarch GOARM=$([ "$arch" = arm ] && echo 7 || echo "") CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
-              -o bin/bdr-control-$os-$arch$ext ./apps/server/cmd/bdr-control
-            GOOS=$os GOARCH=$goarch GOARM=$([ "$arch" = arm ] && echo 7 || echo "") CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
-              -o dist/bdr-agent-$os-$arch$ext ./apps/agent/cmd/bdr-agent
-            # CLI del motor SQL Server (lab RF-40; discovery solo en Windows
-            # por build tags, el resto compila para todas las plataformas).
-            GOOS=$os GOARCH=$goarch GOARM=$([ "$arch" = arm ] && echo 7 || echo "") CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" \
-              -o dist/bdr-sql-$os-$arch$ext ./cmd/bdr-sql
-          done
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o bin/bdr-control-linux-amd64 ./apps/server/cmd/bdr-control
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-agent-linux-amd64 ./apps/agent/cmd/bdr-agent
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-sql-linux-amd64 ./cmd/bdr-sql
+      - name: Compilar linux/arm64
+        timeout-minutes: 25
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o bin/bdr-control-linux-arm64 ./apps/server/cmd/bdr-control
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-agent-linux-arm64 ./apps/agent/cmd/bdr-agent
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-sql-linux-arm64 ./cmd/bdr-sql
+      - name: Compilar linux/arm (armv7)
+        timeout-minutes: 25
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o bin/bdr-control-linux-arm ./apps/server/cmd/bdr-control
+          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-agent-linux-arm ./apps/agent/cmd/bdr-agent
+          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-sql-linux-arm ./cmd/bdr-sql
+      - name: Compilar darwin/amd64
+        timeout-minutes: 25
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o bin/bdr-control-darwin-amd64 ./apps/server/cmd/bdr-control
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-agent-darwin-amd64 ./apps/agent/cmd/bdr-agent
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-sql-darwin-amd64 ./cmd/bdr-sql
+      - name: Compilar darwin/arm64
+        timeout-minutes: 25
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o bin/bdr-control-darwin-arm64 ./apps/server/cmd/bdr-control
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-agent-darwin-arm64 ./apps/agent/cmd/bdr-agent
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-sql-darwin-arm64 ./cmd/bdr-sql
+      - name: Compilar windows/amd64
+        timeout-minutes: 25
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o bin/bdr-control-windows-amd64.exe ./apps/server/cmd/bdr-control
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-agent-windows-amd64.exe ./apps/agent/cmd/bdr-agent
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/juansoler/bdr/packages/version.Version=$VERSION" -o dist/bdr-sql-windows-amd64.exe ./cmd/bdr-sql
 
       - name: Clave privada del canal (secreto del entorno)
         run: echo "${BDR_RELEASE_KEY}" > "$RUNNER_TEMP/release.private.pem"
