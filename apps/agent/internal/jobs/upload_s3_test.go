@@ -5,6 +5,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -149,19 +151,42 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // fakeS3 rechaza todo PUT simple con 400 InvalidRequest y acepta el ciclo
-// multipart: el comportamiento observado en Hetzner Object Storage con los
-// manifiestos.
+// multipart: el comportamiento observado en Hetzner Object Storage. Con
+// completaFallo simula la carrera de Ceph RGW: el complete responde 500
+// "This multipart completion is already in progress" pero el objeto queda
+// materializado en segundo plano (a menos que oculteObjeto).
 type fakeS3 struct {
-	mu       sync.Mutex
-	simples  int
-	inicios  int
-	completa int
+	mu            sync.Mutex
+	simples       int
+	inicios       int
+	completa      int
+	completaFallo bool
+	ocultaObjeto  bool
+	partes        map[string]int64 // uploadId → bytes acumulados
+	objs          map[string]int64 // clave → tamaño
 }
 
 func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if f.partes == nil {
+		f.partes = map[string]int64{}
+		f.objs = map[string]int64{}
+	}
 	q := r.URL.Query()
+	clave := strings.TrimPrefix(r.URL.Path, "/backupbdr/")
 	switch {
 	case r.Method == http.MethodPut && q.Get("partNumber") != "":
+		// minio-go envía las partes con encoding aws-chunked: el tamaño real
+		// es el del primer chunk (hex), no el Content-Length enmarcado.
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		n := int64(len(body))
+		if i := bytes.Index(body, []byte(";chunk-signature=")); i > 0 {
+			if v, err := strconv.ParseInt(string(body[:i]), 16, 64); err == nil {
+				n = v
+			}
+		}
+		f.mu.Lock()
+		f.partes[q.Get("uploadId")] += n
+		f.mu.Unlock()
 		w.Header().Set("ETag", `"e1"`)
 		w.WriteHeader(http.StatusOK)
 	case r.Method == http.MethodPut:
@@ -180,9 +205,31 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost:
 		f.mu.Lock()
 		f.completa++
+		fallo := f.completaFallo
+		tam := f.partes[q.Get("uploadId")]
+		if !fallo || !f.ocultaObjeto {
+			f.objs[clave] = tam
+		}
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/xml")
+		if fallo {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `<Error><Code>InternalError</Code><Message>This multipart completion is already in progress</Message></Error>`)
+			return
+		}
 		_, _ = io.WriteString(w, `<CompleteMultipartUploadResult><Bucket>backupbdr</Bucket><Key>k</Key><ETag>"e1"</ETag></CompleteMultipartUploadResult>`)
+	case r.Method == http.MethodHead:
+		f.mu.Lock()
+		tam, ok := f.objs[clave]
+		f.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Length", strconv.FormatInt(tam, 10))
+		w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+		w.Header().Set("ETag", `"e1"`)
+		w.WriteHeader(http.StatusOK)
 	case r.Method == http.MethodDelete:
 		w.WriteHeader(http.StatusNoContent)
 	case r.Method == http.MethodGet && q.Has("list-type"):
@@ -193,9 +240,8 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func newFakeS3Dest(t *testing.T) (*s3UploadDest, *fakeS3) {
+func newFakeS3DestWith(t *testing.T, fs *fakeS3) (*s3UploadDest, *fakeS3) {
 	t.Helper()
-	fs := &fakeS3{}
 	srv := httptest.NewServer(fs)
 	t.Cleanup(srv.Close)
 	creds := &contracts.RepositoryCredentials{
@@ -207,6 +253,11 @@ func newFakeS3Dest(t *testing.T) (*s3UploadDest, *fakeS3) {
 		t.Fatal(err)
 	}
 	return dest, fs
+}
+
+func newFakeS3Dest(t *testing.T) (*s3UploadDest, *fakeS3) {
+	t.Helper()
+	return newFakeS3DestWith(t, &fakeS3{})
 }
 
 // El manifiesto (objeto diminuto) debe acabar subiendo por multipart cuando
@@ -290,5 +341,46 @@ func TestPutObjectErrorConDiagnostico(t *testing.T) {
 		if !strings.Contains(msg, quiero) {
 			t.Errorf("error sin %q: %s", quiero, msg)
 		}
+	}
+}
+
+// Carrera de Ceph RGW: el complete responde 500 "already in progress" (el
+// SDK reintenta el POST duplicado) pero el objeto queda hecho en el backend:
+// la subida debe darse por buena comprobando el objeto.
+func TestPutMultipartRecuperaCompletePerdido(t *testing.T) {
+	viejo := s3RetryDelay
+	s3RetryDelay = 0
+	t.Cleanup(func() { s3RetryDelay = viejo })
+	viejoPoll := s3CompletePollDelay
+	s3CompletePollDelay = 0
+	t.Cleanup(func() { s3CompletePollDelay = viejoPoll })
+
+	dest, _ := newFakeS3DestWith(t, &fakeS3{completaFallo: true})
+	payload := []byte(`{"a":1}`)
+	err := dest.putRaw(context.Background(), dest.Prefix()+"manifest-race.json", payload, time.Now())
+	if err != nil {
+		t.Fatalf("putRaw debía recuperar el complete perdido: %v", err)
+	}
+}
+
+// Si el complete falla y el objeto NO aparece, el error llega al panel.
+func TestPutMultipartSinObjetoFalla(t *testing.T) {
+	viejo := s3RetryDelay
+	s3RetryDelay = 0
+	t.Cleanup(func() { s3RetryDelay = viejo })
+	viejoPoll := s3CompletePollDelay
+	s3CompletePollDelay = 0
+	t.Cleanup(func() { s3CompletePollDelay = viejoPoll })
+	viejoTries := s3CompletePollTries
+	s3CompletePollTries = 2
+	t.Cleanup(func() { s3CompletePollTries = viejoTries })
+
+	dest, _ := newFakeS3DestWith(t, &fakeS3{completaFallo: true, ocultaObjeto: true})
+	err := dest.putRaw(context.Background(), dest.Prefix()+"manifest-fail.json", []byte(`{}`), time.Now())
+	if err == nil {
+		t.Fatal("putRaw debía fallar: el objeto nunca apareció")
+	}
+	if !strings.Contains(err.Error(), "multipart") {
+		t.Errorf("error sin el modo que falló: %v", err)
 	}
 }

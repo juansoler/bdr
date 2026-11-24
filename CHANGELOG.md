@@ -2,6 +2,24 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.50] — 2026-11-24
+
+### Corregido
+
+- **La carrera de Ceph RGW en el cierre de multipart tiraba backups enteros**:
+  si el `CompleteMultipartUpload` tardaba más de 60 s, el cliente cortaba por
+  timeout de cabecera y minio-go reenviaba el POST (cuerpo re-encaminable);
+  Ceph rechazaba el duplicado con 500 *"This multipart completion is already
+  in progress"* y el SDK lo reintentaba hasta 10 veces, siempre con el mismo
+  resultado. Pasó de verdad en un backup de 38 GB (segmento 2446). Ahora:
+  el timeout de cabecera del transporte es de 10 minutos (el primer complete
+  tiene tiempo de terminar y responder), y si el complete falla igualmente
+  se comprueba el objeto (`HeadObject`): la clave es dirección de contenido
+  (lleva el SHA-256), así que si el objeto existe con el tamaño esperado la
+  subida se da por buena — Ceph materializa el objeto aunque la respuesta se
+  pierda. Si el abort de limpieza también falla, el error lo dice
+  explícitamente (puede quedar un multipart huérfano en el bucket).
+
 ## [0.16.49] — 2026-11-24
 
 ### Añadido

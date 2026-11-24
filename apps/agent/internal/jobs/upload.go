@@ -383,6 +383,13 @@ func newS3UploadDest(ctx context.Context, creds *contracts.RepositoryCredentials
 		if terr != nil {
 			return nil, terr
 		}
+		// El CompleteMultipartUpload de Ceph RGW puede tardar más de 60 s
+		// bajo carga. Con el timeout de cabecera por defecto el cliente
+		// corta, minio-go reintenta el POST (cuerpo re-encaminable) y Ceph
+		// rechaza el duplicado con "This multipart completion is already in
+		// progress": dar tiempo a que el primer complete termine. El contexto
+		// del job sigue acotando el conjunto.
+		base.ResponseHeaderTimeout = 10 * time.Minute
 		return minio.New(creds.Endpoint, &minio.Options{
 			Creds:        credentials.NewStaticV4(creds.AccessKey, creds.SecretKey, ""),
 			Secure:       !creds.NoTLS,
@@ -572,12 +579,16 @@ func (u *s3UploadDest) putMultipartOnce(ctx context.Context, key string, data []
 	if err != nil {
 		return err
 	}
-	done := false
-	defer func() {
-		if !done {
-			_ = core.AbortMultipartUpload(context.WithoutCancel(ctx), u.bucket, key, uploadID)
+	// fail aborta el multipart y reporta la causa. Si el abort también falla
+	// (Ceph rechaza el DELETE mientras el complete anterior sigue en marcha)
+	// se advierte: puede quedar un upload huérfano ocupando en el bucket.
+	fail := func(causa error) error {
+		if aerr := core.AbortMultipartUpload(context.WithoutCancel(ctx), u.bucket, key, uploadID); aerr != nil {
+			return fmt.Errorf("%w (abort del multipart también falló: %v; puede quedar un upload huérfano)",
+				causa, aerr)
 		}
-	}()
+		return causa
+	}
 
 	partSize := int(multipartPartSize)
 	var parts []minio.CompletePart
@@ -591,7 +602,7 @@ func (u *s3UploadDest) putMultipartOnce(ctx context.Context, key string, data []
 		part, perr := core.PutObjectPart(ctx, u.bucket, key, uploadID, partNumber,
 			bytes.NewReader(chunk), int64(len(chunk)), minio.PutObjectPartOptions{})
 		if perr != nil {
-			return perr
+			return fail(perr)
 		}
 		parts = append(parts, minio.CompletePart{PartNumber: partNumber, ETag: part.ETag})
 		partNumber++
@@ -602,13 +613,49 @@ func (u *s3UploadDest) putMultipartOnce(ctx context.Context, key string, data []
 	}
 	// Un objeto vacío no puede ir multipart: no hay parte que subir.
 	if len(parts) == 0 {
-		return fmt.Errorf("objeto vacío no admite multipart")
+		return fail(fmt.Errorf("objeto vacío no admite multipart"))
 	}
 	if _, cerr := core.CompleteMultipartUpload(ctx, u.bucket, key, uploadID, parts, opts); cerr != nil {
-		return cerr
+		// Carrera conocida de Ceph RGW: si la respuesta del complete se
+		// pierde, el SDK reintenta el POST (cuerpo re-encaminable) y Ceph
+		// rechaza el duplicado con 500 "This multipart completion is already
+		// in progress" mientras el primero termina en segundo plano. La
+		// clave es dirección de contenido (lleva el SHA-256), así que basta
+		// con comprobar que el objeto existe con el tamaño esperado.
+		if u.waitUploaded(ctx, key, int64(len(data))) {
+			return nil
+		}
+		return fail(cerr)
 	}
-	done = true
 	return nil
+}
+
+// s3CompletePollDelay y s3CompletePollTries controlan la comprobación del
+// objeto tras un complete fallido. Variables para que los tests no esperen.
+var (
+	s3CompletePollDelay = 5 * time.Second
+	s3CompletePollTries = 6
+)
+
+// waitUploaded espera a que el objeto exista con el tamaño esperado tras un
+// CompleteMultipartUpload fallido. Ceph RGW materializa el objeto aunque la
+// respuesta del complete se pierda o se rechace un complete duplicado, pero
+// puede tardar unos segundos en hacerlo visible.
+func (u *s3UploadDest) waitUploaded(ctx context.Context, key string, size int64) bool {
+	for intento := 0; intento < s3CompletePollTries; intento++ {
+		if intento > 0 {
+			select {
+			case <-ctx.Done():
+				return false
+			case <-time.After(s3CompletePollDelay):
+			}
+		}
+		info, err := u.mc.StatObject(ctx, u.bucket, key, minio.StatObjectOptions{})
+		if err == nil && info.Size == size {
+			return true
+		}
+	}
+	return false
 }
 
 // esInvalidRequest indica si el error es un 400 InvalidRequest del backend
