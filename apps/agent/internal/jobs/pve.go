@@ -399,17 +399,23 @@ func (r *VMRunner) RestoreVM(ctx context.Context, creds *contracts.RepositoryCre
 			Message: "el manifiesto no tiene segmentos (captura vacía); usa un punto de restauración posterior"}
 	}
 
-	// Estado de reanudación: los streams escritos y verificados en un
-	// intento anterior se saltan; el estado se elimina al terminar bien.
-	resume := loadRestoreState(r.DataDir, payload.ManifestKey)
-	if len(resume.Done) > 0 {
-		r.Log.Info("reanudando restauración de VM", "streams_completados", len(resume.Done))
-	}
-
 	targetVMID := payload.TargetVMID
 	targetCfg := manifest.VM.Config
 	if payload.Mode != "new" && payload.Mode != "in_place" {
 		payload.Mode = "in_place"
+	}
+
+	// Estado de reanudación: los streams escritos y verificados en un
+	// intento anterior se saltan; el estado se elimina al terminar bien.
+	// Solo en in_place, donde el volumen destino persiste entre intentos: en
+	// new, un fallo destruye la VM creada y el reintento escribe sobre un
+	// volumen vacío, así que saltar segmentos los dejaría a ceros.
+	var resume *restoreState
+	if payload.Mode == "in_place" {
+		resume = loadRestoreState(r.DataDir, payload.ManifestKey, "vm:"+strconv.Itoa(targetVMID))
+		if len(resume.Done) > 0 {
+			r.Log.Info("reanudando restauración de VM", "vmid", targetVMID, "streams_completados", len(resume.Done))
+		}
 	}
 
 	// Si la restauración como instancia nueva falla a mitad, la VM creada
@@ -579,7 +585,7 @@ func (r *VMRunner) RestoreVM(ctx context.Context, creds *contracts.RepositoryCre
 			}
 			vpath = strings.TrimSpace(vpath)
 
-			progress(10+done*80/maxInt(len(manifest.Disks), 1),
+			progress(10+(done*80)/maxInt(totalStreams, 1),
 				fmt.Sprintf("reescribiendo %s (%s)", volid, origKey), bytesWritten)
 			format := ""
 			if info, ierr := runProbe(60, "qemu-img", "info", "--output=json", vpath); ierr == nil {
@@ -649,7 +655,9 @@ func (r *VMRunner) RestoreVM(ctx context.Context, creds *contracts.RepositoryCre
 		return nil, ferr
 	}
 	// Restauración completa: el estado de reanudación ya no hace falta.
-	resume.Clear()
+	if resume != nil {
+		resume.Clear()
+	}
 	return out, nil
 }
 
@@ -696,22 +704,16 @@ func writeStreams(ctx context.Context, dest uploadDest, manifest pkgimg.Manifest
 			onSeg(1)
 			continue
 		}
-		key := s.Blob
-		if key == "" {
+		if s.Blob == "" {
 			return fmt.Errorf("segmento %s sin blob en el manifiesto", s.Name)
 		}
-		obj, err := dest.openObject(ctx, key)
-		if err != nil {
-			return fmt.Errorf("segmento %s: descargar: %w", s.Name, err)
-		}
 		h := sha256.New()
-		n, cerr := io.Copy(io.MultiWriter(newWriterAt(dst, s.Offset), h), io.LimitReader(obj, writeLen))
-		_ = obj.Close()
+		n, cerr := copyStream(ctx, dest, s, dst, writeLen, h, warn)
 		if cerr != nil {
 			if strings.Contains(strings.ToLower(cerr.Error()), "no space left") {
 				return fmt.Errorf("segmento %s: escribir: sin espacio — verifica la cuota ZFS del dataset (zfs get refquota <dataset>) o el espacio del storage del volumen", s.Name)
 			}
-			return fmt.Errorf("segmento %s: escribir: %w", s.Name, cerr)
+			return fmt.Errorf("segmento %s: %w", s.Name, cerr)
 		}
 		if n != writeLen {
 			return fmt.Errorf("segmento %s: %d bytes, esperaba %d", s.Name, n, writeLen)

@@ -7,6 +7,8 @@ package jobs
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"github.com/juansoler/bdr/packages/contracts"
+	pkgimg "github.com/juansoler/bdr/packages/image"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -382,5 +385,76 @@ func TestPutMultipartSinObjetoFalla(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "multipart") {
 		t.Errorf("error sin el modo que falló: %v", err)
+	}
+}
+
+// TestCopyStreamS3CuerpoTruncado reproduce contra el SDK de S3 el fallo del
+// job ff0e555c: el backend corta el GET a medias, minio-go lo entrega como
+// unexpected EOF y la restauración reintenta hasta dejar el segmento íntegro.
+func TestCopyStreamS3CuerpoTruncado(t *testing.T) {
+	sinEsperaReintentos(t)
+	datos := bytes.Repeat([]byte("datos-de-segmento,"), 16<<10)
+	sum := sha256.Sum256(datos)
+
+	var mu sync.Mutex
+	gets := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodHead:
+			w.Header().Set("Content-Length", strconv.Itoa(len(datos)))
+			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+			w.Header().Set("ETag", `"e1"`)
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && !r.URL.Query().Has("list-type"):
+			mu.Lock()
+			gets++
+			corta := gets <= 2
+			mu.Unlock()
+			w.Header().Set("Content-Length", strconv.Itoa(len(datos)))
+			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+			w.Header().Set("ETag", `"e1"`)
+			w.WriteHeader(http.StatusOK)
+			if !corta {
+				_, _ = w.Write(datos)
+				return
+			}
+			_, _ = w.Write(datos[:100<<10])
+			w.(http.Flusher).Flush()
+			panic(http.ErrAbortHandler) // cierra la conexión con el cuerpo a medias
+		default:
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<ListBucketResult><Name>backupbdr</Name><Prefix></Prefix><KeyCount>0</KeyCount><MaxKeys>1000</MaxKeys><IsTruncated>false</IsTruncated></ListBucketResult>`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	dest, err := newS3UploadDest(context.Background(), &contracts.RepositoryCredentials{
+		Kind: contracts.RepoKindS3, Endpoint: strings.TrimPrefix(srv.URL, "http://"),
+		Bucket: "backupbdr", Region: "hel1", AccessKey: "ak", SecretKey: "sk", NoTLS: true,
+	}, "vm", "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := pkgimg.Stream{Disk: 1, Name: "disk1-seg0341", Bytes: int64(len(datos)),
+		SHA256: hex.EncodeToString(sum[:]), Blob: dest.Prefix() + "disk1-seg0341-" + hex.EncodeToString(sum[:])}
+	h := sha256.New()
+	var avisos []string
+
+	n, err := copyStream(context.Background(), dest, s, volumenTest(t, int64(len(datos))), int64(len(datos)), h,
+		func(aviso string) { avisos = append(avisos, aviso) })
+	if err != nil {
+		t.Fatalf("copyStream: %v", err)
+	}
+	if n != int64(len(datos)) || hex.EncodeToString(h.Sum(nil)) != s.SHA256 {
+		t.Fatalf("segmento incompleto tras los reintentos: %d bytes", n)
+	}
+	if len(avisos) != 2 || !strings.Contains(avisos[0], "segmento disk1-seg0341: descargar: unexpected EOF; reintento 1/7") {
+		t.Fatalf("avisos: %v", avisos)
+	}
+	mu.Lock()
+	total := gets
+	mu.Unlock()
+	if total != 3 {
+		t.Fatalf("GETs del objeto: %d, esperaba 3 (2 cortados + 1 completo)", total)
 	}
 }

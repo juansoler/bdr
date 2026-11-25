@@ -386,7 +386,7 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 		}
 	}
 
-	resume := loadRestoreState(r.DataDir, payload.ManifestKey)
+	resume := loadRestoreState(r.DataDir, payload.ManifestKey, "")
 	restoreFailed := true
 	normalized := "" // dump re-escrito con una sola capa (backups legacy)
 	defer func() {
@@ -436,15 +436,13 @@ func (r *VMRunner) RestoreLXC(ctx context.Context, creds *contracts.RepositoryCr
 		}
 		progress(5+(done*55)/maxInt(totalStreams, 1),
 			fmt.Sprintf("descargando %s (%d/%d)", s.Name, done+1, totalStreams), bytesDone)
-		obj, err := dest.openObject(ctx, s.Blob)
-		if err != nil {
-			return nil, &CodeError{Code: "E_IMAGE_UPLOAD", Message: "descargar " + s.Name + ": " + err.Error()}
-		}
 		h := sha256.New()
-		n, cerr := io.Copy(io.MultiWriter(newWriterAt(tmpFile, s.Offset), h), obj)
-		_ = obj.Close()
+		n, cerr := copyStream(ctx, dest, s, tmpFile, s.Bytes, h, func(aviso string) {
+			progress(5, aviso, bytesDone)
+			r.Log.Warn(aviso)
+		})
 		if cerr != nil {
-			return nil, &CodeError{Code: "E_IMAGE_UPLOAD", Message: "descargar " + s.Name + ": " + cerr.Error()}
+			return nil, &CodeError{Code: "E_IMAGE_UPLOAD", Message: fmt.Sprintf("segmento %s: %v", s.Name, cerr)}
 		}
 		if n != s.Bytes {
 			return nil, &CodeError{Code: "E_IMAGE_UPLOAD",

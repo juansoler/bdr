@@ -2,6 +2,35 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.55] — 2026-11-25
+
+### Corregido
+
+- **Un solo corte de la descarga fallaba una restauración de VM completa**
+  (`E_IMAGE_UPLOAD: segmento disk1-seg0341: escribir: unexpected EOF`): al
+  reescribir los discos, cada segmento de 16 MiB se descargaba del destino
+  con un único intento, así que una conexión cerrada a mitad de objeto
+  tumbaba el job. Además el mensaje atribuía el fallo a la escritura cuando
+  ocurría en la descarga. Ahora un fallo de descarga reintenta el segmento
+  hasta 7 veces con espera creciente (unos 2 min en total), reescribiéndolo
+  desde el principio: es seguro porque el segmento ocupa un rango fijo y se
+  verifica con SHA-256. Los fallos al escribir en el volumen no se reintentan
+  (el dispositivo NBD no se recupera solo), el mensaje indica el lado real
+  (`descargar:` o `escribir:`) y cada reintento queda en el registro del job.
+  La descarga del dump en la restauración de LXC usa el mismo reintento.
+- **Reintentar una restauración fallida como *VM nueva* dejaba la VM
+  corrupta con el job marcado como correcto**: el estado de reanudación
+  (segmentos ya escritos) sobrevivía al fallo aunque la VM creada se
+  destruyera, y el reintento escribía sobre un volumen vacío saltándose
+  esos segmentos. La reanudación ahora solo aplica a la restauración *en
+  situ* (allí el volumen destino persiste entre intentos) y su estado se
+  separa por VM destino. Los estados de agentes anteriores no se reutilizan:
+  un reintento *en situ* de una restauración que falló con una versión
+  anterior vuelve a empezar los discos desde el principio.
+- **El progreso de la restauración de una VM se quedaba clavado** (36 % con
+  343 de 39 113 segmentos): al empezar cada disco se calculaba el porcentaje
+  con el número de segmentos escritos como si fuera el índice del disco.
+
 ## [0.16.54] — 2026-11-24
 
 ### Cambiado
