@@ -71,7 +71,7 @@ func (s *Server) handleConfigRestore(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, a, "config.backup.restored", "config", "all", "ok", nil)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"schema_version": snap.SchemaVersion,
-		"restored":        true,
+		"restored":       true,
 	})
 }
 
@@ -83,10 +83,10 @@ func (s *Server) buildConfigBackup(st *store.State) contracts.ConfigBackup {
 		ExportedAt:    now.Format(time.RFC3339),
 	}
 	snap.Settings = contracts.ConfigBackupSettings{
-		EnvironmentName:      st.Settings.EnvironmentName,
+		EnvironmentName:     st.Settings.EnvironmentName,
 		AgentOfflineMinutes: st.Settings.AgentOfflineMinutes,
-		AlertMinSeverity:   st.Settings.AlertMinSeverity,
-		AlertRenotifyHours: st.Settings.AlertRenotifyHours,
+		AlertMinSeverity:    st.Settings.AlertMinSeverity,
+		AlertRenotifyHours:  st.Settings.AlertRenotifyHours,
 		WebhookURL:          st.Settings.WebhookURL,
 		WebhookConfigured:   st.Settings.WebhookSecretEnc != "",
 		SMTPHost:            st.Settings.SMTPHost,
@@ -94,7 +94,7 @@ func (s *Server) buildConfigBackup(st *store.State) contracts.ConfigBackup {
 		SMTPUsername:        st.Settings.SMTPUsername,
 		SMTPConfigured:      st.Settings.SMTPPasswordEnc != "",
 		SMTPFrom:            st.Settings.SMTPFrom,
-		SMTPTo:               st.Settings.SMTPTo,
+		SMTPTo:              st.Settings.SMTPTo,
 		SMTPStartTLS:        st.Settings.SMTPStartTLS,
 		SessionHours:        st.Settings.SessionHours,
 	}
@@ -211,18 +211,18 @@ func (s *Server) applyConfigBackup(st *store.State, snap contracts.ConfigBackup)
 	now := s.Now().UTC()
 
 	st.Settings = store.Settings{
-		EnvironmentName:      snap.Settings.EnvironmentName,
+		EnvironmentName:     snap.Settings.EnvironmentName,
 		AgentOfflineMinutes: snap.Settings.AgentOfflineMinutes,
 		AlertMinSeverity:    snap.Settings.AlertMinSeverity,
 		AlertRenotifyHours:  snap.Settings.AlertRenotifyHours,
-		WebhookURL:           snap.Settings.WebhookURL,
-		SMTPHost:             snap.Settings.SMTPHost,
-		SMTPPort:             snap.Settings.SMTPPort,
-		SMTPUsername:         snap.Settings.SMTPUsername,
-		SMTPFrom:             snap.Settings.SMTPFrom,
-		SMTPTo:               snap.Settings.SMTPTo,
-		SMTPStartTLS:         snap.Settings.SMTPStartTLS,
-		SessionHours:         snap.Settings.SessionHours,
+		WebhookURL:          snap.Settings.WebhookURL,
+		SMTPHost:            snap.Settings.SMTPHost,
+		SMTPPort:            snap.Settings.SMTPPort,
+		SMTPUsername:        snap.Settings.SMTPUsername,
+		SMTPFrom:            snap.Settings.SMTPFrom,
+		SMTPTo:              snap.Settings.SMTPTo,
+		SMTPStartTLS:        snap.Settings.SMTPStartTLS,
+		SessionHours:        snap.Settings.SessionHours,
 	}
 	for _, a := range snap.Agents {
 		if a.ID == "" {
