@@ -2,6 +2,26 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.56] — 2026-11-25
+
+### Corregido
+
+- **Re-enrolar un equipo en un servidor nuevo abortaba sin más remedio**: los
+  instaladores («Añadir equipo») detectaban la config existente y se salían
+  para no crear un equipo duplicado, aunque la intención fuera mover el
+  equipo a otro servidor. Ahora, con terminal interactiva, **preguntan**
+  «olvidar el servidor antiguo y enrolar este equipo en \<servidor\>? [s/N]»:
+  al confirmar, borran la config y la identidad mTLS anteriores
+  (`agent.json`, `agent.key`, `agent.crt` y `ca.crt` — imprescindible porque
+  `register` solo reescribe la identidad si el nuevo servidor emite
+  certificado) y el equipo se enrola como nuevo en este servidor. Ante
+  respuesta negativa (o Enter) o entrada no interactiva se conserva el
+  comportamiento anterior: aborta para no crear un equipo duplicado, y
+  `BDR_FORCE_REENROLL=1` sigue forzando sin preguntar. La acción
+  «Reconectar» del panel sigue siendo la vía para reenlazar conservando
+  identidad, grupos y planes (su instalador no pregunta). Afecta a los tres
+  instaladores: Linux, macOS y Windows.
+
 ## [0.16.55] — 2026-11-25
 
 ### Corregido

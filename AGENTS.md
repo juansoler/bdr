@@ -89,8 +89,10 @@ para que cualquier corrección o feature llegue publicada.
   `dial tcp: lookup <host>: no such host` = el endpoint del agente dejó de
   resolver (DNS): parchear DNS o usar **«Reconectar»** en la ficha del
   equipo —reenlaza conservando identidad, grupos y planes—. Re-ejecutar el
-  instalador de «Añadir equipo» crea un EQUIPO NUEVO (aborta si ya hay
-  config salvo `BDR_FORCE_REENROLL=1`). Desde 0.16.49 el agente además se
+  instalador de «Añadir equipo» con config existente pregunta en terminal
+  interactiva si olvidar el servidor antiguo y enrolar en el nuevo (borra
+  `agent.json` + identidad mTLS); sin terminal aborta salvo
+  `BDR_FORCE_REENROLL=1`. Desde 0.16.49 el agente además se
   autorrecupera: tras 5 heartbeats fallidos reintenta contra su URL de
   enrolamiento y adopta la `--agent-url` vigente anunciada por el servidor.
 - La instalación del agente Windows genera servicio con recuperación

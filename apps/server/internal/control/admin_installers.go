@@ -196,12 +196,32 @@ func (s *Server) linuxInstallerScript(serverURL, osarch, token string, reconnect
 	header := "# Instalador generado por BDR Control — configura y conecta el agente sin intervención.\n" +
 		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n"
 	guard := `# Guard anti-duplicados: con una config existente este instalador crearia un
-# EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la
-# accion «Reconectar» de su ficha; para forzar uno nuevo: BDR_FORCE_REENROLL=1.
+# EQUIPO NUEVO en el panel. Si el equipo se va a mover a este servidor,
+# preguntamos y olvidamos la enrolacion anterior (config e identidad mTLS);
+# la accion «Reconectar» del panel reenlaza conservando identidad, y
+# BDR_FORCE_REENROLL=1 fuerza un equipo nuevo sin preguntar.
 if [ -f "$DATA_DIR/agent.json" ] && [ -z "${BDR_FORCE_REENROLL:-}" ]; then
-  echo "este equipo ya tiene un agente enrolado en $DATA_DIR; aborto para no crear un equipo nuevo" >&2
-  echo "(reconectar: accion «Reconectar» del panel | forzar: BDR_FORCE_REENROLL=1)" >&2
-  exit 1
+  echo "este equipo ya tiene un agente enrolado en $DATA_DIR" >&2
+  if [ -t 0 ]; then
+    printf "olvidar el servidor antiguo y enrolar este equipo en %s? [s/N] " "$SERVER" >&2
+    read -r ans || ans=""
+    ans=$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')
+    case "$ans" in
+      s|si|y|yes)
+        echo "olvidando la enrolacion anterior (config e identidad mTLS)..." >&2
+        rm -f "$DATA_DIR/agent.json" "$DATA_DIR/agent.key" "$DATA_DIR/agent.crt" "$DATA_DIR/ca.crt"
+        ;;
+      *)
+        echo "abortado: se conserva el enrolamiento actual del equipo" >&2
+        echo "(reconectar: accion «Reconectar» del panel | forzar: BDR_FORCE_REENROLL=1)" >&2
+        exit 1
+        ;;
+    esac
+  else
+    echo "aborto para no crear un equipo nuevo (entrada no interactiva)" >&2
+    echo "(reconectar: accion «Reconectar» del panel | forzar: BDR_FORCE_REENROLL=1)" >&2
+    exit 1
+  fi
 fi
 `
 	if reconnect {
@@ -273,10 +293,26 @@ fi
 func (s *Server) windowsInstallerScript(serverURL, osarch, token string, reconnect bool) string {
 	header := "# Instalador generado por BDR Control — conecta el agente sin intervención.\r\n"
 	guard := `# Guard anti-duplicados: con una config existente este instalador crearia un
-# EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la
-# accion «Reconectar» de su ficha.
+# EQUIPO NUEVO en el panel. Si el equipo se va a mover a este servidor,
+# preguntamos y olvidamos la enrolacion anterior (config e identidad mTLS);
+# la accion «Reconectar» del panel reenlaza conservando identidad, y
+# BDR_FORCE_REENROLL=1 fuerza un equipo nuevo sin preguntar.
 if ((Test-Path "$DataDir\agent.json") -and ($env:BDR_FORCE_REENROLL -ne "1")) {
-  throw "Este equipo ya tiene un agente enrolado en $DataDir. Ejecutar este instalador crearia un EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la accion «Reconectar» de su ficha. Para crear uno nuevo a proposito, define antes la variable de entorno BDR_FORCE_REENROLL=1 y reejecuta."
+  $reEnrollMsg = "Ejecutar este instalador crearia un EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la accion «Reconectar» de su ficha. Para crear uno nuevo a proposito, define antes la variable de entorno BDR_FORCE_REENROLL=1 y reejecuta."
+  $interactive = $false
+  try { $interactive = -not [Console]::IsInputRedirected } catch { $interactive = $false }
+  if ($interactive) {
+    Write-Host "Este equipo ya tiene un agente enrolado en $DataDir."
+    $ans = Read-Host "Olvidar el servidor antiguo y enrolar este equipo en $Server? [s/N]"
+    if ($ans.Trim() -match '^(s|si|y|yes)$') {
+      Write-Host "Olvidando la enrolacion anterior (config e identidad mTLS)..."
+      Remove-Item "$DataDir\agent.json", "$DataDir\agent.key", "$DataDir\agent.crt", "$DataDir\ca.crt" -Force -ErrorAction SilentlyContinue
+    } else {
+      throw "Instalacion cancelada: se conserva el enrolamiento actual del equipo. $reEnrollMsg"
+    }
+  } else {
+    throw "Este equipo ya tiene un agente enrolado en $DataDir. $reEnrollMsg"
+  }
 }
 `
 	if reconnect {
@@ -323,12 +359,32 @@ func (s *Server) darwinInstallerScript(serverURL, osarch, token string, reconnec
 		"# El token de enrolamiento es de un solo uso: este instalador no es re-ejecutable.\n" +
 		"# Requiere sudo (macOS Intel darwin-amd64 o Apple Silicon darwin-arm64).\n"
 	guard := `# Guard anti-duplicados: con una config existente este instalador crearia un
-# EQUIPO NUEVO en el panel. Para reconectar el equipo existente usa la
-# accion «Reconectar» de su ficha; para forzar uno nuevo: BDR_FORCE_REENROLL=1.
+# EQUIPO NUEVO en el panel. Si el equipo se va a mover a este servidor,
+# preguntamos y olvidamos la enrolacion anterior (config e identidad mTLS);
+# la accion «Reconectar» del panel reenlaza conservando identidad, y
+# BDR_FORCE_REENROLL=1 fuerza un equipo nuevo sin preguntar.
 if [ -f "$DATA_DIR/agent.json" ] && [ -z "${BDR_FORCE_REENROLL:-}" ]; then
-  echo "este equipo ya tiene un agente enrolado en $DATA_DIR; aborto para no crear un equipo nuevo" >&2
-  echo "(reconectar: accion «Reconectar» del panel | forzar: BDR_FORCE_REENROLL=1)" >&2
-  exit 1
+  echo "este equipo ya tiene un agente enrolado en $DATA_DIR" >&2
+  if [ -t 0 ]; then
+    printf "olvidar el servidor antiguo y enrolar este equipo en %s? [s/N] " "$SERVER" >&2
+    read -r ans || ans=""
+    ans=$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')
+    case "$ans" in
+      s|si|y|yes)
+        echo "olvidando la enrolacion anterior (config e identidad mTLS)..." >&2
+        rm -f "$DATA_DIR/agent.json" "$DATA_DIR/agent.key" "$DATA_DIR/agent.crt" "$DATA_DIR/ca.crt"
+        ;;
+      *)
+        echo "abortado: se conserva el enrolamiento actual del equipo" >&2
+        echo "(reconectar: accion «Reconectar» del panel | forzar: BDR_FORCE_REENROLL=1)" >&2
+        exit 1
+        ;;
+    esac
+  else
+    echo "aborto para no crear un equipo nuevo (entrada no interactiva)" >&2
+    echo "(reconectar: accion «Reconectar» del panel | forzar: BDR_FORCE_REENROLL=1)" >&2
+    exit 1
+  fi
 fi
 `
 	if reconnect {

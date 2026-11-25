@@ -126,6 +126,75 @@ func TestInstallersFlow(t *testing.T) {
 	}
 }
 
+// TestInstallerReenrollPrompt: el instalador de alta, al detectar una config
+// existente, pregunta interactivamente si se quiere olvidar el servidor
+// anterior y enrolar el equipo en este, borrando también la identidad mTLS
+// (register solo la reescribe si el nuevo servidor emite certificado). Sin
+// terminal interactiva aborta como antes y BDR_FORCE_REENROLL=1 sigue
+// apareciendo como vía de fuerza. El instalador de RECONEXIÓN no pregunta:
+// su propósito es reenlazar la identidad existente.
+func TestInstallerReenrollPrompt(t *testing.T) {
+	dir := t.TempDir()
+	ts := newInstallersTestAPI(t, dir)
+
+	download := func(osName, arch string) string {
+		t.Helper()
+		status, body := doJSON(t, http.MethodPost, ts.URL+"/api/v1/admin/installers", adminToken,
+			contracts.InstallerRequest{OS: osName, Arch: arch})
+		if status != http.StatusCreated {
+			t.Fatalf("crear instalador %s/%s: %d %s", osName, arch, status, body)
+		}
+		var inst contracts.InstallerResponse
+		_ = json.Unmarshal(body, &inst)
+		status, body = doJSON(t, http.MethodGet, ts.URL+inst.InstallerPath, "", nil)
+		if status != http.StatusOK {
+			t.Fatalf("descargar instalador %s/%s: %d %s", osName, arch, status, body)
+		}
+		return string(body)
+	}
+
+	// Linux y macOS: prompt + borrado de la identidad mTLS + aborto seguro
+	// sin terminal. (El guard va duplicado en los dos generadores bash.)
+	for _, osarch := range [][2]string{{"linux", "amd64"}, {"darwin", "arm64"}} {
+		script := download(osarch[0], osarch[1])
+		for _, want := range []string{
+			"olvidar el servidor antiguo",
+			`rm -f "$DATA_DIR/agent.json" "$DATA_DIR/agent.key" "$DATA_DIR/agent.crt" "$DATA_DIR/ca.crt"`,
+			"entrada no interactiva",
+			"BDR_FORCE_REENROLL",
+		} {
+			if !strings.Contains(script, want) {
+				t.Fatalf("instalador %s/%s sin %q", osarch[0], osarch[1], want)
+			}
+		}
+	}
+
+	// Windows: mismo prompt en PowerShell.
+	windows := download("windows", "amd64")
+	for _, want := range []string{"Olvidar el servidor antiguo", "agent.key", "IsInputRedirected"} {
+		if !strings.Contains(windows, want) {
+			t.Fatalf("instalador windows sin %q", want)
+		}
+	}
+
+	// Reconexión (token ligado a un agente): sin prompt — reenlaza la
+	// identidad existente en lugar de olvidarla.
+	enrolled := enrollAgent(t, ts, createToken(t, ts, "lab-re").Token, "lab-re")
+	status, body := doJSON(t, http.MethodPost, ts.URL+"/api/v1/admin/agents/"+enrolled.AgentID+"/reconnect-token", adminToken, nil)
+	if status != http.StatusCreated {
+		t.Fatalf("reconnect-token: %d %s", status, body)
+	}
+	var rt contracts.ReconnectTokenResponse
+	_ = json.Unmarshal(body, &rt)
+	status, body = doJSON(t, http.MethodGet, ts.URL+"/api/v1/download/installer/linux-amd64/"+rt.Token, "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("installer reconnect: %d %s", status, body)
+	}
+	if strings.Contains(string(body), "olvidar el servidor antiguo") {
+		t.Fatal("installer de reconexión con prompt de olvido: reenlaza, no olvida")
+	}
+}
+
 // TestAgentBinaryDownload: el binario se sirve desde DownloadsDir; si falta,
 // 302 a la release pública (nunca un 404 que rompa los one-liners).
 func TestAgentBinaryDownload(t *testing.T) {
