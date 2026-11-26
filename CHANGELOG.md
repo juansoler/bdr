@@ -2,6 +2,18 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.59] — 2026-11-26
+
+### Corregido
+
+- **Faltaba `github.com/jezek/xgb` (BSD-3-Clause) en el inventario de
+  terceros**: solo se enlaza en las compilaciones Linux, por lo que la
+  comprobación de deriva en CI lo detectó al ejecutarse en Linux. Se añade con
+  su copyright y el check pasa a calcular la unión de todas las plataformas
+  publicadas (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64,
+  windows/amd64) para que ningún módulo específico de una plataforma se quede
+  fuera.
+
 ## [0.16.58] — 2026-11-26
 
 ### Añadido

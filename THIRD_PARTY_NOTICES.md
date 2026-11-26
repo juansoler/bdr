@@ -132,6 +132,7 @@ Texto completo: sección 7.2.
 | github.com/geoffgarside/ber | v1.1.0 | Copyright (c) 2009 The Go Authors |
 | github.com/golang-sql/sqlexp | v0.1.0 | Copyright (c) 2017 The Go Authors |
 | github.com/google/uuid | v1.6.0 | Copyright (c) 2009,2014 Google Inc. |
+| github.com/jezek/xgb | v1.3.1 | Copyright (c) 2009 The XGB Authors |
 | github.com/jcmturner/gofork | v1.7.6 | Copyright (c) 2009 The Go Authors |
 | github.com/klauspost/crc32 | v1.3.0 | Copyright (c) 2012 The Go Authors |
 | github.com/microsoft/go-mssqldb | v1.12.0 | Copyright (c) 2012 The Go Authors; Copyright (c) Microsoft Corporation |

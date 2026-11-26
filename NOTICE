@@ -39,7 +39,7 @@ Fuentes autoalojadas del panel
   conservarse en cualquier redistribución.
 
 Dependencias Go
-  Las 40 dependencias enlazadas (MIT, BSD-2/3, ISC, MPL-2.0 y Apache-2.0)
+  Las dependencias enlazadas (MIT, BSD-2/3, ISC, MPL-2.0 y Apache-2.0)
   figuran con su versión, titular y texto de licencia en
   THIRD_PARTY_NOTICES.md.
 
