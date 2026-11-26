@@ -35,6 +35,9 @@ apps/server/internal/webui/out/*
 apps/web/.next/
 
 
+# Web pública: el artefacto se genera con `make site` y lo publica Pages.
+_site/
+
 # Logs y temporales.
 *.log
 *.tmp

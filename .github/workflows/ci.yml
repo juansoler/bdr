@@ -46,6 +46,19 @@ jobs:
         working-directory: apps/web
         run: npm run build
 
+  site:
+    name: Web — generar artefacto de Pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generar el sitio
+        run: ./scripts/build-site.sh
+      - name: Comprobar el HTML generado
+        run: |
+          test -f _site/index.html
+          grep -q 'id="main"' _site/index.html
+          ! grep -R -q '__BDR_' _site
+
   docker-agents:
     name: Docker — etapa agents (regresión de COPY)
     runs-on: ubuntu-latest

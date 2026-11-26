@@ -1,7 +1,7 @@
 BIN := bin
 GOFLAGS ?=
 
-.PHONY: all build test vet fmt smoke smoke-postgres smoke-krs smoke-web web-install web-build web-dev run-server clean
+.PHONY: all build test vet fmt smoke smoke-postgres smoke-krs smoke-web web-install web-build web-dev run-server site site-serve clean
 all: build test
 
 build:
@@ -48,6 +48,13 @@ web-dev:
 
 run-server: build
 	BDR_ADMIN_TOKEN=dev-admin-token ./$(BIN)/bdr-control --dev --addr 127.0.0.1:8080
+
+# Web pública (GitHub Pages): genera _site/ con la versión del producto.
+site:
+	./scripts/build-site.sh
+
+site-serve: site
+	cd _site && python3 -m http.server 4173
 
 clean:
 	rm -rf $(BIN)

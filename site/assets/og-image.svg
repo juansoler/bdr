@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="BDR Self-Hosted">
+  <defs>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M44 0H0v44" fill="none" stroke="#ffffff" stroke-opacity="0.045" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="glow" cx="0.86" cy="0.02" r="0.75">
+      <stop offset="0" stop-color="#c8ff4d" stop-opacity="0.20"/>
+      <stop offset="0.55" stop-color="#c8ff4d" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#c8ff4d" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0" cy="1" r="0.6">
+      <stop offset="0" stop-color="#8fd6ff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#8fd6ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rule" x1="0" x2="1">
+      <stop offset="0" stop-color="#c8ff4d"/>
+      <stop offset="1" stop-color="#c8ff4d" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#06090c"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <rect width="1200" height="630" fill="url(#glow2)"/>
+  <rect x="0.5" y="0.5" width="1199" height="629" fill="none" stroke="#1e2b35"/>
+
+  <!-- marca -->
+  <g transform="translate(72 64)">
+    <path d="M30 2 4 12v22.5C4 50.9 15.4 60 30 64c14.6-4 26-13.1 26-29.5V12L30 2Z" fill="none" stroke="#c8ff4d" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M17.5 32.6l8.4 8.4 16.8-17.4" fill="none" stroke="#c8ff4d" stroke-width="5" stroke-linecap="square"/>
+    <text x="80" y="38" font-family="Helvetica Neue, Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="3" fill="#dbe5ea">BDR</text>
+    <text x="82" y="62" font-family="Menlo, monospace" font-size="13" letter-spacing="4" fill="#8194a1">SELF-HOSTED</text>
+  </g>
+
+  <text x="72" y="268" font-family="Helvetica Neue, Arial, sans-serif" font-size="76" font-weight="700" letter-spacing="-1.5" fill="#dbe5ea">Copias de seguridad</text>
+  <text x="72" y="352" font-family="Helvetica Neue, Arial, sans-serif" font-size="76" font-weight="700" letter-spacing="-1.5" fill="#c8ff4d">que se pueden restaurar.</text>
+
+  <rect x="72" y="392" width="160" height="3" fill="url(#rule)"/>
+
+  <text x="72" y="446" font-family="Helvetica Neue, Arial, sans-serif" font-size="24" fill="#8194a1">Archivos · VMs de Proxmox · SQL Server · PostgreSQL</text>
+  <text x="72" y="482" font-family="Helvetica Neue, Arial, sans-serif" font-size="24" fill="#8194a1">Cifrado en cliente · Verificación de recuperabilidad</text>
+
+  <!-- chips -->
+  <g font-family="Menlo, monospace" font-size="14" letter-spacing="1.5" fill="#c8ff4d">
+    <rect x="72" y="530" width="130" height="34" fill="none" stroke="#2d404c"/>
+    <text x="86" y="553">APACHE-2.0</text>
+    <rect x="216" y="530" width="270" height="34" fill="none" stroke="#2d404c"/>
+    <text x="230" y="553">LINUX · WINDOWS · MACOS</text>
+    <rect x="500" y="530" width="230" height="34" fill="none" stroke="#2d404c"/>
+    <text x="514" y="553">KOPIA + PBS</text>
+  </g>
+
+  <text x="1128" y="556" text-anchor="end" font-family="Menlo, monospace" font-size="14" letter-spacing="1" fill="#8194a1">github.com/juansoler/bdr</text>
+</svg>

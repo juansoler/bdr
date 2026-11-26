@@ -98,3 +98,17 @@ para que cualquier corrección o feature llegue publicada.
 - La instalación del agente Windows genera servicio con recuperación
   automática (SCM); la de Linux systemd y la de macOS launchd — no mezclar
   tareas programadas con servicios.
+- **Web pública** (`https://juansoler.github.io/bdr/`): vive en `site/`
+  (HTML/CSS/JS sin build). `scripts/build-site.sh` genera `_site/`
+  (ignorado) inyectando la versión de `packages/version/version.go` en los
+  marcadores `__BDR_VERSION__`/`__BDR_TAG__`, y `pages.yml` publica ese
+  artefacto. **No hay rama `gh-pages`** ni build que commitear. Un cambio que
+  solo toque `site/` no afecta al binario: no lleva bump ni tag. Requisito
+  único del repo: Settings → Pages → Source = *GitHub Actions* (sin eso
+  `configure-pages` falla con «Get Pages site failed»). Rutas siempre
+  relativas: el sitio se sirve bajo el subpath `/bdr/`.
+- Para verificar el responsive de la web, `chrome --headless --window-size`
+  en macOS **recorta** por debajo de ~500 px (mínimo de ventana) y hace
+  parecer que hay desbordamiento cuando no lo hay. Medir y capturar por CDP
+  (`Emulation.setDeviceMetricsOverride` con `mobile: false`) y comparar
+  `documentElement.scrollWidth` con `innerWidth` a 320/390/768/1440.

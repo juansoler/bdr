@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BDR Self-Hosted — Copias de seguridad y recuperación ante desastres</title>
+  <meta name="description" content="Plataforma self-hosted de backup y recuperación ante desastres: archivos, VMs de Proxmox, SQL Server y PostgreSQL. Cifrado en cliente, verificación de recuperabilidad y cero coste por carga de trabajo.">
+  <meta name="theme-color" content="#06090c">
+  <meta name="color-scheme" content="dark">
+  <link rel="canonical" href="https://juansoler.github.io/bdr/">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="BDR Self-Hosted">
+  <meta property="og:title" content="BDR Self-Hosted — Copias de seguridad que se pueden restaurar">
+  <meta property="og:description" content="Backup self-hosted de archivos, VMs y bases de datos. Cifrado en cliente, verificación de recuperabilidad, sin coste por carga de trabajo.">
+  <meta property="og:url" content="https://juansoler.github.io/bdr/">
+  <meta property="og:image" content="https://juansoler.github.io/bdr/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="es_ES">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="BDR Self-Hosted — Copias de seguridad que se pueden restaurar">
+  <meta name="twitter:description" content="Backup self-hosted de archivos, VMs y bases de datos. Cifrado en cliente, verificación de recuperabilidad, sin coste por carga de trabajo.">
+  <meta name="twitter:image" content="https://juansoler.github.io/bdr/assets/og-image.png">
+
+  <link rel="preload" href="fonts/barlow-condensed-latin-700.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/ibm-plex-sans-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+  <script>document.documentElement.classList.add("js");</script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "BDR Self-Hosted",
+    "applicationCategory": "BackupApplication",
+    "operatingSystem": "Linux, Windows, macOS",
+    "description": "Plataforma self-hosted de copias de seguridad y recuperación ante desastres para archivos, VMs de Proxmox, SQL Server y PostgreSQL.",
+    "url": "https://juansoler.github.io/bdr/",
+    "codeRepository": "https://github.com/juansoler/bdr",
+    "license": "https://www.apache.org/licenses/LICENSE-2.0",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
+  }
+  </script>
+</head>
+<body>
+  <a class="skip" href="#main">Saltar al contenido</a>
+
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="./" aria-label="BDR Self-Hosted — inicio">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M16 2 3.5 7v9.5C3.5 24.4 8.8 30 16 32c7.2-2 12.5-7.6 12.5-15.5V7L16 2Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M10.5 16.4l3.6 3.6 7.4-7.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"/>
+        </svg>
+        <span class="brand-word">BDR<span class="brand-sub">self-hosted</span></span>
+      </a>
+
+      <nav class="nav" id="nav" aria-label="Principal">
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#capacidades">Capacidades</a>
+        <a href="#motores">Motores</a>
+        <a href="#seguridad">Seguridad</a>
+        <a href="#instalacion">Instalación</a>
+        <a href="#roadmap">Roadmap</a>
+      </nav>
+
+      <div class="topbar-actions">
+        <span class="version" title="Versión publicada">v__BDR_VERSION__</span>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/juansoler/bdr">
+          <svg viewBox="0 0 16 16" aria-hidden="true" class="ico"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.23 1.88.87 2.34.67.07-.52.28-.88.51-1.08-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          GitHub
+        </a>
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav" aria-label="Abrir menú">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- HERO -->
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="pulse"></span>Apache-2.0 · self-hosted · sin coste por carga de trabajo</p>
+          <h1>Copias de seguridad<br><em>que se restauran</em>.</h1>
+          <p class="lead">
+            Plataforma de backup y recuperación ante desastres para archivos, VMs de Proxmox,
+            SQL Server y PostgreSQL. Un binario en tu servidor, agentes en cada equipo y
+            verificación de recuperabilidad en cada restore point.
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-signal" href="#instalacion">Instalar el servidor</a>
+            <a class="btn btn-outline" href="https://github.com/juansoler/bdr">Ver el código</a>
+          </div>
+          <ul class="hero-meta">
+            <li>Binario único</li>
+            <li>mTLS obligatorio</li>
+            <li>Kopia + Proxmox Backup</li>
+            <li>Linux · Windows · macOS</li>
+          </ul>
+        </div>
+
+        <div class="hero-art">
+          <div class="console" aria-hidden="true">
+            <div class="console-bar">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="console-title">bdr-console — 10.0.20.4:8080</span>
+              <span class="console-live">EN LÍNEA</span>
+            </div>
+            <div class="console-body">
+              <aside class="console-rail">
+                <span class="rail-brand">BDR</span>
+                <ul>
+                  <li class="is-active">Resumen</li>
+                  <li>Equipos</li>
+                  <li>Copias</li>
+                  <li>Restore points</li>
+                  <li>Planes</li>
+                  <li>Alertas</li>
+                  <li>SQL Server</li>
+                  <li>PostgreSQL</li>
+                </ul>
+              </aside>
+              <div class="console-main">
+                <div class="console-head">
+                  <div>
+                    <p class="k">Restore points</p>
+                    <p class="console-h">Recuperabilidad verificada</p>
+                  </div>
+                  <span class="chip chip-ok">Repositorio sano</span>
+                </div>
+
+                <div class="console-stats">
+                  <div><span>Jobs · 24 h</span><strong>38</strong></div>
+                  <div><span>Éxito</span><strong>100 %</strong></div>
+                  <div><span>Protegido</span><strong>4,2 TB</strong></div>
+                  <div><span>RPO</span><strong>15 min</strong></div>
+                </div>
+
+                <ul class="console-rows">
+                  <li>
+                    <span class="dot-ok"></span>
+                    <div><strong>srv-sql-01</strong><em>SQL Server · FULL</em></div>
+                    <span class="chip">Verificado</span>
+                    <time>hace 4 min</time>
+                  </li>
+                  <li>
+                    <span class="dot-ok"></span>
+                    <div><strong>proxmox-ve-02</strong><em>PBS · VM 112</em></div>
+                    <span class="chip">Verificado</span>
+                    <time>hace 18 min</time>
+                  </li>
+                  <li>
+                    <span class="dot-ok"></span>
+                    <div><strong>fs-office-01</strong><em>Archivos · 1,8 TB</em></div>
+                    <span class="chip">Verificado</span>
+                    <time>hace 32 min</time>
+                  </li>
+                  <li>
+                    <span class="dot-ok"></span>
+                    <div><strong>pg-prod-01</strong><em>PostgreSQL · dump custom</em></div>
+                    <span class="chip">Verificado</span>
+                    <time>hace 1 h</time>
+                  </li>
+                </ul>
+
+                <div class="console-chart">
+                  <i style="--h:34%"></i><i style="--h:52%"></i><i style="--h:41%"></i>
+                  <i style="--h:68%"></i><i style="--h:57%"></i><i style="--h:74%"></i>
+                  <i style="--h:49%"></i><i style="--h:86%"></i><i style="--h:63%"></i>
+                  <i style="--h:92%"></i><i style="--h:71%"></i><i style="--h:100%"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="hero-glow" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CÓMO FUNCIONA -->
+    <section class="section" id="como-funciona">
+      <div class="wrap">
+        <header class="section-head reveal">
+          <p class="kicker">01 — Arquitectura</p>
+          <h2>Tres piezas. Ninguna caja negra.</h2>
+          <p class="section-sub">
+            Componentes open source probados, orquestados por un plano de control propio.
+            Código auditable, estándares abiertos y ningún componente propietario en la ruta de tus datos.
+          </p>
+        </header>
+
+        <div class="flow">
+          <article class="card reveal">
+            <span class="card-num">01</span>
+            <h3>Plano de control</h3>
+            <p>
+              <code>bdr-control</code> es un único binario Go con panel web embebido, API REST,
+              programador de planes, RBAC con TOTP y auditoría encadenada. Sin Node en runtime.
+            </p>
+            <ul class="ticks">
+              <li>Panel Next.js exportado y embebido con <code>go:embed</code></li>
+              <li>PostgreSQL opcional o <code>state.json</code> cifrado</li>
+              <li>API mTLS en <code>:8443</code>, panel en <code>:8080</code></li>
+            </ul>
+          </article>
+
+          <article class="card reveal">
+            <span class="card-num">02</span>
+            <h3>Repositorio</h3>
+            <p>
+              Kopia para archivos: incremental, deduplicación por contenido, compresión zstd y
+              cifrado en cliente. Proxmox Backup Server para VMs. En NAS, disco local o S3.
+            </p>
+            <ul class="ticks">
+              <li>La clave maestra nunca viaja a los agentes</li>
+              <li>Kopia Repository Server opcional</li>
+              <li>Retención GFS y ventanas de horario</li>
+            </ul>
+          </article>
+
+          <article class="card reveal">
+            <span class="card-num">03</span>
+            <h3>Agentes</h3>
+            <p>
+              <code>bdr-agent</code> en cada equipo: instantáneas consistentes con VSS, LVM, Btrfs
+              o ZFS, inventario de discos y TPM, y auto-actualización verificada por SHA-256.
+            </p>
+            <ul class="ticks">
+              <li>Enrolamiento con token de un solo uso</li>
+              <li>mTLS con identidad propia por equipo</li>
+              <li>Servicio nativo: systemd, SCM o launchd</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="diagram reveal" aria-label="Diagrama de arquitectura">
+          <div class="diagram-node">
+            <span class="diagram-tag">Tu servidor</span>
+            <strong>bdr-control</strong>
+            <small>panel · API · scheduler</small>
+          </div>
+          <span class="diagram-link" aria-hidden="true"></span>
+          <div class="diagram-node">
+            <span class="diagram-tag">Repositorio</span>
+            <strong>Kopia · PBS</strong>
+            <small>dedup · zstd · cifrado</small>
+          </div>
+          <span class="diagram-link" aria-hidden="true"></span>
+          <div class="diagram-node">
+            <span class="diagram-tag">Equipos</span>
+            <strong>bdr-agent</strong>
+            <small>Linux · Windows · macOS</small>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CAPACIDADES -->
+    <section class="section section-alt" id="capacidades">
+      <div class="wrap">
+        <header class="section-head reveal">
+          <p class="kicker">02 — Capacidades</p>
+          <h2>Todo lo que hace falta para dormir tranquilo.</h2>
+          <p class="section-sub">
+            Del fichero suelto a la base de datos en producción, con el mismo plano de control
+            y el mismo catálogo de restore points.
+          </p>
+        </header>
+
+        <div class="grid-3">
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">◧</span>
+            <h3>Archivos</h3>
+            <p>Kopia real: incremental, dedup por contenido, compresión zstd y cifrado en cliente.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">▤</span>
+            <h3>SQL Server</h3>
+            <p>FULL, DIFF, LOG y COPY_ONLY con COMPRESSION y CHECKSUM; VERIFYONLY, DBCC CHECKDB y PITR con <code>STOPAT</code>.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">◫</span>
+            <h3>PostgreSQL</h3>
+            <p><code>pg_dump</code> en formato custom, verificado con <code>pg_restore --list</code>, restauración con <code>createdb</code> o <code>--clean</code>.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">▣</span>
+            <h3>VMs de Proxmox</h3>
+            <p>Proxmox Backup Server orquestado por API: backup, verificación y restauración por VM.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">◉</span>
+            <h3>Acceso por pantalla</h3>
+            <p>Consola remota en el navegador con tiles JPEG, estilo MeshCentral, y helper nativo en Windows.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">⏱</span>
+            <h3>Programación</h3>
+            <p>Planes con cron, ventanas de horario, retención GFS y grupos con jerarquía.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">◈</span>
+            <h3>Verificación</h3>
+            <p>Niveles 1–2 de recuperabilidad, explorador de archivos y restauración desde el panel.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">✦</span>
+            <h3>Alertas</h3>
+            <p>Deduplicación, webhook firmado y email con reintentos. Lo que falla, se sabe.</p>
+          </article>
+          <article class="feature reveal">
+            <span class="feature-ico" aria-hidden="true">↑</span>
+            <h3>Actualizaciones firmadas</h3>
+            <p>Canal de releases con Ed25519: el servidor notifica y tú decides. Nada se instala solo.</p>
+          </article>
+        </div>
+
+        <p class="roadmap-note reveal">
+          En el roadmap: imágenes completas con VSS/LVM/Btrfs/ZFS, restauración P2V a Proxmox,
+          ISO de rescate, réplica 3-2-1 a S3 con Object Lock y alta disponibilidad.
+        </p>
+      </div>
+    </section>
+
+    <!-- MOTORES -->
+    <section class="section" id="motores">
+      <div class="wrap">
+        <header class="section-head reveal">
+          <p class="kicker">03 — Motores de datos</p>
+          <h2>Bases de datos tratadas como lo que son.</h2>
+          <p class="section-sub">
+            El motor corre dentro del agente, en el host de la base de datos. El control orquesta:
+            backup nativo → transferencia al destino → catálogo con metadatos para restaurar.
+          </p>
+        </header>
+
+        <div class="engines">
+          <article class="engine reveal">
+            <header>
+              <h3>SQL Server</h3>
+              <span class="chip">Windows</span>
+            </header>
+            <ul class="ticks">
+              <li>Autodetección de instancias y del <code>BackupDirectory</code></li>
+              <li>Cadenas FULL → DIFF → LOG calculadas por continuidad de LSN</li>
+              <li>PITR con punto en el tiempo y destino en otra instancia</li>
+              <li>Cifrado nativo con custodia de certificados <code>.cer/.pvk</code></li>
+              <li>Runbook de <code>master</code> con <code>bdr-sql runbook-master</code></li>
+            </ul>
+            <div class="code">
+              <div class="code-head"><span>API</span></div>
+              <pre><code>POST /api/v1/admin/sql/{backup,restore,verify,checkdb}
+POST /api/v1/admin/sql/restore-chain
+GET  /api/v1/admin/sql/restore-points</code></pre>
+            </div>
+          </article>
+
+          <article class="engine reveal">
+            <header>
+              <h3>PostgreSQL</h3>
+              <span class="chip">Linux · Windows</span>
+            </header>
+            <ul class="ticks">
+              <li>Autodetección de puertos y clústeres</li>
+              <li><code>pg_dump --format=custom</code> comprimido y verificado en cada job</li>
+              <li>Restauración en motor limpio o con <code>--clean --if-exists</code></li>
+              <li>Credenciales solo en el entorno del agente, nunca por la API</li>
+              <li>Inventario de bases y catálogo de restore points</li>
+            </ul>
+            <div class="code">
+              <div class="code-head"><span>API</span></div>
+              <pre><code>POST /api/v1/admin/pg/{dump,restore,verify,inventory}
+GET  /api/v1/admin/pg/restore-points
+POST /api/v1/admin/pg/discover</code></pre>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEGURIDAD -->
+    <section class="section section-alt" id="seguridad">
+      <div class="wrap">
+        <header class="section-head reveal">
+          <p class="kicker">04 — Seguridad</p>
+          <h2>Las copias son el último recurso. Protégelas.</h2>
+          <p class="section-sub">
+            Modelo de amenazas documentado, controles por defecto y ninguna clave maestra
+            en los equipos protegidos.
+          </p>
+        </header>
+
+        <div class="security-grid">
+          <div class="sec-item reveal"><h3>mTLS obligatorio</h3><p>Cada agente se identifica con su propio certificado. Sin identidad válida no hay API.</p></div>
+          <div class="sec-item reveal"><h3>RBAC + TOTP</h3><p>Sesiones con segundo factor, roles separados y auditoría encadenada de cada acción.</p></div>
+          <div class="sec-item reveal"><h3>AES-256-GCM</h3><p>Secretos y estado en reposo cifrados; el repositorio usa cifrado en cliente.</p></div>
+          <div class="sec-item reveal"><h3>Canal firmado</h3><p>El catálogo de releases se verifica con Ed25519 embebido en el binario.</p></div>
+          <div class="sec-item reveal"><h3>Custodia de claves</h3><p>Certificados de cifrado SQL sellados en el control, con alerta si desaparecen.</p></div>
+          <div class="sec-item reveal"><h3>Sin telemetría</h3><p>Tu servidor no llama a casa. Solo consulta el canal de versiones que tú decidas.</p></div>
+        </div>
+
+        <blockquote class="quote reveal">
+          <p>«Código 100 % auditable, estándares abiertos y cero coste por carga de trabajo.»</p>
+          <footer>— Los tres principios de diseño del proyecto</footer>
+        </blockquote>
+      </div>
+    </section>
+
+    <!-- INSTALACIÓN -->
+    <section class="section" id="instalacion">
+      <div class="wrap">
+        <header class="section-head reveal">
+          <p class="kicker">05 — Instalación</p>
+          <h2>De cero a primera copia verificada.</h2>
+          <p class="section-sub">
+            El instalador genera los secretos, registra el servicio e inicializa el repositorio
+            Kopia una sola vez. Revisa siempre el script antes de ejecutarlo.
+          </p>
+        </header>
+
+        <div class="install-grid">
+          <article class="install reveal">
+            <header><h3>Linux / macOS</h3><span class="chip">servidor</span></header>
+            <div class="code">
+              <div class="code-head">
+                <span>bash</span>
+                <button class="copy" type="button" data-copy="cmd-linux">Copiar</button>
+              </div>
+              <pre><code id="cmd-linux">curl -fsSL https://github.com/juansoler/bdr/releases/latest/download/install-linux.sh -o install.sh
+less install.sh
+sudo bash install.sh</code></pre>
+            </div>
+            <p class="install-note">Sin sudo (Debian minimal, Proxmox): ejecuta el script directamente como root.</p>
+          </article>
+
+          <article class="install reveal">
+            <header><h3>Windows</h3><span class="chip">servidor</span></header>
+            <div class="code">
+              <div class="code-head">
+                <span>powershell</span>
+                <button class="copy" type="button" data-copy="cmd-win">Copiar</button>
+              </div>
+              <pre><code id="cmd-win">irm https://github.com/juansoler/bdr/releases/latest/download/install-windows.ps1 -OutFile install-windows.ps1
+notepad install-windows.ps1
+.\install-windows.ps1</code></pre>
+            </div>
+            <p class="install-note">PowerShell como administrador. El servicio se registra con recuperación automática.</p>
+          </article>
+
+          <article class="install reveal">
+            <header><h3>Docker Compose</h3><span class="chip">stack completo</span></header>
+            <div class="code">
+              <div class="code-head">
+                <span>bash</span>
+                <button class="copy" type="button" data-copy="cmd-docker">Copiar</button>
+              </div>
+              <pre><code id="cmd-docker">git clone https://github.com/juansoler/bdr.git && cd bdr/deploy
+docker compose -f docker-compose.prod.yml run --rm kopia-init
+docker compose -f docker-compose.prod.yml up -d</code></pre>
+            </div>
+            <p class="install-note">Incluye Caddy con Let's Encrypt. Define antes las variables de <code>.env</code>.</p>
+          </article>
+        </div>
+
+        <ol class="steps reveal">
+          <li>
+            <span class="step-num">1</span>
+            <div><h3>Entra en el panel</h3><p>Abre <code>http://&lt;servidor&gt;:8080</code> e introduce el token de <code>/etc/bdr/bdr.env</code>.</p></div>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <div><h3>Añade tu primer equipo</h3><p>En <strong>Equipos → Añadir equipo</strong> se genera un instalador con token de un solo uso para Linux, Windows o macOS.</p></div>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <div><h3>Lanza y verifica</h3><p>Ejecuta un backup, abre el restore point y comprueba que figura como recuperable. Ese es el único estado que importa.</p></div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ROADMAP -->
+    <section class="section section-alt" id="roadmap">
+      <div class="wrap">
+        <header class="section-head reveal">
+          <p class="kicker">06 — Roadmap</p>
+          <h2>Lo que hay y lo que viene.</h2>
+        </header>
+
+        <ul class="roadmap">
+          <li class="reveal">
+            <span class="rm-phase">Fase 1</span>
+            <div><h3>MVP de archivos</h3><p>Agentes, planes, Kopia, panel y alertas.</p></div>
+            <span class="chip chip-ok">Completa</span>
+          </li>
+          <li class="reveal">
+            <span class="rm-phase">Fase 0.5</span>
+            <div><h3>PostgreSQL, mTLS y KRS</h3><p>mTLS estricto, estado en PostgreSQL y Kopia Repository Server.</p></div>
+            <span class="chip chip-ok">Completa</span>
+          </li>
+          <li class="reveal">
+            <span class="rm-phase">Fase 2b</span>
+            <div><h3>Motores de bases de datos</h3><p>SQL Server (RF-40–46) y PostgreSQL: núcleo completo.</p></div>
+            <span class="chip chip-ok">Núcleo listo</span>
+          </li>
+          <li class="reveal">
+            <span class="rm-phase">Fase 2</span>
+            <div><h3>Imagen completa y P2V</h3><p>VSS/LVM/Btrfs/ZFS, restauración P2V a Proxmox e ISO de rescate.</p></div>
+            <span class="chip chip-wip">En curso</span>
+          </li>
+          <li class="reveal">
+            <span class="rm-phase">Fase 3</span>
+            <div><h3>3-2-1 y alta disponibilidad</h3><p>Réplica a S3 con Object Lock, verificación de arranque y HA.</p></div>
+            <span class="chip chip-next">Próxima</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="section cta">
+      <div class="wrap cta-inner reveal">
+        <div>
+          <h2>Empieza con una copia.<br>Verifica que restaura.</h2>
+          <p>Apache-2.0, sin licencias por workload y sin dependencia de un proveedor.</p>
+        </div>
+        <div class="cta-actions">
+          <a class="btn btn-signal" href="#instalacion">Instalar ahora</a>
+          <a class="btn btn-outline" href="https://github.com/juansoler/bdr">Documentación</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-grid">
+      <div>
+        <a class="brand" href="./">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M16 2 3.5 7v9.5C3.5 24.4 8.8 30 16 32c7.2-2 12.5-7.6 12.5-15.5V7L16 2Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <path d="M10.5 16.4l3.6 3.6 7.4-7.6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="square"/>
+          </svg>
+          <span class="brand-word">BDR<span class="brand-sub">self-hosted</span></span>
+        </a>
+        <p class="footer-tag">Copias de seguridad y recuperación ante desastres, en tu infraestructura.</p>
+      </div>
+
+      <nav aria-label="Documentación">
+        <h2>Documentación</h2>
+        <ul>
+          <li><a href="https://github.com/juansoler/bdr#readme">README</a></li>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/DEVELOPMENT.md">Desarrollo</a></li>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/docs/04-arquitectura.md">Arquitectura</a></li>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/docs/13-seguridad.md">Seguridad</a></li>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/deploy/PRODUCTION.md">Producción</a></li>
+        </ul>
+      </nav>
+
+      <nav aria-label="Proyecto">
+        <h2>Proyecto</h2>
+        <ul>
+          <li><a href="https://github.com/juansoler/bdr">Repositorio</a></li>
+          <li><a href="https://github.com/juansoler/bdr/releases">Releases</a></li>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/CONTRIBUTING.md">Contribuir</a></li>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/SECURITY.md">Seguridad</a></li>
+        </ul>
+      </nav>
+
+      <div>
+        <h2>Licencias</h2>
+        <ul>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/LICENSE">Apache License 2.0</a></li>
+          <li><a href="https://github.com/juansoler/bdr/blob/main/THIRD_PARTY_NOTICES.md">Avisos de terceros</a></li>
+          <li>Kopia · Apache-2.0</li>
+          <li>Next.js · MIT</li>
+          <li>Fuentes · SIL OFL 1.1:
+            <a href="fonts/OFL-BarlowCondensed.txt">Barlow</a> ·
+            <a href="fonts/OFL-IBMPlexSans.txt">Plex Sans</a> ·
+            <a href="fonts/OFL-IBMPlexMono.txt">Plex Mono</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="wrap footer-bottom">
+      <span>© <span id="year">2026</span> BDR Self-Hosted · v__BDR_VERSION__</span>
+      <span>Hecho con ❤️ y sin coste por carga de trabajo.</span>
+    </div>
+  </footer>
+
+  <script src="main.js" defer></script>
+</body>
+</html>

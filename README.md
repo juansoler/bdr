@@ -12,8 +12,11 @@ Imágenes completas · archivos · VMs de Proxmox · SQL Server · PostgreSQL ·
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Web](https://img.shields.io/badge/web-juansoler.github.io%2Fbdr-c8ff4d)](https://juansoler.github.io/bdr/)
 
 **Servidor de binario único** (panel web embebido) · **Agentes para Linux, macOS y Windows** · **Sin coste por carga de trabajo**
+
+🌐 **[Web del proyecto](https://juansoler.github.io/bdr/)** — capacidades, seguridad e instalación en una página.
 
 </div>
 
