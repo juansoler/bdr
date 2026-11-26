@@ -123,6 +123,9 @@ jobs:
             dist/bdr-sql-*
             dist/uninstall-*
             dist/install-*
+            dist/LICENSE
+            dist/NOTICE
+            dist/THIRD_PARTY_NOTICES.md
             dist/SHA256SUMS
             dist/latest.json
             dist/latest.json.sig

@@ -188,6 +188,15 @@ for f in deploy/uninstall/uninstall-agent.sh deploy/uninstall/uninstall-control.
   cp "$f" "$OUT/"
 done
 ( cd "$OUT" && shasum -a 256 uninstall-agent.sh uninstall-control.sh uninstall-agent.ps1 uninstall-control.ps1 >> SHA256SUMS )
+
+# Licencias como assets de la release: los binarios de agente se publican
+# sueltos (los descarga la autoactualización), así que la copia de la
+# Apache-2.0 y los avisos de terceros viajan también como assets.
+for f in LICENSE NOTICE THIRD_PARTY_NOTICES.md; do
+  [[ -f "$f" ]] || { echo "falta $f" >&2; exit 1; }
+  cp "$f" "$OUT/"
+done
+( cd "$OUT" && shasum -a 256 LICENSE NOTICE THIRD_PARTY_NOTICES.md >> SHA256SUMS )
 sort -o "$OUT/SHA256SUMS" "$OUT/SHA256SUMS"
 
 echo "== firma del manifiesto…"

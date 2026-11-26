@@ -63,9 +63,18 @@ EOF
 cat > "$STAGING/DEBIAN/conffiles" <<'EOF'
 EOF
 
+# Licencia y avisos completos: el .deb es una redistribución, así que la
+# Apache-2.0 exige acompañar la copia de la licencia y el NOTICE.
+install -m 0644 LICENSE NOTICE THIRD_PARTY_NOTICES.md "$STAGING/share/doc/bdr-agent/"
+
 cat > "$STAGING/share/doc/bdr-agent/copyright" <<EOF
-BDR Self-Hosted agente ($VERSION_DEB)
-Licencia del producto: definir antes de distribución externa.
+BDR Self-Hosted — agente $VERSION_DEB
+
+Copyright 2026 BDR Self-Hosted contributors.
+Distribuido bajo la Apache License 2.0 (texto completo en LICENSE).
+
+Este paquete incluye software de terceros; sus avisos de copyright y
+licencia están en NOTICE y THIRD_PARTY_NOTICES.md.
 EOF
 
 chmod 755 "$STAGING/DEBIAN/postinst" "$STAGING/DEBIAN/prerm"

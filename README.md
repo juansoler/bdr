@@ -361,10 +361,14 @@ privado siguiendo [`SECURITY.md`](SECURITY.md) — no abras un issue público.
 ## 📄 Licencias y atribución
 
 - **BDR Self-Hosted**: [Apache License 2.0](LICENSE).
+- **Terceros**: avisos de copyright y licencia de Kopia, dependencias Go,
+  panel web y fuentes en
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) y [`NOTICE`](NOTICE).
 - **Kopia**: Apache-2.0 — se redistribuye como binario auxiliar.
 - **Next.js / React**: MIT — panel compilado a estáticos.
 - **Fuentes del panel**: Barlow Condensed, IBM Plex Sans y IBM Plex Mono —
-  SIL OFL 1.1 (ver [`NOTICE`](NOTICE)).
+  SIL OFL 1.1 (ver [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) y
+  [`NOTICE`](NOTICE)).
 - **Proxmox VE / PBS**: AGPL-3.0 — se usan por API, no se redistribuye código.
 - **UrBackup**: AGPL-3.0+ — solo referencia, sin código.
 - **Duplicacy**: no se usa.

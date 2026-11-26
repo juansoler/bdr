@@ -2,6 +2,31 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.57] — 2026-11-26
+
+### Añadido
+
+- **Avisos de terceros completos** (`THIRD_PARTY_NOTICES.md`): inventario de
+  los componentes redistribuidos y sus licencias — Kopia (Apache-2.0), las 40
+  dependencias Go enlazadas en `bdr-control`/`bdr-agent`/`bdr-sql` (MIT, BSD,
+  ISC, MPL-2.0 y Apache-2.0), Next.js/React/xterm (MIT) y las fuentes
+  autoalojadas (OFL-1.1) — más el software usado solo por API (Proxmox).
+  El fichero viaja ya dentro de los bundles de servidor, lo instalan los
+  instaladores en `/etc/bdr`, lo incluye la imagen Docker en
+  `/opt/bdr/share/doc/bdr/` y se publica como asset de la release junto a
+  `LICENSE` y `NOTICE` (los binarios de agente se descargan sueltos, así que
+  la licencia debe acompañarlos como asset).
+
+### Corregido
+
+- **El `.deb` del agente se publicaba con la licencia sin definir**:
+  `share/doc/bdr-agent/copyright` contenía el placeholder «Licencia del
+  producto: definir antes de distribución externa». Ahora el paquete incluye
+  `LICENSE`, `NOTICE` y `THIRD_PARTY_NOTICES.md` completos y un copyright real.
+- **La imagen Docker no llevaba licencias**: al ser una redistribución, la
+  Apache-2.0 exige acompañar la copia de la licencia y el NOTICE. Se copian a
+  `/opt/bdr/share/doc/bdr/` en la imagen.
+
 ## [0.16.56] — 2026-11-25
 
 ### Corregido

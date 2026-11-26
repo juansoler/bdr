@@ -61,6 +61,9 @@ RUN apk add --no-cache curl \
 COPY --from=build /out/bdr-control /opt/bdr/bin/bdr-control
 COPY --from=kopia-bin /usr/bin/kopia /opt/bdr/bin/kopia
 COPY --from=agents /agents/ /opt/bdr/agents/
+# La imagen es una redistribución: la Apache-2.0 exige incluir la licencia y
+# los avisos (Kopia, panel, fuentes). Quedan en /opt/bdr/share/doc/bdr/.
+COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md /opt/bdr/share/doc/bdr/
 # agents.json: SHAs de los agentes de la imagen para las ofertas de
 # auto-actualización (bdr-control lo lee junto a su binario).
 RUN cd /opt/bdr/agents \
