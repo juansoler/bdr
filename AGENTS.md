@@ -107,6 +107,16 @@ para que cualquier corrección o feature llegue publicada.
   único del repo: Settings → Pages → Source = *GitHub Actions* (sin eso
   `configure-pages` falla con «Get Pages site failed»). Rutas siempre
   relativas: el sitio se sirve bajo el subpath `/bdr/`.
+- **Pages: subir y desplegar van en jobs separados** (`build` → `deploy`).
+  `deploy-pages` lista los artefactos de la ejecución al arrancar; en el
+  mismo job que la subida puede verla vacía y fallar con «No artifacts named
+  "github-pages"» (actions/deploy-pages#451) aunque GitHub esté
+  «operational». No es un fallo del sitio. Y **no re-ejecutes a ciegas una
+  ejecución fallida**: una segunda subida a la misma ejecución deja dos
+  artefactos con el mismo nombre y el despliegue aborta por duplicado
+  («Multiple artifacts»). Por eso `build` reutiliza el artefacto si ya
+  existe y `deploy` reintenta tras 20 s. Para empezar de cero, *Run
+  workflow* (ejecución nueva), no «Re-run».
 - Para verificar el responsive de la web, `chrome --headless --window-size`
   en macOS **recorta** por debajo de ~500 px (mínimo de ventana) y hace
   parecer que hay desbordamiento cuando no lo hay. Medir y capturar por CDP

@@ -2,9 +2,15 @@ name: Pages
 
 # Publica la web del proyecto en https://juansoler.github.io/bdr/.
 #
-# El sitio vive en site/ (HTML/CSS/JS a mano, sin build de Node). Este workflow
-# genera _site/ con la versión inyectada y lo publica como artefacto de Pages:
-# no hay rama gh-pages ni build commiteado.
+# El sitio vive en site/ (HTML/CSS/JS a mano, sin build de Node): el job
+# `build` genera _site/ con la versión inyectada y lo sube como artefacto;
+# el job `deploy` lo publica. No hay rama gh-pages ni build commiteado.
+#
+# build y deploy van en jobs separados a propósito: actions/deploy-pages
+# lista los artefactos de la ejecución en cuanto arranca y, en el mismo job
+# que la subida, esa lista puede venir aún vacía (actions/deploy-pages#451,
+# «No artifacts named "github-pages" were found»). En un job posterior el
+# listado va ya unos segundos retrasado, y el reintento cubre lo demás.
 #
 # Requisito, una sola vez: Settings → Pages → Source = "GitHub Actions".
 on:
@@ -20,6 +26,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read # listar los artefactos de la ejecución (job build)
 
 # Un despliegue a la vez, sin cancelar el que esté en curso.
 concurrency:
@@ -27,12 +34,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    name: Generar y publicar
+  build:
+    name: Generar el sitio
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -41,9 +45,62 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
+      - name: ¿Hay ya un artefacto de un intento anterior?
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          # Re-ejecutar esta ejecución subiría un segundo artefacto con el
+          # mismo nombre y deploy-pages abortaría por duplicado
+          # («Multiple artifacts named "github-pages"»). Si ya hay uno vivo se
+          # reutiliza: una re-ejecución comparte el commit del intento anterior.
+          url="https://api.github.com/repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100"
+          body=""
+          for attempt in 1 2 3; do
+            if body=$(curl -fsSL --retry 3 \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "$url"); then
+              break
+            fi
+            body=""
+            sleep 3
+          done
+          if [ -z "$body" ]; then
+            echo "::error::No se pudo consultar la lista de artefactos de la ejecución $RUN_ID"
+            exit 1
+          fi
+          count=$(printf '%s' "$body" \
+            | jq '[.artifacts[] | select(.name == "github-pages" and .expired == false)] | length')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Artefactos github-pages previos en esta ejecución: $count"
+
       - uses: actions/upload-pages-artifact@v3
+        if: steps.previous.outputs.count == '0'
         with:
           path: _site
 
-      - id: deployment
+  deploy:
+    name: Publicar en Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.retry.outputs.page_url || steps.deployment.outputs.page_url }}
+    steps:
+      - name: Desplegar
+        id: deployment
+        uses: actions/deploy-pages@v4
+        # Un fallo aquí no tumba el job: se reintenta abajo.
+        continue-on-error: true
+
+      - name: Esperar antes de reintentar
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 20
+
+      - name: Reintentar el despliegue
+        id: retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v4
