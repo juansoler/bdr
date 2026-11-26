@@ -2,6 +2,35 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.58] — 2026-11-26
+
+### Añadido
+
+- **Textos completos de licencia en los avisos de terceros**: MIT,
+  BSD-2-Clause, BSD-3-Clause, ISC y SIL OFL 1.1 quedan reproducidos íntegros
+  en `THIRD_PARTY_NOTICES.md`, con la tabla de componentes, versiones y
+  titulares del copyright. Antes solo figuraba el identificador SPDX, que no
+  satisface la obligación de reproducir el aviso y el disclaimer de MIT/BSD.
+- **Runtime de Go** incluido como componente BSD-3-Clause (va embebido en
+  todos los binarios).
+- **Avisos `NOTICE` de MinIO y `go.yaml.in/yaml/v3`** reproducidos por la
+  cláusula 4(d) de la Apache-2.0.
+- **Comprobación de deriva en CI**: `scripts/check-third-party-notices.sh`
+  falla si una dependencia Go enlazada no aparece en los avisos, para que una
+  dependencia nueva no llegue a un release sin licencia.
+
+### Corregido
+
+- **Fuentes sin texto OFL en los artefactos**: los avisos remitían a
+  `apps/web/fonts/OFL-*.txt`, que no viaja en bundles, `.deb` ni imagen. El
+  texto completo de la OFL-1.1 y los copyright de Barlow/IBM Plex van ahora en
+  `THIRD_PARTY_NOTICES.md`, que sí se distribuye.
+- **Años de copyright de las fuentes**: corregidos a 2017 (Barlow e IBM Plex)
+  según los ficheros OFL originales.
+- **Componentes que no se usan fuera de los avisos**: se retiran UrBackup y
+  Duplicacy de `README.md` y de los avisos; solo se nombra lo que se
+  redistribuye o se usa por API.
+
 ## [0.16.57] — 2026-11-26
 
 ### Añadido

@@ -370,8 +370,6 @@ privado siguiendo [`SECURITY.md`](SECURITY.md) — no abras un issue público.
   SIL OFL 1.1 (ver [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) y
   [`NOTICE`](NOTICE)).
 - **Proxmox VE / PBS**: AGPL-3.0 — se usan por API, no se redistribuye código.
-- **UrBackup**: AGPL-3.0+ — solo referencia, sin código.
-- **Duplicacy**: no se usa.
 
 Los detalles completos están en [`NOTICE`](NOTICE).
 
