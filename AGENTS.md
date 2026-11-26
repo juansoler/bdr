@@ -122,3 +122,14 @@ para que cualquier corrección o feature llegue publicada.
   parecer que hay desbordamiento cuando no lo hay. Medir y capturar por CDP
   (`Emulation.setDeviceMetricsOverride` con `mobile: false`) y comparar
   `documentElement.scrollWidth` con `innerWidth` a 320/390/768/1440.
+- **Compose lee el `.env` del directorio del fichero compose** (`-f`), no del
+  de trabajo, y **no ejecuta nada** dentro: un `cat > .env <<'EOF'` con el
+  delimitador entrecomillado escribe los `$(openssl …)` literalmente. El stack
+  de producción parte de `deploy/.env.example`: las obligatorias van vacías
+  (`${VAR:?}` solo exige «no vacío»; un valor de ejemplo arrancaría con un
+  secreto conocido) y se valida con `docker compose -f
+  docker-compose.prod.yml config -q` —única verificación en local, porque el
+  proyecto se llama `bdr` y un `run`/`up` crearía los volúmenes reales—. `run`
+  interpola todos los servicios: `kopia-init` exige las obligatorias de todo el
+  stack. Y `BDR_DB_PASSWORD` en hex: un `/` del base64 rompe la URL
+  `postgres://…` del `--db-url`.
