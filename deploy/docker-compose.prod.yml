@@ -4,12 +4,14 @@
 # Kopia Repository Server opcional, panel y Caddy con TLS para el panel y la
 # API, más backup diario de la base de datos.
 #
-# Requisitos previos (ver deploy/PRODUCTION.md):
-#   export BDR_ADMIN_TOKEN=... BDR_KOPIA_PASSWORD=... BDR_SECRET_KEY=...
-#   export BDR_PUBLIC_HOST=bdr.empresa.test        # host que alcanczan los agentes
-#   export BDR_DOMAIN=bdr.empresa.test
+# Variables (runbook en deploy/PRODUCTION.md). Obligatorias: BDR_ADMIN_TOKEN,
+# BDR_SECRET_KEY, BDR_KOPIA_PASSWORD, BDR_DB_PASSWORD, BDR_PUBLIC_HOST y
+# BDR_DOMAIN. Se leen del entorno del shell o de un .env en el directorio de
+# este fichero; parte de la plantilla:
+#   cd deploy && cp .env.example .env && chmod 600 .env    # y rellénalo
 #
-#   docker compose -f deploy/docker-compose.prod.yml run --rm kopia-init  # una vez
+#   docker compose -f deploy/docker-compose.prod.yml config -q            # valida las variables
+#   docker compose -f deploy/docker-compose.prod.yml run --rm kopia-init   # una vez
 #   docker compose -f deploy/docker-compose.prod.yml up -d
 
 name: bdr
@@ -19,7 +21,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${BDR_DB_USER:-bdr}
-      POSTGRES_PASSWORD: ${BDR_DB_PASSWORD:?define BDR_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${BDR_DB_PASSWORD:?define BDR_DB_PASSWORD en .env (copia .env.example)}
       POSTGRES_DB: ${BDR_DB_NAME:-bdr}
     volumes:
       - bdr-db-data:/var/lib/postgresql/data
@@ -38,18 +40,18 @@ services:
       db:
         condition: service_healthy
     environment:
-      BDR_ADMIN_TOKEN: ${BDR_ADMIN_TOKEN:?define BDR_ADMIN_TOKEN}
+      BDR_ADMIN_TOKEN: ${BDR_ADMIN_TOKEN:?define BDR_ADMIN_TOKEN en .env (copia .env.example)}
       # Clave de cifrado de secretos (AES-256-GCM, base64, 32 bytes):
       #   openssl rand -base64 32
       # Cópiala a un lugar seguro: sin ella los secretos cifrados son irrecuperables.
-      BDR_SECRET_KEY: ${BDR_SECRET_KEY:?define BDR_SECRET_KEY}
+      BDR_SECRET_KEY: ${BDR_SECRET_KEY:?define BDR_SECRET_KEY en .env (copia .env.example)}
       # Primer usuario administrador del panel (recomendado en producción).
       BDR_ADMIN_EMAIL: ${BDR_ADMIN_EMAIL:-}
       BDR_ADMIN_PASSWORD: ${BDR_ADMIN_PASSWORD:-}
       # Repositorio Kopia para las credenciales de los agentes.
       BDR_KOPIA_KIND: ${BDR_KOPIA_KIND:-server}
       BDR_KOPIA_REPO_PATH: /data/repo
-      BDR_KOPIA_PASSWORD: ${BDR_KOPIA_PASSWORD:?define BDR_KOPIA_PASSWORD}
+      BDR_KOPIA_PASSWORD: ${BDR_KOPIA_PASSWORD:?define BDR_KOPIA_PASSWORD en .env (copia .env.example)}
       # En modo server (aislamiento por agente), la URL y huella del KRS.
       # La URL debe ser alcanzable DESDE LOS AGENTES (se la entregamos a ellos).
       BDR_KOPIA_SERVER_URL: ${BDR_KOPIA_SERVER_URL:-}
@@ -64,7 +66,7 @@ services:
       --addr 0.0.0.0:8080
       --data-dir /data
       --agent-addr 0.0.0.0:8443
-      --agent-url https://${BDR_PUBLIC_HOST}:${BDR_AGENT_PORT:-8443}
+      --agent-url https://${BDR_PUBLIC_HOST:?define BDR_PUBLIC_HOST en .env (copia .env.example)}:${BDR_AGENT_PORT:-8443}
       --agent-tls-names ${BDR_PUBLIC_HOST},localhost
     volumes:
       - bdr-control-data:/data
@@ -130,7 +132,7 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     environment:
-      BDR_DOMAIN: ${BDR_DOMAIN:?define BDR_DOMAIN}
+      BDR_DOMAIN: ${BDR_DOMAIN:?define BDR_DOMAIN en .env (copia .env.example)}
     ports:
       - "80:80"
       - "443:443"

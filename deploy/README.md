@@ -1,6 +1,6 @@
 # Despliegue
 
-**Documentos:** runbook de producción en [`PRODUCTION.md`](PRODUCTION.md) · stack de referencia en [`docker-compose.prod.yml`](docker-compose.prod.yml) · laboratorio/develop en [`docker-compose.yml`](docker-compose.yml).
+**Documentos:** runbook de producción en [`PRODUCTION.md`](PRODUCTION.md) · stack de referencia en [`docker-compose.prod.yml`](docker-compose.prod.yml) · plantilla de variables en [`.env.example`](.env.example) · laboratorio/develop en [`docker-compose.yml`](docker-compose.yml).
 
 **Estado:** nodo único con PostgreSQL (o fichero para laboratorio), repositorio Kopia de archivos con opción de Kopia Repository Server (aislamiento por agente), agentes mTLS, panel con TLS y backup diario de la BD.
 
@@ -18,6 +18,10 @@ export BDR_ADMIN_PASSWORD="una-contraseña-larga"
 docker compose -f deploy/docker-compose.yml run --rm kopia-init   # crea el repositorio Kopia (una vez)
 docker compose -f deploy/docker-compose.yml up --build -d
 ```
+
+### Stack de producción
+
+`docker-compose.prod.yml` exige además `BDR_SECRET_KEY`, `BDR_DB_PASSWORD`, `BDR_PUBLIC_HOST` y `BDR_DOMAIN`. Parte de la plantilla [`.env.example`](.env.example) —cópiala a `deploy/.env`, rellénala y valida con `config -q`— y sigue el runbook de [`PRODUCTION.md`](PRODUCTION.md).
 
 ### Estado en PostgreSQL (opcional)
 

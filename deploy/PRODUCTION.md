@@ -22,22 +22,33 @@ archivos — imagen/P2V y réplica 3-2-1 S3 son fases posteriores del roadmap
 
 ## 2. Secretos y variables
 
+Parte de la plantilla y rellena los valores. Compose lee el `.env` del directorio
+del fichero compose (`deploy/`), no del directorio de trabajo, y **no ejecuta
+comandos** dentro de él: un `$(openssl …)` escrito en el fichero se toma literal.
+
 ```bash
 cd deploy
-cat > .env <<'EOF'
-BDR_ADMIN_TOKEN=$(openssl rand -base64 32)     # token de servicio/arranque
-BDR_SECRET_KEY=$(openssl rand -base64 32)      # clave de cifrado de secretos
-BDR_KOPIA_PASSWORD=<contraseña del repositorio>
-BDR_KOPIA_CONTROL_PASSWORD=$(openssl rand -base64 24)  # API de control del KRS
-BDR_DB_PASSWORD=$(openssl rand -base64 24)
-BDR_PUBLIC_HOST=bdr.empresa.test               # host que alcanzan los agentes (8443)
-BDR_DOMAIN=bdr.empresa.test                    # dominio único del panel+API (Caddy)
-BDR_KOPIA_SERVER_URL=https://bdr.empresa.test:51515  # alcanzable DESDE LOS AGENTES
-BDR_ADMIN_EMAIL=admin@empresa.test             # primer usuario del panel
-BDR_ADMIN_PASSWORD=<contraseña larga, 12+ caracteres>
-EOF
-chmod 600 .env
+cp .env.example .env && chmod 600 .env
+# Secretos, generados una sola vez (pega cada salida en su clave de .env):
+for v in BDR_ADMIN_TOKEN BDR_SECRET_KEY; do echo "$v=$(openssl rand -base64 32)"; done
+for v in BDR_KOPIA_PASSWORD BDR_KOPIA_CONTROL_PASSWORD BDR_DB_PASSWORD; do echo "$v=$(openssl rand -hex 32)"; done
+${EDITOR:-vi} .env
 ```
+
+| Variable | Valor |
+|---|---|
+| `BDR_ADMIN_TOKEN` | generado · token de servicio/arranque |
+| `BDR_SECRET_KEY` | generado · clave de cifrado de secretos |
+| `BDR_KOPIA_PASSWORD` | generado · contraseña del repositorio |
+| `BDR_KOPIA_CONTROL_PASSWORD` | generado · API de control del KRS |
+| `BDR_DB_PASSWORD` | generado en hex: va dentro de la URL de conexión |
+| `BDR_PUBLIC_HOST` | `bdr.empresa.test` · host que alcanzan los agentes (8443) |
+| `BDR_DOMAIN` | `bdr.empresa.test` · dominio único del panel+API (Caddy) |
+| `BDR_KOPIA_SERVER_URL` | `https://bdr.empresa.test:51515` · alcanzable DESDE LOS AGENTES |
+| `BDR_ADMIN_EMAIL` | `admin@empresa.test` · primer usuario del panel |
+| `BDR_ADMIN_PASSWORD` | contraseña larga, 12+ caracteres |
+
+Las opcionales, con su valor por defecto, están descritas en la propia plantilla.
 
 - `BDR_SECRET_KEY` es la **clave maestra de secretos**: sin ella, las
   credenciales cifradas (TOTP, webhooks, SMTP, contraseñas de repositorio)
@@ -51,6 +62,7 @@ chmod 600 .env
 ## 3. Arranque
 
 ```bash
+docker compose -f docker-compose.prod.yml config -q              # valida las variables sin arrancar nada
 docker compose -f docker-compose.prod.yml run --rm kopia-init   # crea el repositorio (una vez)
 docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml ps

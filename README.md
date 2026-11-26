@@ -101,17 +101,17 @@ notepad install-windows.ps1
 
 ```bash
 git clone https://github.com/juansoler/bdr.git && cd bdr/deploy
-cat > .env <<'EOF'
-BDR_ADMIN_TOKEN=$(openssl rand -base64 32)
-BDR_SECRET_KEY=$(openssl rand -base64 32)
-BDR_KOPIA_PASSWORD=$(openssl rand -base64 24)
-BDR_DB_PASSWORD=$(openssl rand -base64 24)
-BDR_DOMAIN=bdr.tudominio.com
-BDR_PUBLIC_HOST=bdr.tudominio.com
-EOF
+cp .env.example .env && chmod 600 .env
+# Genera los secretos (una sola vez) y pégalos en las claves vacías de .env
+for v in BDR_ADMIN_TOKEN BDR_SECRET_KEY; do echo "$v=$(openssl rand -base64 32)"; done
+for v in BDR_KOPIA_PASSWORD BDR_KOPIA_CONTROL_PASSWORD BDR_DB_PASSWORD; do echo "$v=$(openssl rand -hex 32)"; done
+${EDITOR:-vi} .env    # pega los secretos y pon tu dominio (BDR_DOMAIN, BDR_PUBLIC_HOST)
+docker compose -f docker-compose.prod.yml config -q    # valida las variables sin arrancar nada
 docker compose -f docker-compose.prod.yml run --rm kopia-init   # una vez
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+Cada variable está explicada en `deploy/.env.example`; el runbook completo, en [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md).
 
 </details>
 
