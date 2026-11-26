@@ -461,10 +461,12 @@ notepad install-windows.ps1
                 <button class="copy" type="button" data-copy="cmd-docker">Copiar</button>
               </div>
               <pre><code id="cmd-docker">git clone https://github.com/juansoler/bdr.git && cd bdr/deploy
+cp .env.example .env && chmod 600 .env   # y rellénalo
+docker compose -f docker-compose.prod.yml config -q
 docker compose -f docker-compose.prod.yml run --rm kopia-init
 docker compose -f docker-compose.prod.yml up -d</code></pre>
             </div>
-            <p class="install-note">Incluye Caddy con Let's Encrypt. Define antes las variables de <code>.env</code>.</p>
+            <p class="install-note">Incluye Caddy con Let's Encrypt. Los secretos y el dominio van en <code>.env</code>, creado desde la plantilla <code>.env.example</code>.</p>
           </article>
         </div>
 
