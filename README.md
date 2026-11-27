@@ -1,52 +1,53 @@
+[Español](README.es.md)
+
 <div align="center">
 
 # 🔐 BDR Self-Hosted
 
-**Plataforma self-hosted de copias de seguridad y recuperación ante desastres**
+**Self-hosted backup and disaster recovery platform**
 
-Imágenes completas · archivos · VMs de Proxmox · SQL Server · PostgreSQL · P2V · cifrado en cliente · verificación de recuperabilidad
+Full images · files · Proxmox VMs · SQL Server · PostgreSQL · P2V · client-side encryption · recoverability verification
 
 [![CI](https://github.com/juansoler/bdr/actions/workflows/ci.yml/badge.svg)](https://github.com/juansoler/bdr/actions/workflows/ci.yml)
-[![Release](https://github.com/juansoler/bdr/actions/workflows/release.yml/badge.svg)](https://github.com/juansoler/bdr/releases)
+[![Release](https://github.com/juansoler/bdr/actions/workflows/release.yml/badge.svg)](https://github.com/juansoler/bdr/actions/workflows/release.yml)
 [![GitHub release](https://img.shields.io/github/v/release/juansoler/bdr?include_prereleases)](https://github.com/juansoler/bdr/releases)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Web](https://img.shields.io/badge/web-juansoler.github.io%2Fbdr-c8ff4d)](https://juansoler.github.io/bdr/)
 
-**Servidor de binario único** (panel web embebido) · **Agentes para Linux, macOS y Windows** · **Sin coste por carga de trabajo**
+**Single-binary server** (embedded web panel) · **Agents for Linux, macOS and Windows** · **No per-workload cost**
 
-🌐 **[Web del proyecto](https://juansoler.github.io/bdr/)** — capacidades, seguridad e instalación en una página.
+🌐 **[Project website](https://juansoler.github.io/bdr/)** — capabilities, security and installation on a single page.
 
 </div>
 
 ---
 
-## ¿Qué es BDR?
+## What is BDR?
 
-BDR es una plataforma de protección de datos construida sobre componentes open
-source probados — **Kopia** para el repositorio de archivos, **Proxmox Backup
-Server** para VMs, VSS/LVM/Btrfs/ZFS para consistencia y QEMU para
-virtualización — con un plano de control propio que los orquesta como un solo
-producto.
+BDR is a data protection platform built on proven open source components —
+**Kopia** for the file repository, **Proxmox Backup Server** for VMs,
+VSS/LVM/Btrfs/ZFS for consistency and QEMU for virtualization — with its own
+control plane that orchestrates them as a single product.
 
-El objetivo es subconjunto deliberado de una suite completa de BDR, con tres
-diferencias de diseño: **código 100 % auditable**, **estándares abiertos** y
-**cero coste por carga de trabajo**.
+The goal is a deliberate subset of a full BDR suite, with three design
+differences: **100 % auditable code**, **open standards** and **zero per-
+workload cost**.
 
 ```text
-┌─────────────────────────────── tu servidor ───────────────────────────────┐
+┌─────────────────────────────── your server ──────────────────────────────┐
 │                                                                          │
-│   ┌──────────────────────── bdr-control (binario único) ──────────────┐  │
-│   │  🌐 Panel web embebido   🔐 API REST + mTLS   ⏱ Programador        │  │
+│   ┌──────────────────────── bdr-control (single binary) ──────────────┐  │
+│   │  🌐 Embedded web panel   🔐 REST API + mTLS   ⏱ Scheduler          │  │
 │   └────────┬───────────────────────┬───────────────────────┬──────────┘  │
 │            │ :8080                 │ :8443 (mTLS)          │             │
 │   ┌────────▼─────────┐    ┌────────▼─────────┐    ┌────────▼─────────┐   │
-│   │  PostgreSQL      │    │ Repositorio      │    │ Kopia Repository │   │
-│   │  (o state.json)  │    │ Kopia (NAS/S3)   │    │ Server (opcional)│   │
+│   │  PostgreSQL      │    │ Kopia Repository │    │ Kopia Repository │   │
+│   │  (or state.json) │    │ (NAS/S3)         │    │ Server (optional)│   │
 │   └──────────────────┘    └────────▲─────────┘    └──────────────────┘   │
 └─────────────────────────────────────┼─────────────────────────────────────┘
-                                      │ dedup + zstd + cifrado cliente
+                                      │ dedup + zstd + client-side encryption
         ┌─────────────────────────────┼─────────────────────────────┐
         │                             │                             │
    ┌────┴─────┐                 ┌─────┴─────┐                ┌──────┴─────┐
@@ -55,38 +56,38 @@ diferencias de diseño: **código 100 % auditable**, **estándares abiertos** y
    └──────────┘                 └───────────┘                └────────────┘
 ```
 
-## Características
+## Features
 
-| Capacidad | Detalle | Estado |
+| Capability | Detail | Status |
 |---|---|---|
-| **Servidor** | Binario único con API REST, panel web embebido, mTLS y logs JSON | ✅ |
-| **Backup de archivos** | Kopia real: incremental, dedup por contenido, compresión zstd, cifrado en cliente | ✅ |
-| **Restore points** | Verificación de recuperabilidad nivel 1–2, explorador de archivos y restauración | ✅ |
-| **SQL Server** | Backups nativos FULL/DIFF/LOG/COPY_ONLY con COMPRESSION+CHECKSUM, VERIFYONLY, DBCC CHECKDB, planes con `verify_cron`, cadenas por LSN con PITR (`STOPAT`), cifrado nativo con custodia de certificados, runbook de `master`, detección automática de instancias | ✅ |
-| **PostgreSQL** | `pg_dump` custom comprimido con verificación `pg_restore --list`, restauración con `createdb`/`--clean`, inventario y detección automática de instancias | ✅ |
-| **Acceso por pantalla** | Consola remota en el navegador (tiles JPEG estilo MeshCentral, helper nativo en Windows) | ✅ |
-| **Agentes** | Enrolamiento con token de un solo uso, inventario (discos, TPM, BitLocker/LUKS), auto-actualización verificada | ✅ |
-| **Programación** | Planes con cron, ventanas de horario, retención GFS, grupos con jerarquía | ✅ |
-| **Seguridad** | mTLS obligatorio de agentes, RBAC + sesiones + TOTP, auditoría encadenada, secretos cifrados AES-256-GCM | ✅ |
-| **Alertas** | Deduplicación, webhook firmado, email con reintentos | ✅ |
-| **Actualizaciones** | Canal de releases firmado (Ed25519): el servidor **notifica** y tú decides | ✅ |
-| **Persistencia** | PostgreSQL opcional con migraciones y auditoría duradera | ✅ |
-| Backup de imagen / VSS / P2V / ISO | Fase 2 del roadmap | 🚧 |
-| PITR físico de PostgreSQL (`pg_basebackup` + WAL) | Fase 2 del roadmap | 🚧 |
-| Réplica 3-2-1 a S3 con Object Lock | Fase 3 | 🚧 |
+| **Server** | Single binary with REST API, embedded web panel, mTLS and JSON logs | ✅ |
+| **File backup** | Real Kopia: incremental, content-defined dedup, zstd compression, client-side encryption | ✅ |
+| **Restore points** | Level 1–2 recoverability verification, file browser and restore | ✅ |
+| **SQL Server** | Native FULL/DIFF/LOG/COPY_ONLY backups with COMPRESSION+CHECKSUM, VERIFYONLY, DBCC CHECKDB, plans with `verify_cron`, LSN-based chains with PITR (`STOPAT`), native encryption with certificate custody, `master` runbook, automatic instance discovery | ✅ |
+| **PostgreSQL** | Compressed custom `pg_dump` with `pg_restore --list` verification, restore with `createdb`/`--clean`, inventory and automatic instance discovery | ✅ |
+| **Screen access** | Remote console in the browser (JPEG tiles à la MeshCentral, native helper on Windows) | ✅ |
+| **Agents** | Single-use token enrollment, inventory (disks, TPM, BitLocker/LUKS), verified self-update | ✅ |
+| **Scheduling** | Cron plans, schedule windows, GFS retention, groups with hierarchy | ✅ |
+| **Security** | Mandatory agent mTLS, RBAC + sessions + TOTP, hash-chained audit log, AES-256-GCM encrypted secrets | ✅ |
+| **Alerts** | Deduplication, signed webhook, email with retries | ✅ |
+| **Updates** | Signed release channel (Ed25519): the server **notifies** and you decide | ✅ |
+| **Persistence** | Optional PostgreSQL with migrations and durable audit | ✅ |
+| Image backup / VSS / P2V / ISO | Phase 2 of the roadmap | 🚧 |
+| PostgreSQL physical PITR (`pg_basebackup` + WAL) | Phase 2 of the roadmap | 🚧 |
+| 3-2-1 replication to S3 with Object Lock | Phase 3 | 🚧 |
 
-## 🚀 Inicio rápido
+## 🚀 Quick start
 
-### 1 · Instala el servidor (Linux / macOS)
+### 1 · Install the server (Linux / macOS)
 
 ```bash
 curl -fsSL https://github.com/juansoler/bdr/releases/latest/download/install-linux.sh -o install.sh
-less install.sh          # revisa siempre antes de ejecutar
+less install.sh          # always review before running
 sudo bash install.sh
 ```
 
 <details>
-<summary><strong>🪟 Windows (PowerShell como administrador)</strong></summary>
+<summary><strong>🪟 Windows (PowerShell as administrator)</strong></summary>
 
 ```powershell
 irm https://github.com/juansoler/bdr/releases/latest/download/install-windows.ps1 -OutFile install-windows.ps1
@@ -102,161 +103,163 @@ notepad install-windows.ps1
 ```bash
 git clone https://github.com/juansoler/bdr.git && cd bdr/deploy
 cp .env.example .env && chmod 600 .env
-# Genera los secretos (una sola vez) y pégalos en las claves vacías de .env
+# Generate the secrets (once) and paste them into the empty keys in .env
 for v in BDR_ADMIN_TOKEN BDR_SECRET_KEY; do echo "$v=$(openssl rand -base64 32)"; done
 for v in BDR_KOPIA_PASSWORD BDR_KOPIA_CONTROL_PASSWORD BDR_DB_PASSWORD; do echo "$v=$(openssl rand -hex 32)"; done
-${EDITOR:-vi} .env    # pega los secretos y pon tu dominio (BDR_DOMAIN, BDR_PUBLIC_HOST)
-docker compose -f docker-compose.prod.yml config -q    # valida las variables sin arrancar nada
-docker compose -f docker-compose.prod.yml run --rm kopia-init   # una vez
+${EDITOR:-vi} .env    # paste the secrets and set your domain (BDR_DOMAIN, BDR_PUBLIC_HOST)
+docker compose -f docker-compose.prod.yml config -q    # validates the variables without starting anything
+docker compose -f docker-compose.prod.yml run --rm kopia-init   # once
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Cada variable está explicada en `deploy/.env.example`; el runbook completo, en [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md).
+Each variable is explained in `deploy/.env.example`; the full runbook is in
+[`deploy/PRODUCTION.md`](deploy/PRODUCTION.md).
 
 </details>
 
 <details>
-<summary>⚠️ ¿El <code>curl</code> devuelve 404?</summary>
+<summary>⚠️ Is <code>curl</code> returning 404?</summary>
 
-Si el repositorio es **privado**, los assets de releases no se pueden descargar
-sin autenticación. Opciones:
+If the repository is **private**, release assets cannot be downloaded without
+authentication. Options:
 
 ```bash
-# Con gh CLI (más cómodo):
+# With gh CLI (most convenient):
 gh release download v0.8.1 -R juansoler/bdr -p install-linux.sh
 sudo bash install.sh
 
-# O con un token en el header:
+# Or with a token in the header:
 curl -H "Authorization: Bearer $GITHUB_TOKEN" \
   -fsSL https://github.com/juansoler/bdr/releases/latest/download/install-linux.sh -o install.sh
 ```
 
 </details>
 
-### 2 · Entra en el panel
+### 2 · Log into the panel
 
-El instalador genera los secretos y arranca el servicio. Conéctate a
-`http://<servidor>:8080` e introduce el token de
+The installer generates the secrets and starts the service. Connect to
+`http://<server>:8080` and enter the token from
 `/etc/bdr/bdr.env` (`BDR_ADMIN_TOKEN`):
 
 ```bash
 sudo grep BDR_ADMIN_TOKEN /etc/bdr/bdr.env
 ```
 
-> **Producción:** pon TLS delante (el stack de Compose incluye Caddy con
-> Let's Encrypt) y sigue el checklist de
-> [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md#8-checklist-de-seguridad-antes-de-producción).
+> **Production:** put TLS in front (the Compose stack includes Caddy with
+> Let's Encrypt) and follow the checklist in
+> [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md).
 
-### 3 · Instala tu primer agente
+### 3 · Install your first agent
 
-En el panel: **Equipos → Añadir equipo** → genera el instalador para la
-plataforma y copia el one-liner (el token de enrolamiento viaja embebido y es
-de un solo uso):
+In the panel: **Computers → Add computer** → generate the installer for the
+platform and copy the one-liner (the enrollment token travels embedded and is
+single-use):
 
 ```bash
-# Linux — en el equipo protegido
-# Linux — dos pasos: descarga a fichero y ejecuta (evita el clásico
-# "Bad file descriptor" de sudo+fd y funciona con o sin sudo)
+# Linux — on the protected machine
+# Two steps: download to a file and run (avoids the classic sudo+fd
+# "Bad file descriptor" and works with or without sudo)
 curl -fsSL "https://bdr.example/api/v1/download/installer/linux-amd64/<TOKEN>" -o /tmp/bdr-install.sh && sudo bash /tmp/bdr-install.sh
 ```
 
 ```powershell
-# Windows — PowerShell como administrador
+# Windows — PowerShell as administrator
 irm "https://bdr.example/api/v1/download/installer/windows-amd64/<TOKEN>.ps1" | iex
 ```
 
-El agente se enrola con mTLS, publica heartbeat e inventario, y aparece en el
-panel. Lanza un **backup ahora** y verifica que el restore point es
-recuperable.
+The agent enrolls over mTLS, publishes heartbeat and inventory, and appears in
+the panel. Launch a **backup now** and verify that the restore point is
+recoverable.
 
-> Los instaladores son de un solo uso y **no re-ejecutables**: si el equipo ya
-> tiene un agente enrolado, el instalador **pregunta** si quieres olvidar el
-> servidor anterior y enrolar el equipo en este (al confirmar, borra la config
-> y la identidad mTLS antiguas); sin terminal interactiva aborta para no crear
-> un equipo duplicado (se fuerza con `BDR_FORCE_REENROLL=1` si de verdad
-> quieres uno nuevo). Para recuperar un agente existente desconectado sin
-> borrar nada usa **Reconectar** en su ficha: genera un token que lo reenlaza
-> conservando su identidad, grupos, planes e historial.
+> Installers are single-use and **not re-runnable**: if the machine already
+> has an enrolled agent, the installer **asks** whether you want to forget the
+> previous server and enroll the machine with this one (if confirmed, it
+> deletes the old config and mTLS identity); without an interactive terminal
+> it aborts to avoid creating a duplicate computer (force it with
+> `BDR_FORCE_REENROLL=1` if you really want a new one). To recover an
+> existing disconnected agent without deleting anything use **Reconnect** on
+> its card: it generates a token that re-links it while keeping its identity,
+> groups, plans and history.
 
-### 4 · Actualiza cuando quieras
+### 4 · Update whenever you want
 
-El servidor consulta el canal de releases firmado (Ed25519, clave pública
-embebida en el binario) y te **notifica** en el panel: nada se instala sin
-tu confirmación. Los agentes se actualizan solos cuando están ociosos,
-verificando el SHA-256 del binario.
+The server queries the signed release channel (Ed25519, public key embedded
+in the binary) and **notifies** you in the panel: nothing is installed without
+your confirmation. Agents update themselves when idle, verifying the binary's
+SHA-256.
 
-### 5 · Desinstala cuando quieras
+### 5 · Uninstall whenever you want
 
-El procedimiento por sistema operativo (agente y servidor, con scripts y
-comandos manuales equivalentes) está en
-[`deploy/uninstall/README.md`](deploy/uninstall/README.md). Por defecto los
-desinstaladores solo detienen el servicio y eliminan los binarios: el estado,
-los secretos y el repositorio Kopia **se conservan**; con `--purge` /
-`-Purge` se borra todo (con confirmación, y las copias externas NAS/S3
-quedan siempre fuera).
+The per-OS procedure (agent and server, with scripts and equivalent manual
+commands) is in
+[`deploy/uninstall/README.md`](deploy/uninstall/README.md). By default the
+uninstallers only stop the service and remove the binaries: state, secrets
+and the Kopia repository are **preserved**; with `--purge` / `-Purge`
+everything is deleted (with confirmation, and external NAS/S3 backups always
+stay out of reach).
 
 ```bash
-# Linux / macOS — en el equipo protegido
+# Linux / macOS — on the protected machine
 curl -fsSL https://github.com/juansoler/bdr/releases/latest/download/uninstall-agent.sh -o /tmp/uninstall-agent.sh
 sudo bash /tmp/uninstall-agent.sh
 ```
 
-## 🗄️ Bases de datos: SQL Server y PostgreSQL
+## 🗄️ Databases: SQL Server and PostgreSQL
 
-El motor corre **dentro del agente instalado en el host de la base de datos**
-y los jobs se orquestan desde el plano de control: backup nativo →
-transferencia al destino (S3/SMB/local, con Object Lock GOVERNANCE
-opcional) → catálogo con metadatos para la restauración. Al elegir el
-agente en el panel, **las instancias se detectan automáticamente** y el
-selector de bases se rellena solo.
+The engine runs **inside the agent installed on the database host** and jobs
+are orchestrated from the control plane: native backup → transfer to the
+destination (S3/SMB/local, with optional GOVERNANCE Object Lock) → catalog
+with metadata for restore. When you pick the agent in the panel, **instances
+are discovered automatically** and the database selector fills itself in.
 
 ### SQL Server (panel → SQL Server)
 
-Requisitos en el host (Windows):
+Requirements on the host (Windows):
 
-1. **Agente BDR** instalado (corre como LocalSystem → SSPI como
+1. **BDR agent** installed (runs as LocalSystem → SSPI as
    `NT AUTHORITY\SYSTEM`).
-2. **Login y permisos** en SQL Server — el conjunto mínimo validado:
+2. **Login and permissions** in SQL Server — the minimum validated set:
 
    ```sql
-   CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS;  -- si no existe ya
+   CREATE LOGIN [NT AUTHORITY\SYSTEM] FROM WINDOWS;  -- if not already present
    ALTER SERVER ROLE dbcreator     ADD MEMBER [NT AUTHORITY\SYSTEM]; -- VERIFYONLY/RESTORE
-   -- por base: db_backupoperator (o sysadmin en laboratorio)
+   -- per database: db_backupoperator (or sysadmin in the lab)
    ```
 
-3. **Staging**: automático — el agente consulta el `BackupDirectory` de la
-   instancia (`xp_instance_regread`). Sobreescribe con la variable de
-   entorno del servicio:
+3. **Staging**: automatic — the agent queries the instance's `BackupDirectory`
+   (`xp_instance_regread`). Override it with the service's environment
+   variable:
 
    ```powershell
    reg add "HKLM\SYSTEM\CurrentControlSet\Services\bdr-agent" /v Environment /t REG_MULTI_SZ /d "BDR_SQL_STAGING=C:\bdr-sql-staging" /f
    ```
 
-   (la carpeta debe ser escribible por la cuenta del servicio de SQL:
+   (the folder must be writable by the SQL service account:
    `icacls C:\bdr-sql-staging /grant "NT Service\MSSQLSERVER:(OI)(CI)M" /t`)
 
-Flujo en el panel: elige agente → **autodetección de instancias** →
-elige base del selector → **Backup** (FULL/DIFF/LOG/COPY_ONLY, destino,
-retención, VERIFYONLY) → planes programados con cron y `verify_cron` →
-**CheckDB** (DBCC con alerta si hay corrupción) → **Restaurar** con
-cadena calculada FULL→DIFF→LOG por continuidad de LSN, PITR con punto en
-el tiempo y destino en otra instancia (WITH REPLACE / MOVE).
+Panel flow: pick agent → **automatic instance discovery** → pick database
+from the selector → **Backup** (FULL/DIFF/LOG/COPY_ONLY, destination,
+retention, VERIFYONLY) → scheduled plans with cron and `verify_cron` →
+**CheckDB** (DBCC with alert on corruption) → **Restore** with the calculated
+FULL→DIFF→LOG chain for LSN continuity, PITR with a point in time and
+destination on another instance (WITH REPLACE / MOVE).
 
-Extras: **cifrado nativo** (`WITH ENCRYPTION` por certificado custodiado —
-la custodia `.cer/.pvk` se sella en el control y alerta si falta),
-**runbook de master** con `bdr-sql runbook-master` (la restauración de
-`master` exige single-user manual y el motor la rechaza a propósito), y
-**CLI de laboratorio** `bdr-sql` (discover/inventory/backup/chain/restore/
-health) publicado como asset de cada release.
+Extras: **native encryption** (`WITH ENCRYPTION` with a certificate under
+custody — the `.cer/.pvk` custody is sealed in the control plane and alerts
+if missing), the **master runbook** with `bdr-sql runbook-master` (restoring
+`master` requires manual single-user mode and the engine refuses it on
+purpose), and the **lab CLI** `bdr-sql`
+(discover/inventory/backup/chain/restore/health) published as a release
+asset.
 
 ### PostgreSQL (panel → PostgreSQL)
 
-Requisitos en el host:
+Requirements on the host:
 
-1. **Agente BDR** + **cliente PostgreSQL** en el PATH del servicio
-   (`pg_dump`, `pg_restore`, `createdb` — paquete `postgresql-client`).
-2. **Credenciales de conexión** — nunca viajan por la API; el agente usa
-   su entorno (o `.pgpass`):
+1. **BDR agent** + **PostgreSQL client** on the service's PATH
+   (`pg_dump`, `pg_restore`, `createdb` — the `postgresql-client` package).
+2. **Connection credentials** — they never travel through the API; the agent
+   uses its environment (or `.pgpass`):
 
    ```bash
    # Linux (systemd):
@@ -270,116 +273,117 @@ Requisitos en el host:
    Restart-Service bdr-agent
    ```
 
-   Y un rol con permisos de lectura (p. ej. `GRANT pg_read_all_data TO
-   bdr_backup;` — superusuario solo en laboratorio).
+   And a role with read permissions (e.g. `GRANT pg_read_all_data TO
+   bdr_backup;` — superuser only in the lab).
 
-Flujo en el panel: elige agente → **autodetección** del puerto (servicios
-`postgresql-*` en Windows, `pg_lsclusters`/`systemctl` en Linux) →
-Inventario → Dump (`--format=custom`, comprimido, verificado con
-`pg_restore --list` tras cada dump) → Restaurar con `createdb` (motor
-limpio) o `--clean --if-exists` (reemplazo), destino en otra máquina
-incluido.
+Panel flow: pick agent → **automatic discovery** of the port
+(`postgresql-*` services on Windows, `pg_lsclusters`/`systemctl` on Linux) →
+Inventory → Dump (`--format=custom`, compressed, verified with
+`pg_restore --list` after every dump) → Restore with `createdb` (clean
+engine) or `--clean --if-exists` (replacement), including a destination on
+another machine.
 
-### Variables de entorno del agente (motores de bases de datos)
+### Agent environment variables (database engines)
 
-| Variable | Motor | Uso |
+| Variable | Engine | Purpose |
 |---|---|---|
-| `BDR_SQL_STAGING` | SQL Server | Carpeta staging donde SQL Server escribe los `.bak` (default: `BackupDirectory` de la instancia) |
-| `BDR_PG_PASSWORD` | PostgreSQL | Contraseña para pg_dump/pg_restore/inventario |
-| `BDR_PG_STAGING` | PostgreSQL | Carpeta de dumps (default: temp del agente) |
+| `BDR_SQL_STAGING` | SQL Server | Staging folder where SQL Server writes the `.bak` files (default: instance's `BackupDirectory`) |
+| `BDR_PG_PASSWORD` | PostgreSQL | Password for pg_dump/pg_restore/inventory |
+| `BDR_PG_STAGING` | PostgreSQL | Dump folder (default: agent temp) |
 
-### API de motores (resumen)
+### Engine API (summary)
 
-| Endpoint | Operación |
+| Endpoint | Operation |
 |---|---|
-| `POST /api/v1/admin/sql/{backup,restore,verify,checkdb,inventory,discover}` | Operaciones SQL Server (el restore exige `confirm: true`) |
-| `GET /api/v1/admin/sql/restore-points` · `POST /api/v1/admin/sql/restore-chain` | Catálogo SQL y cadena calculada por LSN |
-| `POST /api/v1/admin/sql/{plans}` + `PUT/DELETE …/plans/{id}` | Planes SQL programados (cron + `verify_cron`) |
-| `POST /api/v1/admin/sql/certbackup` | Custodia de certificados (cifrado nativo) |
-| `POST /api/v1/admin/pg/{dump,restore,verify,inventory,discover}` · `GET …/restore-points` | Operaciones PostgreSQL |
+| `POST /api/v1/admin/sql/{backup,restore,verify,checkdb,inventory,discover}` | SQL Server operations (restore requires `confirm: true`) |
+| `GET /api/v1/admin/sql/restore-points` · `POST /api/v1/admin/sql/restore-chain` | SQL catalog and LSN-calculated chain |
+| `POST /api/v1/admin/sql/{plans}` + `PUT/DELETE …/plans/{id}` | Scheduled SQL plans (cron + `verify_cron`) |
+| `POST /api/v1/admin/sql/certbackup` | Certificate custody (native encryption) |
+| `POST /api/v1/admin/pg/{dump,restore,verify,inventory,discover}` · `GET …/restore-points` | PostgreSQL operations |
 
-## 🧩 Arquitectura técnica
+## 🧩 Technical architecture
 
-| Componente | Elección |
+| Component | Choice |
 |---|---|
-| Servidor y agentes | Go (binario único, cross-platform) |
-| Panel | Next.js 15 (export estático embebido con `go:embed`) |
-| Base de datos | PostgreSQL (alternativa: `state.json` con cifrado en reposo) |
-| Motor de archivos | Kopia (Apache-2.0), fijado por versión |
-| SQL Server | T-SQL nativo vía `go-mssqldb` (SSPI), msdb para cadenas y LSNs |
-| PostgreSQL | `pg_dump`/`pg_restore`/`createdb` (cliente oficial, formato custom) |
-| VMs de Proxmox | Proxmox Backup Server orquestado por API |
-| Repositorio | Kopia Repository Server: los agentes nunca reciben la clave maestra |
-| Seguridad | mTLS, TOTP, PBKDF2, auditoría encadenada, canales firmados |
+| Server and agents | Go (single binary, cross-platform) |
+| Panel | Next.js 15 (static export embedded with `go:embed`) |
+| Database | PostgreSQL (alternative: `state.json` with encryption at rest) |
+| File engine | Kopia (Apache-2.0), version-pinned |
+| SQL Server | Native T-SQL via `go-mssqldb` (SSPI), msdb for chains and LSNs |
+| PostgreSQL | `pg_dump`/`pg_restore`/`createdb` (official client, custom format) |
+| Proxmox VMs | Proxmox Backup Server orchestrated via API |
+| Repository | Kopia Repository Server: agents never receive the master key |
+| Security | mTLS, TOTP, PBKDF2, hash-chained audit, signed channels |
 
-## 📚 Documentación
+## 📚 Documentation
 
-| Doc | Contenido |
+| Doc | Content |
 |---|---|
-| [`DEVELOPMENT.md`](DEVELOPMENT.md) | Guía de desarrollo completa, API implementada y límites |
-| [`docs/04-arquitectura.md`](docs/04-arquitectura.md) | Componentes, flujos y modos de fallo |
-| [`docs/13-seguridad.md`](docs/13-seguridad.md) | Modelo de amenazas y controles |
-| [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md) | Runbook de producción (PostgreSQL, mTLS, KRS, Caddy) |
-| [`docs/19-roadmap.md`](docs/19-roadmap.md) | Fases y puertas de salida |
-| [`docs/24-motor-sql-server.md`](docs/24-motor-sql-server.md) | Especificación del motor SQL Server (RF-40–46) |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Cómo contribuir (DCO, tests, estilo) |
-| [`SECURITY.md`](SECURITY.md) | Política de seguridad y cómo reportar vulnerabilidades |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md) | Full development guide, implemented API and limits |
+| [`docs/04-arquitectura.md`](docs/04-arquitectura.md) | Components, flows and failure modes |
+| [`docs/13-seguridad.md`](docs/13-seguridad.md) | Threat model and controls |
+| [`deploy/PRODUCTION.md`](deploy/PRODUCTION.md) | Production runbook (PostgreSQL, mTLS, KRS, Caddy) |
+| [`docs/19-roadmap.md`](docs/19-roadmap.md) | Phases and exit gates |
+| [`docs/24-motor-sql-server.md`](docs/24-motor-sql-server.md) | SQL Server engine specification (RF-40–46) |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute (DCO, tests, style) |
+| [`SECURITY.md`](SECURITY.md) | Security policy and how to report vulnerabilities |
 
-## 🧪 Desarrollo
+## 🧪 Development
 
 ```bash
 git clone https://github.com/juansoler/bdr.git && cd bdr
-make build       # exporta el panel y compila bin/bdr-control + bin/bdr-agent
-make test        # tests unitarios y de contrato
-make smoke       # servidor + agente reales en localhost
-make smoke-web   # panel embebido: /healthz, SPA, assets y API en el mismo origen
+make build       # exports the panel and builds bin/bdr-control + bin/bdr-agent
+make test        # unit and contract tests
+make smoke       # real server + agent on localhost
+make smoke-web   # embedded panel: /healthz, SPA, assets and API on the same origin
 ```
 
-Requisitos: Go ≥ 1.26, Node 22 (solo para compilar el panel), curl y Python
-para los smoke tests.
+Requirements: Go ≥ 1.26, Node 22 (only to build the panel), curl and Python
+for the smoke tests.
 
 ## 🗺️ Roadmap
 
-| Fase | Alcance | Estado |
+| Phase | Scope | Status |
 |---|---|---|
-| 1 | MVP de archivos: agentes, planes, Kopia, panel, alertas | ✅ completa |
-| 0.5 | PostgreSQL, mTLS estricto, Kopia Repository Server | ✅ completa |
-| 2 | Imagen completa, VSS/LVM/Btrfs, restauración P2V a Proxmox, ISO de rescate | 🚧 |
-| 2b | Motores de bases de datos: SQL Server (RF-40–46) y PostgreSQL | ✅ núcleo completo — lab y PITR-PG en curso |
-| 3 | Réplica 3-2-1 a S3 con Object Lock, verificación de arranque, HA | ⏳ |
-| 4 | CBT, instant restore, multitenancia | ⏳ |
+| 1 | Files MVP: agents, plans, Kopia, panel, alerts | ✅ complete |
+| 0.5 | PostgreSQL, strict mTLS, Kopia Repository Server | ✅ complete |
+| 2 | Full image, VSS/LVM/Btrfs, P2V restore to Proxmox, rescue ISO | 🚧 |
+| 2b | Database engines: SQL Server (RF-40–46) and PostgreSQL | ✅ core complete — lab and PG-PITR in progress |
+| 3 | 3-2-1 replication to S3 with Object Lock, boot verification, HA | ⏳ |
+| 4 | CBT, instant restore, multi-tenancy | ⏳ |
 
-## 🤝 Contribuir
+## 🤝 Contributing
 
-Las contribuciones son bienvenidas bajo la **Apache License 2.0**. Lee
-[`CONTRIBUTING.md`](CONTRIBUTING.md): DCO en cada commit, tests en verde y
-sin marcas de terceros ni datos reales en el código.
+Contributions are welcome under the **Apache License 2.0**. Read
+[`CONTRIBUTING.md`](CONTRIBUTING.md): DCO on every commit, green tests and no
+third-party trademarks or real data in the code.
 
-## 🔐 Seguridad
+## 🔐 Security
 
-Modelo de amenazas, controles y custodia de claves en
-[`docs/13-seguridad.md`](docs/13-seguridad.md). Reporta vulnerabilidades en
-privado siguiendo [`SECURITY.md`](SECURITY.md) — no abras un issue público.
+Threat model, controls and key custody in
+[`docs/13-seguridad.md`](docs/13-seguridad.md). Report vulnerabilities
+privately following [`SECURITY.md`](SECURITY.md) — do not open a public
+issue.
 
-## 📄 Licencias y atribución
+## 📄 Licenses and attribution
 
 - **BDR Self-Hosted**: [Apache License 2.0](LICENSE).
-- **Terceros**: avisos de copyright y licencia de Kopia, dependencias Go,
-  panel web y fuentes en
-  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) y [`NOTICE`](NOTICE).
-- **Kopia**: Apache-2.0 — se redistribuye como binario auxiliar.
-- **Next.js / React**: MIT — panel compilado a estáticos.
-- **Fuentes del panel**: Barlow Condensed, IBM Plex Sans y IBM Plex Mono —
-  SIL OFL 1.1 (ver [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) y
+- **Third parties**: copyright and license notices for Kopia, Go
+  dependencies, the web panel and fonts in
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`NOTICE`](NOTICE).
+- **Kopia**: Apache-2.0 — redistributed as a helper binary.
+- **Next.js / React**: MIT — panel compiled to static assets.
+- **Panel fonts**: Barlow Condensed, IBM Plex Sans and IBM Plex Mono —
+  SIL OFL 1.1 (see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and
   [`NOTICE`](NOTICE)).
-- **Proxmox VE / PBS**: AGPL-3.0 — se usan por API, no se redistribuye código.
+- **Proxmox VE / PBS**: AGPL-3.0 — used via API, no code redistributed.
 
-Los detalles completos están en [`NOTICE`](NOTICE).
+Full details in [`NOTICE`](NOTICE).
 
 ---
 
 <div align="center">
 
-Hecho con ❤️ y sin coste por carga de trabajo.
+Made with ❤️ and no per-workload cost.
 
 </div>
