@@ -1,0 +1,82 @@
+# Dependabot: propone las actualizaciones de dependencias como PR.
+#
+# Ojo: los avisos de seguridad escanean TODOS los go.mod del repo, no solo el
+# de la raíz. Un módulo viejo dentro de labs/ dispara los mismos avisos que
+# si estuviera en el binario (x/crypto 0.24 en un probe de laboratorio llegó
+# a sumar 38 avisos, 8 críticos). Por eso cada módulo con go.sum va aquí.
+version: 2
+updates:
+  # Binario del producto: servidor, agente y bdr-sql.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      scope: deps
+    groups:
+      gomod-patch-minor:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+
+  # Módulos de laboratorio (solo se compilan para Windows).
+  - package-ecosystem: gomod
+    directory: /labs/g10-sql-server/sql-probe
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      scope: deps
+    groups:
+      gomod-labs:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+
+  - package-ecosystem: gomod
+    directory: /labs/g01-vss/probe
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      scope: deps
+    groups:
+      gomod-labs:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+
+  # Panel web. `next` va fijado a versión exacta y con un override de postcss
+  # en package.json: una actualización major de Next debe revisarse a mano.
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      scope: deps
+    groups:
+      npm-patch-minor:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+
+  # Actions de los workflows de CI, Release y Pages.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      scope: ci
+    groups:
+      actions-minor:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]

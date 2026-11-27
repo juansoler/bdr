@@ -136,11 +136,11 @@ Texto completo: sección 7.2.
 | github.com/jcmturner/gofork | v1.7.6 | Copyright (c) 2009 The Go Authors |
 | github.com/klauspost/crc32 | v1.3.0 | Copyright (c) 2012 The Go Authors |
 | github.com/microsoft/go-mssqldb | v1.12.0 | Copyright (c) 2012 The Go Authors; Copyright (c) Microsoft Corporation |
-| golang.org/x/crypto | v0.57.0 | Copyright 2009 The Go Authors |
-| golang.org/x/net | v0.60.0 | Copyright 2009 The Go Authors |
-| golang.org/x/sync | v0.23.0 | Copyright 2009 The Go Authors |
-| golang.org/x/sys | v0.48.0 | Copyright 2009 The Go Authors |
-| golang.org/x/text | v0.42.0 | Copyright 2009 The Go Authors |
+| golang.org/x/crypto | v0.59.0 | Copyright 2009 The Go Authors |
+| golang.org/x/net | v0.63.0 | Copyright 2009 The Go Authors |
+| golang.org/x/sync | v0.25.0 | Copyright 2009 The Go Authors |
+| golang.org/x/sys | v0.50.0 | Copyright 2009 The Go Authors |
+| golang.org/x/text | v0.44.0 | Copyright 2009 The Go Authors |
 
 Además, `github.com/minio/md5-simd` (Apache-2.0) incluye porciones de código de
 Go bajo BSD-3-Clause: Copyright (c) 2009 The Go Authors.

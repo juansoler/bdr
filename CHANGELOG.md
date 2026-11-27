@@ -2,6 +2,39 @@
 
 Formato basado en Keep a Changelog; versionado semántico mientras el producto no llegue a 1.0.
 
+## [0.16.60] — 2026-11-27
+
+### Seguridad
+
+- **Corregidos los avisos de Dependabot (21: 8 críticos, 5 altos, 8
+  moderados)**. `govulncheck` ya daba 0 sobre el código del binario (ninguna
+  función vulnerable era alcanzable), pero Dependabot escanea todos los
+  `go.mod` del repo y avisa por módulo, no por símbolo:
+  - **`labs/g10-sql-server/sql-probe`**: tenía `golang.org/x/crypto` v0.24.0,
+    de donde salían los 8 avisos críticos (todos de `ssh`: bypass de
+    autorización con `PublicKeyCallback`, `knownhosts`, agente…). Sube a
+    v0.59.0 junto con `x/text` (v0.44.0) y `x/sys` (v0.50.0). Es un probe de
+    laboratorio que no se publica, pero es código del repo.
+  - **`labs/g01-vss/probe`**: `golang.org/x/sys` v0.34.0 → v0.50.0
+    (desbordamiento en `NewNTUnicodeString`).
+  - **Binario**: `golang.org/x/net` v0.60.0 → v0.63.0 (GO-2026-6860,
+    GO-2026-6866, en `html`) y `golang.org/x/crypto` v0.57.0 → v0.59.0
+    (GO-2026-5932, `openpgp` sin mantenimiento). Arrastra `x/sync` v0.25.0,
+    `x/sys` v0.50.0 y `x/text` v0.44.0; `THIRD_PARTY_NOTICES.md` actualizado.
+  - **Panel**: `next` 15.5.29 fija `postcss` 8.4.31, vulnerable a lectura
+    arbitraria de ficheros `.map` vía `sourceMappingURL` (GHSA-6g55-p6wh-862q,
+    GHSA-r28c-9q8g-f849, GHSA-fxqj-rqcc-2cmp, GHSA-qx2v-qp2m-jg93). Se
+    resuelve con un `overrides` de npm que fuerza `postcss` 8.5.34 dentro de
+    `next`, sin saltar a Next 16. El CSS exportado no cambia (misma huella
+    de contenido `51823b47ba6eb99b.css`). `npm audit`: 0.
+
+### Añadido
+
+- **`.github/dependabot.yml`**: Dependabot propone semanalmente las
+  actualizaciones como PR para `gomod` (raíz y los módulos de `labs/` con
+  `go.sum`), `npm` (`apps/web`) y las actions de los workflows. Hasta ahora
+  las dependencias se revisaban solo a mano.
+
 ## [0.16.59] — 2026-11-26
 
 ### Corregido
